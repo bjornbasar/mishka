@@ -1,0 +1,29 @@
+{% extends "layout.twig" %}
+
+{% block title %}Sign in — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Sign in</h1>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="/login" class="auth">
+        {{ csrf_field() }}
+        <label>
+            Email
+            <input type="email" name="email" required autofocus
+                   maxlength="320" value="{{ old.email|default('') }}">
+        </label>
+        <label>
+            Password
+            <input type="password" name="password" required>
+        </label>
+        <button type="submit">Sign in</button>
+    </form>
+
+    <p>New here? <a href="/register">Create an account</a>.</p>
+{% endblock %}
