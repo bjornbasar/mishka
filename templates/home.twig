@@ -1,0 +1,12 @@
+{% extends "layout.twig" %}
+
+{% block content %}
+    {% if is_logged_in %}
+        <h1>Welcome back, {{ session_email }}</h1>
+        <p>Household features (calendar, chores, lists, meal plan) are still on the way. For now you're signed in and the rest of mishka is being built around you.</p>
+    {% else %}
+        <h1>{{ brand.name }}</h1>
+        <p>{{ brand.tagline|capitalize }}. mishka is a quiet command-centre for the household — calendar, chores, lists, and the everyday coordination a family needs, in one place.</p>
+        <p><a href="/register">Create an account</a> · <a href="/login">Sign in</a></p>
+    {% endif %}
+{% endblock %}
