@@ -1,0 +1,46 @@
+{% extends "layout.twig" %}
+
+{% block title %}Set up your household — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Set up your household</h1>
+    <p>You'll need a household to use {{ brand.name }} — create one, or join an existing household with a code from someone who already has one.</p>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="/household/setup" class="auth">
+        {{ csrf_field() }}
+
+        <fieldset style="border:0; padding:0; margin:0; display:flex; flex-direction:column; gap:1rem;">
+            <legend style="padding:0;">What do you want to do?</legend>
+            <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+                <input type="radio" name="action" value="create"
+                       {% if (old.action|default('create')) == 'create' %}checked{% endif %}>
+                Create a new household
+            </label>
+            <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+                <input type="radio" name="action" value="join"
+                       {% if old.action|default('') == 'join' %}checked{% endif %}>
+                Join an existing household with a code
+            </label>
+        </fieldset>
+
+        <label>
+            Household name <small style="color:var(--muted)">(if creating)</small>
+            <input type="text" name="name" maxlength="120" value="{{ old.name|default('') }}">
+        </label>
+
+        <label>
+            Join code <small style="color:var(--muted)">(if joining; 8 characters)</small>
+            <input type="text" name="join_code" maxlength="8"
+                   style="text-transform:uppercase; letter-spacing:0.15em;"
+                   value="{{ old.join_code|default('') }}">
+        </label>
+
+        <button type="submit">Continue</button>
+    </form>
+{% endblock %}

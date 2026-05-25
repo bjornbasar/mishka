@@ -36,10 +36,14 @@ final class AuthControllerTest extends AppTestCase
             'password_confirm' => self::VALID_PASSWORD,
         ]);
 
+        // v0.2: post-register redirects to /household/setup (not /).
+        // New users have no household yet — onboarding has to complete before
+        // anything else is useful.
         self::assertSame(303, $response->status());
-        self::assertSame('/', $response->header('location'));
+        self::assertSame('/household/setup', $response->header('location'));
         self::assertSame('first@example.com', $_SESSION['username'] ?? null);
         self::assertGreaterThan(0, $_SESSION['user_id'] ?? 0);
+        self::assertArrayNotHasKey('active_household_id', $_SESSION);  // no household yet
         self::assertNotNull($this->userRepo->findIdByEmail('first@example.com'));
     }
 
@@ -264,5 +268,84 @@ final class AuthControllerTest extends AppTestCase
 
         self::assertSame(302, $response->status());
         self::assertSame('/', $response->header('location'));
+    }
+
+    // v0.2: active household restoration on login.
+
+    public function test_login_with_no_memberships_does_not_set_active_household(): void
+    {
+        $hash = $this->hasher->hash(self::VALID_PASSWORD);
+        $this->userRepo->create('lonely@example.com', $hash, 'L');
+
+        $this->request('POST', '/login', [
+            'email' => 'lonely@example.com',
+            'password' => self::VALID_PASSWORD,
+        ]);
+
+        self::assertArrayNotHasKey('active_household_id', $_SESSION);
+        self::assertArrayNotHasKey('active_household_role', $_SESSION);
+    }
+
+    public function test_login_restores_last_household_id_from_user_preferences(): void
+    {
+        // Arrange: user has TWO households; their last-selected was the SECOND.
+        $hash = $this->hasher->hash(self::VALID_PASSWORD);
+        $id = $this->userRepo->create('multi@example.com', $hash, 'M');
+
+        $hid1 = $this->householdRepo->createForOwner('First', $id);
+        $hid2 = $this->householdRepo->createForOwner('Second', $id);
+        $this->prefsRepo->setLastHouseholdId($id, $hid2);
+
+        // Act
+        $this->request('POST', '/login', [
+            'email' => 'multi@example.com',
+            'password' => self::VALID_PASSWORD,
+        ]);
+
+        // Assert: their preferred household is the active one
+        self::assertSame($hid2, $_SESSION['active_household_id']);
+        self::assertSame('owner', $_SESSION['active_household_role']);
+    }
+
+    public function test_login_falls_back_to_first_membership_when_no_preference(): void
+    {
+        $hash = $this->hasher->hash(self::VALID_PASSWORD);
+        $id = $this->userRepo->create('first@example.com', $hash, 'F');
+        $hid = $this->householdRepo->createForOwner('Only Den', $id);
+
+        $this->request('POST', '/login', [
+            'email' => 'first@example.com',
+            'password' => self::VALID_PASSWORD,
+        ]);
+
+        self::assertSame($hid, $_SESSION['active_household_id']);
+        self::assertSame('owner', $_SESSION['active_household_role']);
+    }
+
+    public function test_login_ignores_preference_when_user_no_longer_member(): void
+    {
+        // Edge case: user_preferences.last_household_id points at a household
+        // they've since been kicked from. Don't restore it — fall back to first
+        // current membership.
+        $hash = $this->hasher->hash(self::VALID_PASSWORD);
+        $id = $this->userRepo->create('kicked@example.com', $hash, 'K');
+
+        $kickedFromId = $this->householdRepo->createForOwner('Old', $id);
+        $stillInId = $this->householdRepo->createForOwner('Current', $id);
+        $this->prefsRepo->setLastHouseholdId($id, $kickedFromId);
+
+        // Remove them from the preferred household via direct DB
+        // (can't use removeMember; it blocks removing owners).
+        $this->db->run(
+            'DELETE FROM household_members WHERE household_id = :hid AND user_id = :uid',
+            ['hid' => $kickedFromId, 'uid' => $id],
+        );
+
+        $this->request('POST', '/login', [
+            'email' => 'kicked@example.com',
+            'password' => self::VALID_PASSWORD,
+        ]);
+
+        self::assertSame($stillInId, $_SESSION['active_household_id']);
     }
 }

@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Account\UserPreferenceRepository;
 use App\Auth\MishkaUserRepository;
+use App\Household\HouseholdRepository;
+use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Auth\PasswordHasher;
 use Karhu\Http\Request;
@@ -28,12 +31,17 @@ final class AuthController
         private readonly PasswordHasher $hasher,
         private readonly TwigAdapter $view,
         private readonly string $dummyHash,
+        private readonly HouseholdRepository $households,
+        private readonly UserPreferenceRepository $prefs,
+        private readonly NavContext $nav,
     ) {}
 
     #[Route('/register', methods: ['GET'], name: 'register')]
     public function showRegister(Request $request): Response
     {
         if ($this->isLoggedIn()) {
+            // Already logged in — defer to home (which itself decides between
+            // /household/setup vs the welcome view).
             return (new Response())->redirect('/');
         }
 
@@ -42,8 +50,7 @@ final class AuthController
             ->withBody($this->view->render('auth/register.twig', [
                 'errors' => [],
                 'old' => [],
-                'session_email' => null,
-            ]));
+            ] + $this->nav->forCurrentUser()));
     }
 
     #[Route('/register', methods: ['POST'])]
@@ -65,8 +72,7 @@ final class AuthController
                 ->withBody($this->view->render('auth/register.twig', [
                     'errors' => $errors,
                     'old' => ['email' => $email, 'display_name' => $displayName],
-                    'session_email' => null,
-                ]));
+                ] + $this->nav->forCurrentUser()));
         }
 
         // Default display name to the email's local part if blank.
@@ -80,7 +86,9 @@ final class AuthController
 
         $this->establishSession($id, strtolower($email), $roles);
 
-        return (new Response())->redirect('/', 303);
+        // New users always need to create or join a household before they can
+        // do anything else — v0.2 has no useful surface outside that scope.
+        return (new Response())->redirect('/household/setup', 303);
     }
 
     #[Route('/login', methods: ['GET'], name: 'login')]
@@ -95,8 +103,7 @@ final class AuthController
             ->withBody($this->view->render('auth/login.twig', [
                 'errors' => [],
                 'old' => [],
-                'session_email' => null,
-            ]));
+            ] + $this->nav->forCurrentUser()));
     }
 
     #[Route('/login', methods: ['POST'])]
@@ -126,6 +133,13 @@ final class AuthController
         $this->users->recordLogin($user['id']);
         $this->establishSession($user['id'], $user['username'], $user['roles']);
 
+        // v0.2: restore the user's last-active household from user_preferences.
+        // If their preferred household is no longer one of their memberships
+        // (kicked since last login, household deleted), fall back to their first
+        // membership. If they have none, leave active_household_id unset and let
+        // the HomeController redirect them to /household/setup.
+        $this->restoreActiveHousehold($user['id']);
+
         return (new Response())->redirect('/', 303);
     }
 
@@ -136,8 +150,37 @@ final class AuthController
             ->withBody($this->view->render('auth/login.twig', [
                 'errors' => ['Invalid email or password.'],
                 'old' => ['email' => $email],
-                'session_email' => null,
-            ]));
+            ] + $this->nav->forCurrentUser()));
+    }
+
+    /**
+     * Look up the user's memberships, pick the active one from their saved
+     * last_household_id preference (or fall back to their first membership),
+     * write the active_household_* session keys.
+     *
+     * Called AFTER establishSession() so it operates on the fresh session.
+     */
+    private function restoreActiveHousehold(int $userId): void
+    {
+        $memberships = $this->households->listForUser($userId);
+        if ($memberships === []) {
+            return;  // HomeController will redirect to /household/setup
+        }
+
+        $lastId = $this->prefs->getLastHouseholdId($userId);
+        $active = null;
+        if ($lastId !== null) {
+            foreach ($memberships as $m) {
+                if ($m['id'] === $lastId) {
+                    $active = $m;
+                    break;
+                }
+            }
+        }
+        $active ??= $memberships[0];
+
+        Session::set('active_household_id', $active['id']);
+        Session::set('active_household_role', $active['role']);
     }
 
     #[Route('/logout', methods: ['POST'], name: 'logout')]

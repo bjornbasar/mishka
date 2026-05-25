@@ -1,0 +1,73 @@
+{% extends "layout.twig" %}
+
+{% block title %}{{ active_household.name }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>{{ active_household.name }}</h1>
+
+    {% if invite_code %}
+        <section style="background:var(--card); border:1px solid var(--border); padding:1rem 1.25rem; border-radius:0.5rem; margin-bottom:1.5rem;">
+            <h2 style="margin-top:0;">Invite code</h2>
+            <p>Share this 8-character code with someone you want to add to the household. They'll enter it on the setup screen after they register.</p>
+            <p style="font-family:ui-monospace, monospace; font-size:1.5rem; letter-spacing:0.2em; background:var(--bg); padding:0.5rem 1rem; border:1px solid var(--border); border-radius:0.375rem; display:inline-block;">{{ invite_code }}</p>
+        </section>
+    {% endif %}
+
+    {% if can_manage %}
+        <section style="margin-bottom:1.5rem;">
+            <h2>Rename household</h2>
+            <form method="POST" action="/household/rename" class="auth" style="flex-direction:row; align-items:flex-end; gap:0.5rem;">
+                {{ csrf_field() }}
+                <label style="flex:1;">
+                    Name
+                    <input type="text" name="name" maxlength="120" value="{{ active_household.name }}" required>
+                </label>
+                <button type="submit">Rename</button>
+            </form>
+        </section>
+    {% endif %}
+
+    <section>
+        <h2>Members</h2>
+        <table style="width:100%; border-collapse:collapse; margin-top:0.5rem;">
+            <thead>
+                <tr style="text-align:left; border-bottom:1px solid var(--border);">
+                    <th style="padding:0.5rem 0.25rem;">Name</th>
+                    <th style="padding:0.5rem 0.25rem;">Role</th>
+                    <th style="padding:0.5rem 0.25rem;">Joined</th>
+                    {% if can_manage %}<th style="padding:0.5rem 0.25rem;"></th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for member in members %}
+                    <tr style="border-bottom:1px solid var(--border);">
+                        <td style="padding:0.5rem 0.25rem;">
+                            {{ member.display_name ?: member.email|split('@')|first }}
+                            <small style="color:var(--muted)">{{ member.email }}</small>
+                        </td>
+                        <td style="padding:0.5rem 0.25rem;">
+                            <span style="font-size:0.85em; padding:0.125rem 0.5rem; border-radius:0.25rem; background:{% if member.role == 'owner' %}var(--accent); color:#1a1109;{% else %}var(--card); color:var(--muted); border:1px solid var(--border);{% endif %}">
+                                {{ member.role|capitalize }}
+                            </span>
+                        </td>
+                        <td style="padding:0.5rem 0.25rem; color:var(--muted); font-size:0.9em;">{{ member.joined_at|slice(0, 10) }}</td>
+                        {% if can_manage %}
+                            <td style="padding:0.5rem 0.25rem; text-align:right;">
+                                {% if member.role != 'owner' %}
+                                    <form method="POST" action="/household/members/{{ member.user_id }}/remove" style="display:inline;">
+                                        {{ csrf_field() }}
+                                        <button type="submit" class="link"
+                                                onclick="return confirm('Remove {{ member.display_name ?: member.email|split('@')|first }} from {{ active_household.name }}?');"
+                                                style="background:transparent; border:0; color:var(--error); cursor:pointer; font:inherit; padding:0;">
+                                            Remove
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </td>
+                        {% endif %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+{% endblock %}

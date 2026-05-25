@@ -1,0 +1,65 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Controllers;
+
+use App\Tests\AppTestCase;
+
+final class HomeControllerTest extends AppTestCase
+{
+    public function test_anonymous_visitor_sees_pitch_and_ctas(): void
+    {
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Mishka Den', $response->body());
+        self::assertStringContainsString('/register', $response->body());
+        self::assertStringContainsString('/login', $response->body());
+    }
+
+    public function test_logged_in_without_active_household_is_redirected_to_setup(): void
+    {
+        // Pre-v0.2 user shape: logged in but never went through household setup.
+        $this->loginAs(1, 'a@example.com');  // synthetic; no DB row needed
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(302, $response->status());
+        self::assertSame('/household/setup', $response->header('location'));
+    }
+
+    public function test_logged_in_with_active_household_sees_household_name(): void
+    {
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Test Den', $response->body());
+        self::assertStringContainsString('Manage household', $response->body());
+    }
+
+    public function test_logged_in_with_stale_active_household_redirects_to_setup(): void
+    {
+        // Session says active_household_id=$hid; user was kicked before this request.
+        // NavContext's freshness check returns null active_household → HomeController
+        // redirects, self-healing the session.
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test', $userId);
+
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        // Kick them out from underneath the session.
+        $this->db->run('DELETE FROM household_members WHERE user_id = :uid', ['uid' => $userId]);
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(302, $response->status());
+        self::assertSame('/household/setup', $response->header('location'));
+    }
+}
