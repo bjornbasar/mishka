@@ -124,13 +124,20 @@ final class EventRepository
         \DateTimeImmutable $start,
         \DateTimeImmutable $end,
     ): array {
+        // Defensive filters:
+        //   - series_event_id IS NULL excludes override events (v0.3.1+)
+        //   - rrule IS NULL OR rrule = '' excludes recurring series (handled by
+        //     findRecurringForHousehold + RangeExpander instead — otherwise a
+        //     recurring series whose anchor date falls in the range would emit
+        //     here AND from the expander, double-rendering)
         $rows = $this->db->fetchAll(
-            'SELECT * FROM events
+            "SELECT * FROM events
              WHERE household_id = :hid
                AND series_event_id IS NULL
+               AND (rrule IS NULL OR rrule = '')
                AND starts_at_local <= :rangeEnd
                AND ends_at_local   >= :rangeStart
-             ORDER BY starts_at_local ASC',
+             ORDER BY starts_at_local ASC",
             [
                 'hid' => $householdId,
                 'rangeStart' => $start->format('Y-m-d H:i:s'),
@@ -138,6 +145,30 @@ final class EventRepository
             ],
         );
 
+        return array_map(fn(array $r): array => $this->normaliseRow($r), $rows);
+    }
+
+    /**
+     * Every recurring series for a household. RangeExpander uses this (separately
+     * from findInRangeForHousehold) because recurring series can have occurrences
+     * inside the range even if their `starts_at_local` is far outside it.
+     *
+     * @return list<array{id: int, household_id: int, created_by: int, title: string,
+     *                    description: string, location: string, starts_at_local: string,
+     *                    ends_at_local: string, timezone: string, all_day: bool,
+     *                    rrule: ?string, series_event_id: ?int,
+     *                    created_at: string, updated_at: string}>
+     */
+    public function findRecurringForHousehold(int $householdId): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT * FROM events
+             WHERE household_id = :hid
+               AND rrule IS NOT NULL
+               AND rrule <> \'\'
+             ORDER BY starts_at_local ASC',
+            ['hid' => $householdId],
+        );
         return array_map(fn(array $r): array => $this->normaliseRow($r), $rows);
     }
 
