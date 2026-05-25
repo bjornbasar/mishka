@@ -2,6 +2,7 @@
 -- v0.1: users + system_roles
 -- v0.2: households + household_members + user_preferences
 -- v0.3.0: events
+-- v0.3.1: event_exceptions
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -124,3 +125,39 @@ CREATE INDEX IF NOT EXISTS idx_events_household_starts
 
 CREATE INDEX IF NOT EXISTS idx_events_series_event_id
     ON events(series_event_id) WHERE series_event_id IS NOT NULL;
+
+-- ============================================================
+-- v0.3.1: event_exceptions — cancellations + overrides for recurring events
+-- ============================================================
+--
+-- Each row marks a single occurrence of a recurring series as either:
+--   - CANCELLED (override_event_id IS NULL) — the occurrence is removed
+--                                              from the series' expansion
+--   - OVERRIDDEN (override_event_id → events) — the occurrence is replaced
+--                                              by a standalone event with
+--                                              its own time/title/etc.
+--
+-- The override Event row has events.series_event_id pointing back at the
+-- series (the back-ref shipped in v0.3.0 schema). On series delete, ON
+-- DELETE CASCADE on events.series_event_id wipes the override events
+-- automatically; the exception rows then CASCADE via event_exceptions.event_id
+-- FK. Note: dropping just an event_exceptions row does NOT cascade the
+-- override Event — that's an application-layer concern (EventService::dropAllForEvent
+-- does the two-step DELETE explicitly).
+--
+-- UNIQUE (event_id, original_starts_at) makes cancel idempotent and prevents
+-- two overrides on the same occurrence.
+
+CREATE TABLE IF NOT EXISTS event_exceptions (
+    id                 SERIAL PRIMARY KEY,
+    event_id           INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    original_starts_at TIMESTAMP NOT NULL,
+    override_event_id  INTEGER NULL REFERENCES events(id) ON DELETE CASCADE,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_exceptions_one_per_occurrence
+    ON event_exceptions(event_id, original_starts_at);
+
+CREATE INDEX IF NOT EXISTS idx_event_exceptions_override_event_id
+    ON event_exceptions(override_event_id) WHERE override_event_id IS NOT NULL;
