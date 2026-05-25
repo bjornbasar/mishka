@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ brand.name }} — {{ brand.tagline }}{% endblock %}</title>
     <meta name="description" content="{{ brand.tagline }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Electrolize&family=Rationale&display=swap">
     <style>
         :root {
             color-scheme: light dark;
@@ -36,9 +39,15 @@
             flex-wrap: wrap;
         }
         header.top .brand {
+            font-family: 'Electrolize', ui-sans-serif, system-ui, sans-serif;
             font-weight: 700;
             font-size: 1.25rem;
             color: var(--fg);
+            letter-spacing: 0.05em;
+        }
+        h1, h2, h3, h4 {
+            font-family: 'Rationale', ui-sans-serif, system-ui, sans-serif;
+            letter-spacing: 0.01em;
         }
         header.top nav { display: flex; gap: 1rem; align-items: center; }
         header.top nav form { display: inline; }
