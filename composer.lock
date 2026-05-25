@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "0e46dbfc8347512f8b7135568a03b6d4",
+    "content-hash": "2cf8047e60537911b6223f1de74705f8",
     "packages": [
         {
             "name": "bjornbasar/karhu",
-            "version": "v0.1.0",
+            "version": "v0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bjornbasar/karhu.git",
-                "reference": "5a061294415a6ccf2e530bc652e375b54a6b5a43"
+                "reference": "4fe7bc85c4ca8689c9a9d16d6f742ecb11f963a3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bjornbasar/karhu/zipball/5a061294415a6ccf2e530bc652e375b54a6b5a43",
-                "reference": "5a061294415a6ccf2e530bc652e375b54a6b5a43",
+                "url": "https://api.github.com/repos/bjornbasar/karhu/zipball/4fe7bc85c4ca8689c9a9d16d6f742ecb11f963a3",
+                "reference": "4fe7bc85c4ca8689c9a9d16d6f742ecb11f963a3",
                 "shasum": ""
             },
             "require": {
@@ -47,9 +47,9 @@
             "description": "Minimal PHP microframework — attribute-routed, zero dependencies, PHP 8.3+",
             "support": {
                 "issues": "https://github.com/bjornbasar/karhu/issues",
-                "source": "https://github.com/bjornbasar/karhu/tree/v0.1.0"
+                "source": "https://github.com/bjornbasar/karhu/tree/v0.1.1"
             },
-            "time": "2026-04-14T06:09:04+00:00"
+            "time": "2026-05-25T01:28:17+00:00"
         },
         {
             "name": "bjornbasar/karhu-db",
@@ -2598,7 +2598,7 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": ">=8.3"
+        "php": ">=8.4"
     },
     "platform-dev": {},
     "plugin-api-version": "2.9.0"
