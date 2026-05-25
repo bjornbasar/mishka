@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.2.0** — user accounts + households (N:M membership, 8-char invite codes, owner-managed). Calendar is next (v0.3).
+**v0.3.0** — calendar lands: month grid + agenda + create/edit/delete one-off events. Recurrence + iCal feed are next (v0.3.1 → v0.3.2 release train).
 
 ## Quick start
 
@@ -32,24 +32,22 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.2
+## What works in v0.3.0
 
-- Open registration with email + display name + password
-- Login with email + password (timing-attack-safe verification)
-- Logout (clears session + cookie)
-- CSRF-protected forms with multi-tab-friendly token rotation (karhu v0.1.1 fix)
-- **Households (v0.2):**
-  - Create or join via 8-character invite code from a no-lookalike alphabet
-  - N:M membership — a user can belong to multiple households (divorced parents, foster carers, live-in nannies); switch between them via nav dropdown
-  - Owner-managed: rename, kick member, view invite code
-  - "Active household" persists across sessions via `user_preferences.last_household_id`
-  - Stale-session self-heal: if you've been kicked since login, your next request bounces you to `/household/setup`
+Carried forward from v0.1/v0.2: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed, switcher dropdown), stale-session self-heal.
+
+**New in v0.3.0:**
+- Household calendar at `/calendar` — month grid + agenda fallback
+- Create / edit / delete one-off events (title, datetime, location, description, all-day flag)
+- DST-safe time storage (local + IANA timezone)
+- Optimistic-concurrency on event edits — two-tab edits land cleanly on a "View current event" page instead of overwriting each other
 
 ## Roadmap
 
-- **v0.3 — Calendar.** Events with RRULE recurrence, iCal feed for phone-calendar sync, per-event assignments.
-- **v0.4 — Chores.** Per-household chore list with round-robin assignment, kid-friendly points, in-app overdue badges.
-- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset.
+- **v0.3.1** — RRULE recurrence + single-occurrence editing (cancel + override an individual occurrence of a recurring event)
+- **v0.3.2** — Per-user signed iCal feed for phone-calendar subscription
+- **v0.4** — Chores: per-household list, round-robin assignment, kid-friendly points, in-app overdue badges
+- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset
 
 ## Docs
 

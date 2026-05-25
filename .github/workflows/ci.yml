@@ -75,4 +75,4 @@ jobs:
           DB_DSN: 'pgsql:host=localhost;port=5432;dbname=mishka_test'
           DB_USER: postgres
           DB_PASS: postgres
-        run: vendor/bin/phpunit --filter HouseholdRepositoryPgSmoke
+        run: vendor/bin/phpunit --filter 'PgSmoke'
