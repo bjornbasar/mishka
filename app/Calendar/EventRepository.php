@@ -27,7 +27,7 @@ final class EventRepository
         'title', 'description', 'location',
         'starts_at_local', 'ends_at_local', 'timezone',
         'all_day',
-        // v0.3.1 adds: 'rrule'
+        'rrule',  // v0.3.1+
     ];
 
     public function __construct(private readonly Connection $db) {}
@@ -46,6 +46,7 @@ final class EventRepository
      *     ends_at_local: string,
      *     timezone: string,            // IANA name
      *     all_day?: bool,
+     *     rrule?: ?string,             // v0.3.1+; null/empty means no recurrence
      * } $data
      * @return int new event id
      */
@@ -61,13 +62,18 @@ final class EventRepository
         }
 
         try {
+            $rrule = isset($data['rrule']) ? (string) $data['rrule'] : null;
+            if ($rrule === '') {
+                $rrule = null;
+            }
+
             $id = (int) $this->db->fetchScalar(
                 'INSERT INTO events
                    (household_id, created_by, title, description, location,
-                    starts_at_local, ends_at_local, timezone, all_day)
+                    starts_at_local, ends_at_local, timezone, all_day, rrule)
                  VALUES
                    (:hid, :uid, :title, :description, :location,
-                    :start, :end, :tz, :all_day)
+                    :start, :end, :tz, :all_day, :rrule)
                  RETURNING id',
                 [
                     'hid' => (int) $data['household_id'],
@@ -79,6 +85,7 @@ final class EventRepository
                     'end' => $this->truncateSeconds((string) $data['ends_at_local']),
                     'tz' => (string) $data['timezone'],
                     'all_day' => !empty($data['all_day']) ? 1 : 0,
+                    'rrule' => $rrule,
                 ],
             );
 
@@ -206,6 +213,9 @@ final class EventRepository
             }
             if ($col === 'all_day') {
                 $value = !empty($value) ? 1 : 0;
+            }
+            if ($col === 'rrule' && ($value === '' || $value === false)) {
+                $value = null;  // empty string means "no recurrence" — normalise to NULL
             }
             $sets[] = "{$col} = :{$col}";
             $params[$col] = $value;

@@ -50,6 +50,45 @@
             All day
         </label>
 
+        <fieldset class="recurrence-fieldset" style="border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.375rem; margin:0;">
+            <legend style="padding:0 0.4rem;">Repeats</legend>
+            <label style="margin-top:0;">
+                <select name="recurrence_preset">
+                    <option value="none"    {% if recurrence.preset == 'none' %}selected{% endif %}>Does not repeat</option>
+                    <option value="daily"   {% if recurrence.preset == 'daily' %}selected{% endif %}>Daily</option>
+                    <option value="weekly"  {% if recurrence.preset == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if recurrence.preset == 'monthly' %}selected{% endif %}>Monthly</option>
+                    <option value="yearly"  {% if recurrence.preset == 'yearly' %}selected{% endif %}>Yearly</option>
+                    {% if recurrence.preset == 'custom' %}<option value="custom" selected>Custom (read-only)</option>{% endif %}
+                </select>
+            </label>
+
+            <label class="recurrence-weekly" style="display:none;">
+                Days of week
+                <span style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+                    {% for code, name in {'MO':'Mon','TU':'Tue','WE':'Wed','TH':'Thu','FR':'Fri','SA':'Sat','SU':'Sun'} %}
+                        <label style="flex-direction:row; align-items:center; gap:0.25rem; padding:0.25rem 0.5rem; border:1px solid var(--border); border-radius:0.25rem;">
+                            <input type="checkbox" name="recurrence_byday[]" value="{{ code }}"
+                                   {% if code in recurrence.byday %}checked{% endif %}>
+                            {{ name }}
+                        </label>
+                    {% endfor %}
+                </span>
+            </label>
+
+            <label class="recurrence-monthly" style="display:none;">
+                Day of month <small style="color:var(--muted);">(1–28)</small>
+                <input type="number" name="recurrence_monthly_day" min="1" max="28"
+                       value="{{ recurrence.monthly_day|default(1) }}">
+            </label>
+
+            <label class="recurrence-interval" style="display:none;">
+                Repeat every <small style="color:var(--muted);">(1 = every period)</small>
+                <input type="number" name="recurrence_interval" min="1" max="52"
+                       value="{{ recurrence.interval|default(1) }}">
+            </label>
+        </fieldset>
+
         <p style="color:var(--muted); font-size:0.9em;">
             Times are in <strong>{{ household.timezone }}</strong> (household timezone).
         </p>

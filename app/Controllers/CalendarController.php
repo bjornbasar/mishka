@@ -8,6 +8,8 @@ use App\Auth\HouseholdAuthorizer;
 use App\Calendar\ConcurrentUpdateException;
 use App\Calendar\EventRepository;
 use App\Calendar\MonthGridBuilder;
+use App\Calendar\RangeExpander;
+use App\Calendar\RruleTranslator;
 use App\Household\HouseholdRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
@@ -38,6 +40,8 @@ final class CalendarController
         private readonly MonthGridBuilder $grid,
         private readonly NavContext $nav,
         private readonly TwigAdapter $view,
+        private readonly RangeExpander $expander,
+        private readonly RruleTranslator $rrules,
     ) {}
 
     #[Route('/calendar', methods: ['GET'], name: 'calendar.month')]
@@ -60,8 +64,9 @@ final class CalendarController
         [$year, $month] = $this->parseYearMonth($request->query('ym'), $tz);
         [$rangeStart, $rangeEnd] = $this->monthRange($year, $month, $tz);
 
-        $rows = $this->events->findInRangeForHousehold($hid, $rangeStart, $rangeEnd);
-        $occurrences = $this->rowsAsOccurrences($rows, $tz);
+        // Expand recurring + one-off events through RangeExpander so the month
+        // grid shows every occurrence of a recurring series (not just the first).
+        $occurrences = $this->expander->expandForHousehold($hid, $rangeStart, $rangeEnd);
         $monthGrid = $this->grid->build($year, $month, $tz, $occurrences);
 
         return (new Response())
@@ -97,7 +102,9 @@ final class CalendarController
         [$year, $month] = $this->parseYearMonth($request->query('ym'), $tz);
         [$rangeStart, $rangeEnd] = $this->monthRange($year, $month, $tz);
 
-        $rows = $this->events->findInRangeForHousehold($hid, $rangeStart, $rangeEnd);
+        // Agenda also expands through RangeExpander so recurring series + their
+        // overrides + cancellations all surface correctly.
+        $occurrences = $this->expander->expandForHousehold($hid, $rangeStart, $rangeEnd);
 
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
@@ -105,7 +112,7 @@ final class CalendarController
                 'year' => $year,
                 'month' => $month,
                 'month_label' => $rangeStart->format('F Y'),
-                'events' => $rows,
+                'occurrences' => $occurrences,
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
     }
@@ -139,6 +146,7 @@ final class CalendarController
                     'ends_at_local' => $defaultEnd->format('Y-m-d\TH:i'),
                     'all_day' => false,
                 ],
+                'recurrence' => $this->rrules->toForm(null),
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
     }
@@ -166,16 +174,25 @@ final class CalendarController
                     'mode' => 'create',
                     'errors' => $errors,
                     'event' => $input,
+                    'recurrence' => $this->extractRecurrenceForm($input),
                     'household' => $household,
                 ] + $this->nav->forCurrentUser()));
         }
 
+        $startsAtSql = $this->datetimeLocalToSql((string) $input['starts_at_local']);
+        $tzString = (string) ($household['timezone'] ?? 'Pacific/Auckland');
+        $rrule = $this->rrules->fromForm(
+            $this->extractRecurrenceForm($input),
+            new \DateTimeImmutable($startsAtSql, new \DateTimeZone($tzString)),
+        );
+
         $eid = $this->events->create($input + [
             'household_id' => $hid,
             'created_by' => $userId,
-            'timezone' => $household['timezone'] ?? 'Pacific/Auckland',
-            'starts_at_local' => $this->datetimeLocalToSql((string) $input['starts_at_local']),
+            'timezone' => $tzString,
+            'starts_at_local' => $startsAtSql,
             'ends_at_local' => $this->datetimeLocalToSql((string) $input['ends_at_local']),
+            'rrule' => $rrule,
         ]);
 
         $ym = (new \DateTimeImmutable((string) $input['starts_at_local']))->format('Y-m');
@@ -208,6 +225,7 @@ final class CalendarController
                 'mode' => 'edit',
                 'errors' => [],
                 'event' => $this->eventForForm($event),
+                'recurrence' => $this->rrules->toForm($event['rrule']),
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
     }
@@ -242,13 +260,22 @@ final class CalendarController
                     'mode' => 'edit',
                     'errors' => $errors,
                     'event' => $input + ['id' => $eid, 'updated_at' => $event['updated_at']],
+                    'recurrence' => $this->extractRecurrenceForm($input),
                     'household' => $household,
                 ] + $this->nav->forCurrentUser()));
         }
 
+        $startsAtSql = $this->datetimeLocalToSql((string) $input['starts_at_local']);
+        $tzString = (string) ($household['timezone'] ?? 'Pacific/Auckland');
+        $rrule = $this->rrules->fromForm(
+            $this->extractRecurrenceForm($input),
+            new \DateTimeImmutable($startsAtSql, new \DateTimeZone($tzString)),
+        );
+
         $writable = $input + [
-            'starts_at_local' => $this->datetimeLocalToSql((string) $input['starts_at_local']),
+            'starts_at_local' => $startsAtSql,
             'ends_at_local' => $this->datetimeLocalToSql((string) $input['ends_at_local']),
+            'rrule' => $rrule,
         ];
 
         try {
@@ -326,26 +353,6 @@ final class CalendarController
         return [$first, $last];
     }
 
-    /**
-     * Turn DB rows into MonthGridBuilder occurrence records.
-     *
-     * @param list<array<string, mixed>> $rows
-     * @return list<array{event: array<string, mixed>, occurrence: \DateTimeImmutable, occurrence_end: \DateTimeImmutable}>
-     */
-    private function rowsAsOccurrences(array $rows, string $tz): array
-    {
-        $tzObj = new \DateTimeZone($tz);
-        $out = [];
-        foreach ($rows as $row) {
-            $out[] = [
-                'event' => $row,
-                'occurrence' => new \DateTimeImmutable((string) $row['starts_at_local'], $tzObj),
-                'occurrence_end' => new \DateTimeImmutable((string) $row['ends_at_local'], $tzObj),
-            ];
-        }
-        return $out;
-    }
-
     /** @return array<string, mixed> */
     private function readWhitelistedInput(Request $request): array
     {
@@ -371,7 +378,81 @@ final class CalendarController
         if (!is_bool($out['all_day'])) {
             $out['all_day'] = in_array($out['all_day'], [true, 1, '1', 'on', 'true'], true);
         }
+
+        // Recurrence-form sub-keys (v0.3.1+) — independent of the WRITABLE
+        // whitelist because they translate to `rrule` server-side rather than
+        // landing in events.* directly. The translator owns the mapping.
+        $out['recurrence'] = [
+            'preset' => $this->stringFromBody($bodyArr, $request, 'recurrence_preset', 'none'),
+            'interval' => (int) $this->stringFromBody($bodyArr, $request, 'recurrence_interval', '1'),
+            'byday' => $this->bydayFromBody($bodyArr, $request),
+            'monthly_day' => (int) $this->stringFromBody($bodyArr, $request, 'recurrence_monthly_day', '1'),
+        ];
+
         return $out;
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     */
+    private function stringFromBody(array $body, Request $request, string $key, string $default): string
+    {
+        $val = $body[$key] ?? null;
+        if (is_string($val)) {
+            return $val;
+        }
+        if (is_scalar($val)) {
+            return (string) $val;
+        }
+        $post = $request->post($key);
+        return $post !== '' ? $post : $default;
+    }
+
+    /**
+     * Parse the BYDAY checkbox payload, which arrives as `byday[]=MO&byday[]=TU`
+     * (array) from a browser, or as `['byday' => ['MO','TU']]` from JSON tests.
+     *
+     * @param array<string, mixed> $body
+     * @return list<string>
+     */
+    private function bydayFromBody(array $body, Request $request): array
+    {
+        $candidate = $body['recurrence_byday'] ?? $body['byday'] ?? null;
+        if (is_array($candidate)) {
+            return array_values(array_filter(
+                array_map(fn(mixed $v): string => is_string($v) ? $v : '', $candidate),
+                fn(string $v): bool => $v !== '',
+            ));
+        }
+        // Form-urlencoded fallback — karhu's Request::post() returns a single
+        // string per name. Browser checkboxes come in as `recurrence_byday[]=MO`;
+        // PHP's $_POST collapses these to an array, so the JSON path above
+        // covers the typical case. As a defensive fallback, accept a CSV.
+        $csv = $request->post('recurrence_byday');
+        if ($csv !== '') {
+            return array_values(array_filter(array_map('trim', explode(',', $csv)), fn(string $v): bool => $v !== ''));
+        }
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $input
+     * @return array{preset: string, interval: int, byday: list<string>, monthly_day: int}
+     */
+    private function extractRecurrenceForm(array $input): array
+    {
+        $r = $input['recurrence'] ?? [];
+        if (!is_array($r)) {
+            return ['preset' => 'none', 'interval' => 1, 'byday' => [], 'monthly_day' => 1];
+        }
+        return [
+            'preset' => isset($r['preset']) && is_string($r['preset']) ? $r['preset'] : 'none',
+            'interval' => isset($r['interval']) ? max(1, (int) $r['interval']) : 1,
+            'byday' => isset($r['byday']) && is_array($r['byday'])
+                ? array_values(array_filter($r['byday'], 'is_string'))
+                : [],
+            'monthly_day' => isset($r['monthly_day']) ? (int) $r['monthly_day'] : 1,
+        ];
     }
 
     private function readField(Request $request, string $key): string

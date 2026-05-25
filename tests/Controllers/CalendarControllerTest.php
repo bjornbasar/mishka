@@ -150,6 +150,62 @@ final class CalendarControllerTest extends AppTestCase
         self::assertSame('Updated title', $updated['title']);
     }
 
+    public function test_post_event_with_weekly_recurrence_sets_rrule(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+
+        $response = $this->request('POST', '/calendar/events', [
+            'title' => 'Soccer',
+            'starts_at_local' => '2026-07-07T18:00',  // a Tuesday
+            'ends_at_local' => '2026-07-07T19:00',
+            'recurrence_preset' => 'weekly',
+            'byday' => ['TU'],
+        ]);
+
+        self::assertSame(303, $response->status());
+
+        $rrule = $this->db->fetchScalar(
+            'SELECT rrule FROM events WHERE household_id = :hid AND title = :title',
+            ['hid' => $hid, 'title' => 'Soccer'],
+        );
+        self::assertSame('FREQ=WEEKLY;BYDAY=TU', $rrule);
+    }
+
+    public function test_post_event_with_no_recurrence_leaves_rrule_null(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'One-off',
+            'starts_at_local' => '2026-07-14T15:00',
+            'ends_at_local' => '2026-07-14T16:00',
+            'recurrence_preset' => 'none',
+        ]);
+
+        $rrule = $this->db->fetchScalar(
+            "SELECT rrule FROM events WHERE household_id = :hid AND title = 'One-off'",
+            ['hid' => $hid],
+        );
+        self::assertNull($rrule);
+    }
+
+    public function test_month_grid_renders_each_occurrence_of_recurring_event(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        // Start on the first Tuesday so all four Tuesdays of July 2026 are expanded.
+        $eid = $this->createEvent($hid, $uid, [
+            'title' => 'Weekly meeting',
+            'starts_at_local' => '2026-07-07 15:00:00',
+            'ends_at_local' => '2026-07-07 16:00:00',
+        ]);
+        $this->db->run("UPDATE events SET rrule = 'FREQ=WEEKLY;BYDAY=TU' WHERE id = :id", ['id' => $eid]);
+
+        $response = $this->request('GET', '/calendar?ym=2026-07');
+
+        // Tuesdays in July 2026: 7, 14, 21, 28 → "Weekly meeting" should appear 4×
+        self::assertSame(4, substr_count($response->body(), 'Weekly meeting'));
+    }
+
     public function test_delete_event(): void
     {
         [$uid, $hid] = $this->signInAsHouseholdOwner();

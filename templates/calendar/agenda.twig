@@ -11,17 +11,20 @@
         </div>
     </div>
 
-    {% if events|length == 0 %}
+    {% if occurrences|length == 0 %}
         <p style="color:var(--muted);">No events in {{ month_label }}.</p>
     {% else %}
         <ul class="agenda-list">
-            {% for event in events %}
+            {% for o in occurrences %}
                 <li class="agenda-item">
-                    <div class="agenda-date">{{ event.starts_at_local|date('D j M, H:i') }}</div>
+                    <div class="agenda-date">
+                        {{ o.occurrence.format('D j M, H:i') }}
+                        {% if o.is_override %}<span style="color:var(--muted); font-size:0.8em;">(moved)</span>{% endif %}
+                    </div>
                     <div class="agenda-content">
-                        <a href="/calendar/events/{{ event.id }}" class="agenda-title">{{ event.title }}</a>
-                        {% if event.location %}<div class="agenda-location">{{ event.location }}</div>{% endif %}
-                        {% if event.description %}<div class="agenda-description">{{ event.description }}</div>{% endif %}
+                        <a href="/calendar/events/{{ o.event.id }}" class="agenda-title">{{ o.event.title }}</a>
+                        {% if o.event.location %}<div class="agenda-location">{{ o.event.location }}</div>{% endif %}
+                        {% if o.event.description %}<div class="agenda-description">{{ o.event.description }}</div>{% endif %}
                     </div>
                 </li>
             {% endfor %}

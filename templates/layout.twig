@@ -134,6 +134,15 @@
             .calendar { display: none; }
             /* On narrow viewports the month view stays but the user clicks "Agenda" — no JS swap. */
         }
+
+        /* Recurrence form: show only the fields relevant to the selected preset.
+           Pure CSS :has() — keeps the form JS-free. */
+        .recurrence-fieldset:has(select [value="weekly"]:checked) .recurrence-weekly,
+        .recurrence-fieldset:has(select [value="weekly"]:checked) .recurrence-interval { display: flex; }
+        .recurrence-fieldset:has(select [value="monthly"]:checked) .recurrence-monthly,
+        .recurrence-fieldset:has(select [value="monthly"]:checked) .recurrence-interval { display: flex; }
+        .recurrence-fieldset:has(select [value="daily"]:checked) .recurrence-interval,
+        .recurrence-fieldset:has(select [value="yearly"]:checked) .recurrence-interval { display: flex; }
     </style>
 </head>
 <body>
