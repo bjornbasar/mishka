@@ -11,7 +11,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    name: Tests (PHP 8.3)
+    name: Tests (PHP 8.4, SQLite)
 
     steps:
       - uses: actions/checkout@v4
@@ -31,3 +31,48 @@ jobs:
 
       - name: Static analysis
         run: vendor/bin/phpstan analyse
+
+  pg-smoke:
+    runs-on: ubuntu-latest
+    name: PG smoke (PostgreSQL 16)
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mishka_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Apply schema
+        env:
+          DB_DSN: 'pgsql:host=localhost;port=5432;dbname=mishka_test'
+          DB_USER: postgres
+          DB_PASS: postgres
+        run: php vendor/bjornbasar/karhu/bin/karhu migrate
+
+      - name: Run PG smoke tests
+        env:
+          DB_DSN: 'pgsql:host=localhost;port=5432;dbname=mishka_test'
+          DB_USER: postgres
+          DB_PASS: postgres
+        run: vendor/bin/phpunit --filter HouseholdRepositoryPgSmoke
