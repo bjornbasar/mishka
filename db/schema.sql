@@ -1,6 +1,7 @@
 -- mishka schema — applied idempotently by `bin/karhu migrate`.
 -- v0.1: users + system_roles
 -- v0.2: households + household_members + user_preferences
+-- v0.3.0: events
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -82,3 +83,44 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     last_household_id INTEGER NULL REFERENCES households(id) ON DELETE SET NULL,
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================
+-- v0.3.0: events (household calendar — one-off events only at this layer)
+-- ============================================================
+--
+-- All times stored as local time + IANA timezone. UTC-as-TIMESTAMPTZ would drift
+-- under DST for recurring events ("9am every Tuesday in NZ" would land at 8am
+-- half the year), so we store the wall-clock value and the zone separately and
+-- let the recurrence engine expand in that zone.
+--
+-- `timezone` is copied from the household at create-time. In v0.3 the column ships
+-- but the event-create form has no input — every event in a household uses that
+-- household's timezone. v0.4+ unlocks per-event editing with the requisite per-tz
+-- range-query partitioning.
+--
+-- `rrule` and `series_event_id` ship in v0.3.0 (inert) so v0.3.1's
+-- recurrence + single-occurrence-override feature doesn't need an ALTER TABLE.
+-- The schema stays append-only, matching v0.1/v0.2 idempotent migration semantics.
+
+CREATE TABLE IF NOT EXISTS events (
+    id              SERIAL PRIMARY KEY,
+    household_id    INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    title           VARCHAR(200) NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    location        VARCHAR(200) NOT NULL DEFAULT '',
+    starts_at_local TIMESTAMP NOT NULL,
+    ends_at_local   TIMESTAMP NOT NULL,
+    timezone        VARCHAR(64) NOT NULL,
+    all_day         BOOLEAN NOT NULL DEFAULT FALSE,
+    rrule           TEXT NULL,                                  -- v0.3.1+
+    series_event_id INTEGER NULL REFERENCES events(id) ON DELETE CASCADE,  -- v0.3.1+; override back-ref
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_household_starts
+    ON events(household_id, starts_at_local);
+
+CREATE INDEX IF NOT EXISTS idx_events_series_event_id
+    ON events(series_event_id) WHERE series_event_id IS NOT NULL;
