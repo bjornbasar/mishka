@@ -94,7 +94,13 @@ final class EventRepository
         }
     }
 
-    /** @return array{id: int, ...}|null */
+    /**
+     * @return array{id: int, household_id: int, created_by: int, title: string,
+     *               description: string, location: string, starts_at_local: string,
+     *               ends_at_local: string, timezone: string, all_day: bool,
+     *               rrule: ?string, series_event_id: ?int,
+     *               created_at: string, updated_at: string}|null
+     */
     public function findById(int $eventId): ?array
     {
         $row = $this->db->fetchOne('SELECT * FROM events WHERE id = :id', ['id' => $eventId]);
@@ -107,7 +113,11 @@ final class EventRepository
      * Range bounds are in the household's timezone — v0.3 locks every event to that
      * tz, so string comparison is correct.
      *
-     * @return list<array{id: int, ...}>
+     * @return list<array{id: int, household_id: int, created_by: int, title: string,
+     *                    description: string, location: string, starts_at_local: string,
+     *                    ends_at_local: string, timezone: string, all_day: bool,
+     *                    rrule: ?string, series_event_id: ?int,
+     *                    created_at: string, updated_at: string}>
      */
     public function findInRangeForHousehold(
         int $householdId,

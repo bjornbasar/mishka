@@ -1,0 +1,16 @@
+{% extends "layout.twig" %}
+
+{% block title %}Event updated elsewhere — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Someone else updated this event</h1>
+    <p>
+        Your changes weren't saved because the event was updated in another tab or by another household
+        member since you opened the form. Please refresh and resubmit your changes.
+    </p>
+    <p>
+        <a href="/calendar/events/{{ event.id }}">View current event</a>
+        &middot;
+        <a href="/calendar">Back to calendar</a>
+    </p>
+{% endblock %}

@@ -7,7 +7,10 @@ namespace App\Tests;
 use App\Account\UserPreferenceRepository;
 use App\Auth\HouseholdAuthorizer;
 use App\Auth\MishkaUserRepository;
+use App\Calendar\EventRepository;
+use App\Calendar\MonthGridBuilder;
 use App\Controllers\AuthController;
+use App\Controllers\CalendarController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Household\HouseholdRepository;
@@ -41,6 +44,7 @@ abstract class AppTestCase extends TestCase
     protected MishkaUserRepository $userRepo;
     protected HouseholdRepository $householdRepo;
     protected UserPreferenceRepository $prefsRepo;
+    protected EventRepository $eventRepo;
     protected PasswordHasher $hasher;
 
     protected function setUp(): void
@@ -67,6 +71,8 @@ abstract class AppTestCase extends TestCase
         $this->userRepo = new MishkaUserRepository($this->db);
         $this->householdRepo = new HouseholdRepository($this->db);
         $this->prefsRepo = new UserPreferenceRepository($this->db);
+        $this->eventRepo = new EventRepository($this->db);
+        $monthGrid = new MonthGridBuilder();
         $this->hasher = new PasswordHasher();
         $rbac = new Rbac($this->userRepo);
         $authz = new HouseholdAuthorizer($this->householdRepo);
@@ -83,6 +89,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(UserPreferenceRepository::class, $this->prefsRepo);
         $app->container()->set(HouseholdAuthorizer::class, $authz);
         $app->container()->set(NavContext::class, $nav);
+        $app->container()->set(EventRepository::class, $this->eventRepo);
+        $app->container()->set(MonthGridBuilder::class, $monthGrid);
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
@@ -97,6 +105,7 @@ abstract class AppTestCase extends TestCase
             HomeController::class,
             AuthController::class,
             HouseholdController::class,
+            CalendarController::class,
         ]);
 
         return $app;

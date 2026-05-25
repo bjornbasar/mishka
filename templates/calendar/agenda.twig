@@ -1,0 +1,30 @@
+{% extends "layout.twig" %}
+
+{% block title %}Agenda for {{ month_label }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>{{ month_label }} — Agenda</h1>
+        <div class="calendar-nav">
+            <a href="/calendar?ym={{ year }}-{{ '%02d'|format(month) }}">← Month view</a>
+            <a href="/calendar/events/new" class="new-event-link">+ New event</a>
+        </div>
+    </div>
+
+    {% if events|length == 0 %}
+        <p style="color:var(--muted);">No events in {{ month_label }}.</p>
+    {% else %}
+        <ul class="agenda-list">
+            {% for event in events %}
+                <li class="agenda-item">
+                    <div class="agenda-date">{{ event.starts_at_local|date('D j M, H:i') }}</div>
+                    <div class="agenda-content">
+                        <a href="/calendar/events/{{ event.id }}" class="agenda-title">{{ event.title }}</a>
+                        {% if event.location %}<div class="agenda-location">{{ event.location }}</div>{% endif %}
+                        {% if event.description %}<div class="agenda-description">{{ event.description }}</div>{% endif %}
+                    </div>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

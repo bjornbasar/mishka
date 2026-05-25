@@ -10,4 +10,5 @@ return [
     App\Controllers\HomeController::class,
     App\Controllers\AuthController::class,
     App\Controllers\HouseholdController::class,
+    App\Controllers\CalendarController::class,
 ];

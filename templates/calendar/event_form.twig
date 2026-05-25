@@ -1,0 +1,75 @@
+{% extends "layout.twig" %}
+
+{% block title %}{{ mode == 'edit' ? 'Edit event' : 'New event' }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>{{ mode == 'edit' ? 'Edit event' : 'New event' }}</h1>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST"
+          action="{{ mode == 'edit' ? '/calendar/events/' ~ event.id : '/calendar/events' }}"
+          class="auth">
+        {{ csrf_field() }}
+
+        {% if mode == 'edit' %}
+            <input type="hidden" name="_expected_updated_at" value="{{ event.updated_at }}">
+        {% endif %}
+
+        <label>
+            Title
+            <input type="text" name="title" required maxlength="200" value="{{ event.title|default('') }}" autofocus>
+        </label>
+
+        <label>
+            Start
+            <input type="datetime-local" name="starts_at_local" required value="{{ event.starts_at_local|default('') }}">
+        </label>
+
+        <label>
+            End
+            <input type="datetime-local" name="ends_at_local" required value="{{ event.ends_at_local|default('') }}">
+        </label>
+
+        <label>
+            Location <small style="color:var(--muted)">(optional)</small>
+            <input type="text" name="location" maxlength="200" value="{{ event.location|default('') }}">
+        </label>
+
+        <label>
+            Description <small style="color:var(--muted)">(optional)</small>
+            <textarea name="description" rows="3">{{ event.description|default('') }}</textarea>
+        </label>
+
+        <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+            <input type="checkbox" name="all_day" value="1" {% if event.all_day|default(false) %}checked{% endif %}>
+            All day
+        </label>
+
+        <p style="color:var(--muted); font-size:0.9em;">
+            Times are in <strong>{{ household.timezone }}</strong> (household timezone).
+        </p>
+
+        <div style="display:flex; gap:0.5rem; justify-content:flex-start;">
+            <button type="submit">{{ mode == 'edit' ? 'Save changes' : 'Create event' }}</button>
+            {% if mode == 'edit' %}
+                <a href="/calendar/events/{{ event.id }}" style="align-self:center; color:var(--muted);">Cancel</a>
+            {% else %}
+                <a href="/calendar" style="align-self:center; color:var(--muted);">Cancel</a>
+            {% endif %}
+        </div>
+    </form>
+
+    {% if mode == 'edit' %}
+        <hr style="border-color:var(--border); margin:1.5rem 0 0.5rem;">
+        <form method="POST" action="/calendar/events/{{ event.id }}/delete" style="margin:0;"
+              onsubmit="return confirm('Delete this event?');">
+            {{ csrf_field() }}
+            <button type="submit" class="link" style="background:transparent; border:0; color:var(--error); cursor:pointer; padding:0; font:inherit;">Delete event</button>
+        </form>
+    {% endif %}
+{% endblock %}
