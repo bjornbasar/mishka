@@ -253,3 +253,57 @@ CREATE INDEX IF NOT EXISTS idx_chores_household_due
 -- to avoid a later index migration when the "my chores" view lands).
 CREATE INDEX IF NOT EXISTS idx_chores_assigned_to
     ON chores(assigned_to) WHERE assigned_to IS NOT NULL;
+
+-- ============================================================
+-- v0.4.1: chore_schedules — recurring-chore templates + round-robin
+-- ============================================================
+--
+-- A recurring chore is a TEMPLATE. Concrete occurrences are GENERATED as
+-- ordinary `chores` rows (schedule_id + occurrence_date set) by
+-- ChoreScheduleGenerator, lazily on page view, on a bounded rolling horizon.
+-- Generated instances are first-class chores: complete/reopen/points/overdue
+-- all work from v0.4.0.
+--
+-- rrule + anchor_at_local feed simshaun/recurr (expanded in `timezone`, wall-
+-- clock DST-safe like events). recurr ALWAYS iterates from the anchor, so the
+-- generator clamps the materialised window to [max(anchor, now-14d), now+14d]
+-- and records `generated_through` so re-views are cheap and an old anchor
+-- catches up over a few views instead of one giant batch.
+--
+-- Round-robin: `last_assigned_user_id` is a DURABLE id (NOT an index), so the
+-- next assignee is a pure function of (last_assigned_user_id, current members
+-- in join order). It survives member removal/join and the concurrent-generation
+-- race because it's advanced only inside the same txn as a successful insert.
+-- `assignment_mode='fixed'` pins every occurrence to `fixed_user_id` instead.
+--
+-- FK matrix mirrors chores: household_id CASCADE; created_by RESTRICT; the user
+-- pointers SET NULL (self-heal when an account is deleted). `chores.schedule_id`
+-- stays a bare INTEGER with NO DB FK (no-ALTER convention) — so deleting a
+-- schedule does NOT cascade; ChoreSchedulesController coordinates that.
+
+CREATE TABLE IF NOT EXISTS chore_schedules (
+    id                    SERIAL PRIMARY KEY,
+    household_id          INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    created_by            INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    title                 VARCHAR(200) NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    points                INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    rrule                 TEXT NOT NULL,              -- a schedule recurs by definition
+    anchor_at_local       TIMESTAMP NOT NULL,         -- DTSTART; carries the time-of-day, wall-clock
+    timezone              VARCHAR(64) NOT NULL,       -- IANA, copied from household at create-time
+    assignment_mode       VARCHAR(16) NOT NULL DEFAULT 'rotate'
+                            CHECK (assignment_mode IN ('rotate', 'fixed')),
+    fixed_user_id         INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    last_assigned_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    generated_through     TIMESTAMP NULL,             -- watermark: latest occurrence considered; NULL = never generated
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chore_schedules_household
+    ON chore_schedules(household_id);
+
+-- Generation idempotency guard. Partial so v0.4.0 one-off chores
+-- (schedule_id NULL) never enter it.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chores_schedule_occurrence
+    ON chores(schedule_id, occurrence_date) WHERE schedule_id IS NOT NULL;
