@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ brand.name }} — {{ brand.tagline }}{% endblock %}</title>
     <meta name="description" content="{{ brand.tagline }}">
+    {% block head_extra %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Electrolize&family=Rationale&display=swap">

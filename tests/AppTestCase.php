@@ -10,6 +10,8 @@ use App\Auth\MishkaUserRepository;
 use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
 use App\Calendar\EventService;
+use App\Calendar\IcalFeedBuilder;
+use App\Calendar\IcalFeedTokenRepository;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
@@ -17,6 +19,7 @@ use App\Controllers\AuthController;
 use App\Controllers\CalendarController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
+use App\Controllers\IcalFeedController;
 use App\Household\HouseholdRepository;
 use App\View\CsrfTwigExtension;
 use App\View\NavContext;
@@ -49,6 +52,7 @@ abstract class AppTestCase extends TestCase
     protected HouseholdRepository $householdRepo;
     protected UserPreferenceRepository $prefsRepo;
     protected EventRepository $eventRepo;
+    protected IcalFeedTokenRepository $tokenRepo;
     protected PasswordHasher $hasher;
 
     protected function setUp(): void
@@ -81,6 +85,8 @@ abstract class AppTestCase extends TestCase
         $rangeExpander = new RangeExpander($this->eventRepo, $exceptionRepo);
         $rruleTranslator = new RruleTranslator();
         $eventService = new EventService($this->eventRepo, $exceptionRepo);
+        $this->tokenRepo = new IcalFeedTokenRepository($this->db);
+        $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
         $rbac = new Rbac($this->userRepo);
         $authz = new HouseholdAuthorizer($this->householdRepo);
@@ -103,6 +109,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(RangeExpander::class, $rangeExpander);
         $app->container()->set(RruleTranslator::class, $rruleTranslator);
         $app->container()->set(EventService::class, $eventService);
+        $app->container()->set(IcalFeedTokenRepository::class, $this->tokenRepo);
+        $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
@@ -118,6 +126,7 @@ abstract class AppTestCase extends TestCase
             AuthController::class,
             HouseholdController::class,
             CalendarController::class,
+            IcalFeedController::class,
         ]);
 
         return $app;

@@ -11,4 +11,5 @@ return [
     App\Controllers\AuthController::class,
     App\Controllers\HouseholdController::class,
     App\Controllers\CalendarController::class,
+    App\Controllers\IcalFeedController::class,
 ];

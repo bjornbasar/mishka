@@ -1,0 +1,69 @@
+{% extends "layout.twig" %}
+
+{% block title %}Calendar feed — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Calendar feed</h1>
+    <p>
+        Subscribe to your household calendar from a phone or desktop calendar app. The feed includes events
+        from every household you're a member of, and stays in sync as you create, edit, or cancel events.
+    </p>
+
+    <section style="background:var(--card); border:1px solid var(--border); padding:1rem 1.25rem; border-radius:0.5rem; margin:1.5rem 0;">
+        <h2 style="margin-top:0;">Generate a new feed URL</h2>
+        <p>
+            Each device should use its own feed URL. We'll show the full link <strong>once</strong> — copy it
+            into your calendar app right away. You can have up to 3 active feed URLs at a time; generating a
+            4th will automatically revoke the oldest.
+        </p>
+        <form method="POST" action="/me/calendar/feed/generate">
+            {{ csrf_field() }}
+            <button type="submit">Generate feed URL</button>
+        </form>
+    </section>
+
+    <section>
+        <h2>Active feed URLs</h2>
+        {% if tokens is empty %}
+            <p style="color:var(--muted);">You don't have any active feed URLs yet.</p>
+        {% else %}
+            <table style="width:100%; border-collapse:collapse; margin-top:0.5rem;">
+                <thead>
+                    <tr style="text-align:left; border-bottom:1px solid var(--border);">
+                        <th style="padding:0.5rem 0.25rem;">Created</th>
+                        <th style="padding:0.5rem 0.25rem;">Last used</th>
+                        <th style="padding:0.5rem 0.25rem;"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for token in tokens %}
+                        <tr style="border-bottom:1px solid var(--border);">
+                            <td style="padding:0.5rem 0.25rem;">{{ token.created_at|slice(0, 16)|replace({'T': ' '}) }}</td>
+                            <td style="padding:0.5rem 0.25rem; color:var(--muted);">
+                                {% if token.last_used_at %}
+                                    {{ token.last_used_at|slice(0, 16)|replace({'T': ' '}) }}
+                                {% else %}
+                                    never
+                                {% endif %}
+                            </td>
+                            <td style="padding:0.5rem 0.25rem; text-align:right;">
+                                <form method="POST" action="/me/calendar/feed/tokens/{{ token.id }}/revoke" style="display:inline;">
+                                    {{ csrf_field() }}
+                                    <button type="submit"
+                                            onclick="return confirm('Revoke this feed URL? The calendar app using it will stop syncing.');"
+                                            style="background:transparent; border:0; color:var(--error); cursor:pointer; font:inherit; padding:0;">
+                                        Revoke
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <p style="color:var(--muted); font-size:0.9em; margin-top:0.75rem;">
+                The "Last used" timestamp updates each time a calendar app fetches the feed. If you see recent
+                activity from a device you don't recognise, revoke that URL.
+            </p>
+        {% endif %}
+    </section>
+{% endblock %}
