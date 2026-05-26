@@ -1,0 +1,89 @@
+{% extends "layout.twig" %}
+
+{% block title %}Edit occurrence — {{ series.title }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Edit this occurrence</h1>
+    <p style="color:var(--muted);">
+        You're editing a single occurrence of <strong>{{ series.title }}</strong>.
+        Other occurrences of the series stay unchanged.
+        <a href="/calendar/events/{{ series.id }}">View the series instead</a>
+    </p>
+
+    {% if is_cancelled %}
+        <div class="flash">
+            This occurrence is currently cancelled. Saving below will replace the cancellation with an override.
+        </div>
+    {% endif %}
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="/calendar/events/{{ series.id }}/occurrences/{{ occurrence_slug }}" class="auth">
+        {{ csrf_field() }}
+
+        <label>
+            Title
+            <input type="text" name="title" required maxlength="200" value="{{ event.title|default('') }}" autofocus>
+        </label>
+
+        <label>
+            Start
+            <input type="datetime-local" name="starts_at_local" required value="{{ event.starts_at_local|default('') }}">
+        </label>
+
+        <label>
+            End
+            <input type="datetime-local" name="ends_at_local" required value="{{ event.ends_at_local|default('') }}">
+        </label>
+
+        <label>
+            Location <small style="color:var(--muted)">(optional)</small>
+            <input type="text" name="location" maxlength="200" value="{{ event.location|default('') }}">
+        </label>
+
+        <label>
+            Description <small style="color:var(--muted)">(optional)</small>
+            <textarea name="description" rows="3">{{ event.description|default('') }}</textarea>
+        </label>
+
+        <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+            <input type="checkbox" name="all_day" value="1" {% if event.all_day|default(false) %}checked{% endif %}>
+            All day
+        </label>
+
+        <p style="color:var(--muted); font-size:0.9em;">
+            Times are in <strong>{{ household.timezone }}</strong> (household timezone).
+        </p>
+
+        <div style="display:flex; gap:0.5rem; justify-content:flex-start;">
+            <button type="submit">Save override</button>
+            <a href="/calendar" style="align-self:center; color:var(--muted);">Cancel</a>
+        </div>
+    </form>
+
+    <hr style="border-color:var(--border); margin:1.5rem 0 0.5rem;">
+
+    {% if mode == 'override' or is_cancelled %}
+        <form method="POST" action="/calendar/events/{{ series.id }}/occurrences/{{ occurrence_slug }}/restore"
+              style="margin:0;"
+              onsubmit="return confirm('Restore this occurrence to its series default? Your customisation will be lost.');">
+            {{ csrf_field() }}
+            <button type="submit" class="link" style="background:transparent; border:0; color:var(--muted); cursor:pointer; padding:0; font:inherit;">
+                Restore this occurrence to series default
+            </button>
+        </form>
+    {% else %}
+        <form method="POST" action="/calendar/events/{{ series.id }}/occurrences/{{ occurrence_slug }}/cancel"
+              style="margin:0;"
+              onsubmit="return confirm('Cancel this occurrence? The series otherwise stays unchanged.');">
+            {{ csrf_field() }}
+            <button type="submit" class="link" style="background:transparent; border:0; color:var(--error); cursor:pointer; padding:0; font:inherit;">
+                Cancel just this occurrence
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}

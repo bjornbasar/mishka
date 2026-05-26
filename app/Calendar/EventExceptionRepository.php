@@ -132,6 +132,37 @@ final class EventExceptionRepository
     }
 
     /**
+     * Look up the exception row for a specific (event, occurrence) pair.
+     * Returns null when the occurrence is clean (no cancellation, no override).
+     *
+     * @return array{id: int, event_id: int, original_starts_at: string, override_event_id: ?int}|null
+     */
+    public function findForOccurrence(int $eventId, \DateTimeImmutable $originalStartsAt): ?array
+    {
+        $row = $this->db->fetchOne(
+            'SELECT id, event_id, original_starts_at, override_event_id
+             FROM event_exceptions
+             WHERE event_id = :e AND original_starts_at = :occ',
+            ['e' => $eventId, 'occ' => $this->formatLocal($originalStartsAt)],
+        );
+        if ($row === null) {
+            return null;
+        }
+        return [
+            'id' => (int) $row['id'],
+            'event_id' => (int) $row['event_id'],
+            'original_starts_at' => (string) $row['original_starts_at'],
+            'override_event_id' => $row['override_event_id'] === null ? null : (int) $row['override_event_id'],
+        ];
+    }
+
+    /** Delete an exception row by id (used by /occurrences/{key}/restore). */
+    public function deleteById(int $exceptionId): void
+    {
+        $this->db->run('DELETE FROM event_exceptions WHERE id = :id', ['id' => $exceptionId]);
+    }
+
+    /**
      * @return list<array{id: int, event_id: int, original_starts_at: string,
      *                    override_event_id: ?int, override_event: ?array<string, mixed>}>
      */

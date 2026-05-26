@@ -218,6 +218,149 @@ final class CalendarControllerTest extends AppTestCase
         self::assertSame(0, $count);
     }
 
+    // ---- v0.3.1 single-occurrence routes ----
+
+    public function test_get_occurrence_edit_form_renders_series_defaults_for_clean_occurrence(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        // Tue 14 Jul 2026 — second occurrence of the series. No exception yet.
+        $response = $this->request('GET', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/edit");
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Soccer', $response->body());
+        self::assertStringContainsString('18:00', $response->body());
+    }
+
+    public function test_get_occurrence_edit_with_malformed_slug_returns_404(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $response = $this->request('GET', "/calendar/events/{$eid}/occurrences/not-a-date/edit");
+        self::assertSame(404, $response->status());
+    }
+
+    public function test_get_occurrence_edit_with_non_matching_slug_returns_404(): void
+    {
+        // Slug is well-formed but no occurrence at that time
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $response = $this->request('GET', "/calendar/events/{$eid}/occurrences/2099-01-01T09-00/edit");
+        self::assertSame(404, $response->status());
+    }
+
+    public function test_post_occurrence_creates_override_for_clean_occurrence(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $response = $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00", [
+            'title' => 'Moved to 7pm',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-07-14T19:00',
+            'ends_at_local' => '2026-07-14T20:00',
+        ]);
+
+        self::assertSame(303, $response->status());
+        // Exactly one override Event row + one exception pointing at it
+        $exceptions = $this->db->fetchAll('SELECT * FROM event_exceptions WHERE event_id = :e', ['e' => $eid]);
+        self::assertCount(1, $exceptions);
+        self::assertNotNull($exceptions[0]['override_event_id']);
+        $override = $this->db->fetchOne('SELECT title FROM events WHERE id = :id', ['id' => $exceptions[0]['override_event_id']]);
+        self::assertSame('Moved to 7pm', $override['title']);
+    }
+
+    public function test_post_occurrence_cancel_inserts_exception_row(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $response = $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/cancel");
+
+        self::assertSame(303, $response->status());
+        $row = $this->db->fetchOne(
+            'SELECT override_event_id FROM event_exceptions WHERE event_id = :e',
+            ['e' => $eid],
+        );
+        self::assertNotNull($row);
+        self::assertNull($row['override_event_id']);
+    }
+
+    public function test_post_occurrence_cancel_is_idempotent(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/cancel");
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/cancel");  // no error
+
+        $count = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM event_exceptions WHERE event_id = :e', ['e' => $eid]);
+        self::assertSame(1, $count);
+    }
+
+    public function test_post_occurrence_restore_removes_cancellation(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/cancel");
+
+        $response = $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/restore");
+
+        self::assertSame(303, $response->status());
+        $count = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM event_exceptions WHERE event_id = :e', ['e' => $eid]);
+        self::assertSame(0, $count);
+    }
+
+    public function test_post_occurrence_restore_drops_override_event_too(): void
+    {
+        // Restoring an OVERRIDDEN occurrence must also delete the override
+        // Event row (the round-3 two-step DELETE pattern).
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00", [
+            'title' => 'Moved',
+            'starts_at_local' => '2026-07-14T19:00',
+            'ends_at_local' => '2026-07-14T20:00',
+        ]);
+        $overrideId = (int) $this->db->fetchScalar(
+            "SELECT override_event_id FROM event_exceptions WHERE event_id = :e",
+            ['e' => $eid],
+        );
+
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/restore");
+
+        self::assertNull($this->eventRepo->findById($overrideId));
+        self::assertSame(
+            0,
+            (int) $this->db->fetchScalar('SELECT COUNT(*) FROM event_exceptions WHERE event_id = :e', ['e' => $eid]),
+        );
+    }
+
+    public function test_get_occurrence_edit_loads_existing_override(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        // Set up an existing override
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00", [
+            'title' => 'Already moved',
+            'starts_at_local' => '2026-07-14T19:30',
+            'ends_at_local' => '2026-07-14T20:30',
+        ]);
+
+        $response = $this->request('GET', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/edit");
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Already moved', $response->body());
+        self::assertStringContainsString('19:30', $response->body());
+    }
+
     public function test_non_member_cannot_create_event(): void
     {
         // Owner A creates a household; user B is not a member but somehow has an
@@ -267,6 +410,21 @@ final class CalendarControllerTest extends AppTestCase
             'timezone' => 'Pacific/Auckland',
             'all_day' => false,
         ]);
+    }
+
+    /**
+     * Helper: a weekly Tuesday series anchored 2026-07-07 6pm.
+     * Occurrences for the test month: 7, 14, 21, 28.
+     */
+    private function createRecurringEvent(int $hid, int $uid): int
+    {
+        $eid = $this->createEvent($hid, $uid, [
+            'title' => 'Soccer',
+            'starts_at_local' => '2026-07-07 18:00:00',
+            'ends_at_local' => '2026-07-07 19:00:00',
+        ]);
+        $this->db->run("UPDATE events SET rrule = 'FREQ=WEEKLY;BYDAY=TU' WHERE id = :id", ['id' => $eid]);
+        return $eid;
     }
 
     private static function testPassword(): string

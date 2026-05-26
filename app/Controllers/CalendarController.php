@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
 use App\Calendar\ConcurrentUpdateException;
+use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
@@ -42,6 +43,7 @@ final class CalendarController
         private readonly TwigAdapter $view,
         private readonly RangeExpander $expander,
         private readonly RruleTranslator $rrules,
+        private readonly EventExceptionRepository $exceptions,
     ) {}
 
     #[Route('/calendar', methods: ['GET'], name: 'calendar.month')]
@@ -315,6 +317,252 @@ final class CalendarController
 
         $this->events->delete($eid);
         return (new Response())->redirect('/calendar', 303);
+    }
+
+    // --- v0.3.1: single-occurrence routes ---
+
+    /**
+     * Slug regex for occurrence keys. Format YYYY-MM-DDTHH-MM (dash-separated
+     * time, no colons, no Z, no seconds). Karhu's router matches `{key}` as
+     * `([^/]+)` so we MUST shape-validate before parsing or running expansion.
+     */
+    private const OCCURRENCE_KEY_REGEX = '/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}$/';
+
+    #[Route('/calendar/events/{id}/occurrences/{key}/edit', methods: ['GET'])]
+    public function showOccurrenceEdit(Request $request): Response
+    {
+        $resolved = $this->resolveOccurrence($request);
+        if (!is_array($resolved)) {
+            return $resolved;
+        }
+        [$series, $occLocal, $existingException] = $resolved;
+
+        // Pre-fill: existing override takes precedence; cancellation falls back
+        // to series defaults; clean occurrence uses series defaults.
+        $eventForForm = $this->occurrenceFormDefaults($series, $occLocal, $existingException);
+        $household = $this->households->findById((int) $series['household_id']);
+
+        return (new Response())
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withBody($this->view->render('calendar/occurrence_edit.twig', [
+                'mode' => $existingException !== null && $existingException['override_event_id'] !== null
+                    ? 'override' : 'create-override',
+                'errors' => [],
+                'event' => $eventForForm,
+                'series' => $series,
+                'occurrence_slug' => $this->slugFor($occLocal),
+                'is_cancelled' => $existingException !== null && $existingException['override_event_id'] === null,
+                'household' => $household,
+            ] + $this->nav->forCurrentUser()));
+    }
+
+    #[Route('/calendar/events/{id}/occurrences/{key}', methods: ['POST'])]
+    public function handleOccurrenceSave(Request $request): Response
+    {
+        $resolved = $this->resolveOccurrence($request);
+        if (!is_array($resolved)) {
+            return $resolved;
+        }
+        [$series, $occLocal, $existingException] = $resolved;
+
+        $input = $this->readWhitelistedInput($request);
+        $errors = $this->validate($input);
+        $household = $this->households->findById((int) $series['household_id']);
+
+        if ($errors !== []) {
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody($this->view->render('calendar/occurrence_edit.twig', [
+                    'mode' => 'create-override',
+                    'errors' => $errors,
+                    'event' => $input,
+                    'series' => $series,
+                    'occurrence_slug' => $this->slugFor($occLocal),
+                    'is_cancelled' => false,
+                    'household' => $household,
+                ] + $this->nav->forCurrentUser()));
+        }
+
+        // If an existing exception sits at this occurrence (cancellation OR a
+        // prior override), wipe it first so addOverride doesn't trip the UNIQUE
+        // constraint. The cancellation case is just a row delete; the override
+        // case CASCADEs the override Event row via the FK on override_event_id.
+        if ($existingException !== null) {
+            if ($existingException['override_event_id'] !== null) {
+                // Existing override → DELETE the override Event row; CASCADE
+                // clears the exception row.
+                $this->events->delete((int) $existingException['override_event_id']);
+            } else {
+                $this->exceptions->deleteById((int) $existingException['id']);
+            }
+        }
+
+        $overrideData = [
+            'title' => (string) $input['title'],
+            'description' => (string) $input['description'],
+            'location' => (string) $input['location'],
+            'starts_at_local' => $this->datetimeLocalToSql((string) $input['starts_at_local']),
+            'ends_at_local' => $this->datetimeLocalToSql((string) $input['ends_at_local']),
+            'timezone' => (string) $series['timezone'],
+            'all_day' => (bool) $input['all_day'],
+        ];
+        $this->exceptions->addOverride((int) $series['id'], $occLocal, $overrideData);
+
+        return (new Response())->redirect('/calendar?ym=' . $occLocal->format('Y-m'), 303);
+    }
+
+    #[Route('/calendar/events/{id}/occurrences/{key}/cancel', methods: ['POST'])]
+    public function handleOccurrenceCancel(Request $request): Response
+    {
+        $resolved = $this->resolveOccurrence($request);
+        if (!is_array($resolved)) {
+            return $resolved;
+        }
+        [$series, $occLocal] = $resolved;
+
+        $this->exceptions->cancel((int) $series['id'], $occLocal);
+
+        return (new Response())->redirect('/calendar?ym=' . $occLocal->format('Y-m'), 303);
+    }
+
+    #[Route('/calendar/events/{id}/occurrences/{key}/restore', methods: ['POST'])]
+    public function handleOccurrenceRestore(Request $request): Response
+    {
+        $resolved = $this->resolveOccurrence($request);
+        if (!is_array($resolved)) {
+            return $resolved;
+        }
+        [$series, $occLocal, $existingException] = $resolved;
+
+        if ($existingException === null) {
+            // Nothing to restore — no-op redirect
+            return (new Response())->redirect('/calendar?ym=' . $occLocal->format('Y-m'), 303);
+        }
+
+        if ($existingException['override_event_id'] !== null) {
+            // Override → DELETE the override Event row; the exception row
+            // CASCADEs via override_event_id FK.
+            $this->events->delete((int) $existingException['override_event_id']);
+        } else {
+            // Pure cancellation → delete the exception row
+            $this->exceptions->deleteById((int) $existingException['id']);
+        }
+
+        return (new Response())->redirect('/calendar?ym=' . $occLocal->format('Y-m'), 303);
+    }
+
+    /**
+     * Resolve the occurrence URL into the three things every occurrence route
+     * needs: the series Event, the parsed local DateTimeImmutable, and the
+     * existing exception row (if any). On any validation failure returns the
+     * appropriate Response (404 / redirect / 403); on success returns a
+     * three-tuple.
+     *
+     * @return Response|array{0: array<string, mixed>, 1: \DateTimeImmutable, 2: ?array<string, mixed>}
+     */
+    private function resolveOccurrence(Request $request): Response|array
+    {
+        $guard = $this->requireSession();
+        if ($guard !== null) {
+            return $guard;
+        }
+        $userId = (int) Session::get('user_id');
+        $hid = (int) Session::get('active_household_id');
+        $this->auth->requireMember($userId, $hid);
+
+        $eid = (int) ($request->routeParams()['id'] ?? 0);
+        $key = (string) ($request->routeParams()['key'] ?? '');
+
+        if (preg_match(self::OCCURRENCE_KEY_REGEX, $key) !== 1) {
+            return (new Response(404))->withBody('Not found');
+        }
+
+        $series = $this->events->findById($eid);
+        if ($series === null || $series['household_id'] !== $hid) {
+            return (new Response(404))->withBody('Not found');
+        }
+        // Single-occurrence routes only make sense for recurring series.
+        if ($series['rrule'] === null || $series['rrule'] === '') {
+            return (new Response(404))->withBody('Not a recurring event');
+        }
+
+        $tz = new \DateTimeZone((string) $series['timezone']);
+        $occLocal = \DateTimeImmutable::createFromFormat('Y-m-d\TH-i', $key, $tz);
+        if ($occLocal === false) {
+            return (new Response(404))->withBody('Not found');
+        }
+        $occLocal = $occLocal->setTime(
+            (int) $occLocal->format('H'),
+            (int) $occLocal->format('i'),
+            0,
+        );
+
+        // Verify the parsed key actually corresponds to an occurrence of the series.
+        $window = $this->expander->expandForHousehold(
+            $hid,
+            $occLocal->modify('-1 day'),
+            $occLocal->modify('+1 day'),
+        );
+        $found = false;
+        foreach ($window as $o) {
+            if ((int) $o['event']['id'] === $eid && $o['occurrence']->format('Y-m-d H:i') === $occLocal->format('Y-m-d H:i')) {
+                $found = true;
+                break;
+            }
+            // The series may have an override matching this occurrence — also accept.
+            if ($o['is_override'] && (int) ($o['event']['series_event_id'] ?? 0) === $eid && $occLocal->format('Y-m-d H:i') === $o['occurrence']->format('Y-m-d H:i')) {
+                $found = true;
+                break;
+            }
+        }
+
+        // Even if the occurrence is currently cancelled or overridden, we want
+        // to accept the slug — look up the exception row directly.
+        $existingException = $this->exceptions->findForOccurrence($eid, $occLocal);
+        if ($existingException === null && !$found) {
+            return (new Response(404))->withBody('Not an occurrence of this series');
+        }
+
+        return [$series, $occLocal, $existingException];
+    }
+
+    /**
+     * @param array<string, mixed> $series
+     * @param ?array<string, mixed> $existingException
+     * @return array<string, mixed>
+     */
+    private function occurrenceFormDefaults(
+        array $series,
+        \DateTimeImmutable $occLocal,
+        ?array $existingException,
+    ): array {
+        if ($existingException !== null && $existingException['override_event_id'] !== null) {
+            $override = $this->events->findById((int) $existingException['override_event_id']);
+            if ($override !== null) {
+                return $this->eventForForm($override);
+            }
+        }
+
+        // Clean occurrence (or cancellation): pre-fill from series with the
+        // occurrence's actual date+time, preserving the series's duration.
+        $tz = new \DateTimeZone((string) $series['timezone']);
+        $seriesStart = new \DateTimeImmutable((string) $series['starts_at_local'], $tz);
+        $seriesEnd = new \DateTimeImmutable((string) $series['ends_at_local'], $tz);
+        $duration = $seriesStart->diff($seriesEnd);
+
+        return [
+            'title' => (string) $series['title'],
+            'description' => (string) $series['description'],
+            'location' => (string) $series['location'],
+            'starts_at_local' => $occLocal->format('Y-m-d\TH:i'),
+            'ends_at_local' => $occLocal->add($duration)->format('Y-m-d\TH:i'),
+            'all_day' => (bool) $series['all_day'],
+        ];
+    }
+
+    private function slugFor(\DateTimeImmutable $occLocal): string
+    {
+        return $occLocal->format('Y-m-d\TH-i');
     }
 
     // --- helpers ---
