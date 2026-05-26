@@ -85,6 +85,50 @@ final class ChoreRepository
         }
     }
 
+    /**
+     * Insert a chore GENERATED from a recurring schedule (v0.4.1). Same shape as
+     * create() plus the schedule back-link + occurrence key. Does NOT swallow a
+     * UNIQUE(schedule_id, occurrence_date) violation — ChoreScheduleGenerator owns
+     * the idempotency decision (skip + don't advance the rotation cursor).
+     *
+     * @param array{
+     *     household_id: int,
+     *     created_by: int,
+     *     schedule_id: int,
+     *     occurrence_date: string,
+     *     due_at_local: string,
+     *     assigned_to?: ?int,
+     *     title: string,
+     *     description?: string,
+     *     points?: int,
+     *     timezone: string,
+     * } $data
+     */
+    public function createGenerated(array $data): int
+    {
+        return (int) $this->db->fetchScalar(
+            'INSERT INTO chores
+               (household_id, created_by, assigned_to, title, description, points,
+                due_at_local, timezone, schedule_id, occurrence_date)
+             VALUES
+               (:hid, :uid, :assigned, :title, :description, :points,
+                :due, :tz, :schedule, :occ)
+             RETURNING id',
+            [
+                'hid' => (int) $data['household_id'],
+                'uid' => (int) $data['created_by'],
+                'assigned' => isset($data['assigned_to']) ? (int) $data['assigned_to'] : null,
+                'title' => (string) $data['title'],
+                'description' => (string) ($data['description'] ?? ''),
+                'points' => (int) ($data['points'] ?? 0),
+                'due' => $this->truncateSeconds((string) $data['due_at_local']),
+                'tz' => (string) $data['timezone'],
+                'schedule' => (int) $data['schedule_id'],
+                'occ' => $this->truncateSeconds((string) $data['occurrence_date']),
+            ],
+        );
+    }
+
     /** @return array<string, mixed>|null */
     public function findById(int $choreId): ?array
     {
