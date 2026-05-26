@@ -12,4 +12,5 @@ return [
     App\Controllers\HouseholdController::class,
     App\Controllers\CalendarController::class,
     App\Controllers\IcalFeedController::class,
+    App\Controllers\ChoresController::class,
 ];

@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.3.2** — per-user signed iCal feed. Subscribe to your household calendar from any phone or desktop calendar app; recurrence, single-occurrence overrides, and cancellations all surface as RFC 5545 VEVENTs.
+**v0.4.0** — chores. A per-household task list with assignment, kid-friendly points, and an in-app overdue badge. Mark chores done to credit the doer; the points board shows on the chores page and the home landing.
 
 ## Quick start
 
@@ -32,21 +32,21 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.3.2
+## What works in v0.4.0
 
-Carried forward from v0.1/v0.2/v0.3.0/v0.3.1: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar with month grid + agenda + optimistic-concurrency event edits, RRULE recurrence with preset UX, single-occurrence cancel/override, cascade-on-series-edit dialogs.
+Carried forward from v0.1–v0.3.2: registration + login (timing-safe), logout, CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar (month grid + agenda + optimistic-concurrency edits, RRULE recurrence, single-occurrence cancel/override, cascade dialogs), per-user signed iCal feed.
 
-**New in v0.3.2:**
-- **Per-user signed iCal feed.** Visit `/me/calendar/feed`, generate a URL, and subscribe in iOS Calendar / Google Calendar / Outlook / Thunderbird. The feed merges every household you're a member of; recurring events emit raw RRULEs so the client expands client-side (DST-correct without us pre-expanding).
-- **RECURRENCE-ID overrides + EXDATE cancellations** — single-occurrence edits and cancels from v0.3.1 surface natively in subscribed calendars via `sabre/vobject` (eluceo/ical 2.x can't emit RECURRENCE-ID; that's why we picked sabre/vobject).
-- **VTIMEZONE block per event timezone** — Apple Calendar / Google Calendar / Outlook render the wall-clock time correctly across NZDT / NZST.
-- **Cap at 3 active tokens** with auto-revoke oldest on the 4th generate; `last_used_at` surfaces in the settings page as a leak-detection signal.
-- **Token-leak defences**: `Referrer-Policy: no-referrer` on feed responses + `<meta name="referrer">` on the post-generate page + Caddy log-path redaction documented in [INFRASTRUCTURE.md](../INFRASTRUCTURE.md#mishka-ical-feed-log-redaction).
+**New in v0.4.0:**
+- **Per-household chore list** — create / edit / delete chores with an optional due date and an optional assignee (any household member). Any member can act on any chore (the calendar's trust model); delete asks for confirmation.
+- **Done / reopen** — marking a chore done is idempotent and credits the doer; reopen un-credits.
+- **Kid-friendly points** — each chore carries a point value; a per-member all-time tally shows on the chores page and the home landing. (Simple live tally — see [docs/CHORES.md](docs/CHORES.md) for the documented limitations and the v0.4.2+ ledger path.)
+- **Overdue badge** — chores past their due date (computed in the household's timezone; no-due chores never go overdue) are flagged in-app.
+- **Done section** — completed chores collapse into a "Done" list (most-recently-done first), keeping the active list clean.
 
 ## Roadmap
 
-- **v0.4** — Chores: per-household list, round-robin assignment, kid-friendly points, in-app overdue badges
-- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds (column already nullable), subscribe-to-external-calendar (sabre/vobject parses iCal)
+- **v0.4.1** — Recurring chores (RRULE, reusing the calendar's translator) + round-robin assignment across all household members.
+- Later: durable points ledger / leaderboards, leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds, subscribe-to-external-calendar.
 
 ## Docs
 

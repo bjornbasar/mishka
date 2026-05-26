@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.3.2 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.4.0 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -9,6 +9,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 - **[docs/SCHEMA.md](docs/SCHEMA.md)** — full database schema, every table, design notes per release
 - **[docs/ROUTES.md](docs/ROUTES.md)** — full route table grouped by feature
 - **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, recurrence, single-occurrence editing, iCal feed)
+- **[docs/CHORES.md](docs/CHORES.md)** — v0.4 chores design (overdue/time model, live points tally + credit rule, assignment integrity, inert columns for v0.4.1)
 
 ---
 
@@ -49,11 +50,14 @@ mishka/
 │   │   ├── MonthGridBuilder.php                 6×7 grid + slot assignment for multi-day pills
 │   │   ├── RangeExpander.php                    v0.3.1; recurr-driven expansion + override de-dup
 │   │   └── RruleTranslator.php                  v0.3.1; preset form ↔ RRULE round-trip
+│   ├── Chores/                                   v0.4.0+
+│   │   └── ChoreRepository.php                   chores CRUD + markDone/reopen + live points tally
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
 │   │   ├── AuthController.php
 │   │   ├── CalendarController.php               v0.3.0+ (single-occurrence routes v0.3.1)
-│   │   ├── HomeController.php
+│   │   ├── ChoresController.php                  v0.4.0; chores CRUD + done/reopen + points board
+│   │   ├── HomeController.php                    v0.4.0: points board + open/overdue counts
 │   │   ├── HouseholdController.php
 │   │   └── IcalFeedController.php               v0.3.2
 │   ├── Household/HouseholdRepository.php
@@ -67,6 +71,7 @@ mishka/
 ├── db/schema.sql                                see docs/SCHEMA.md for the full version-tagged content
 ├── docs/
 │   ├── CALENDAR.md
+│   ├── CHORES.md                                v0.4.0
 │   ├── ROUTES.md
 │   └── SCHEMA.md
 ├── public/
@@ -82,6 +87,9 @@ mishka/
 │   │   ├── event_form.twig                      shared by new/edit
 │   │   ├── month.twig
 │   │   └── occurrence_edit.twig                 v0.3.1; single-occurrence override form
+│   ├── chores/                                  v0.4.0
+│   │   ├── chore_form.twig                       shared create/edit; member dropdown + confirm-delete
+│   │   └── index.twig                            points board + open list + collapsible Done section
 │   ├── feed/                                    v0.3.2
 │   │   ├── generated.twig                       raw token shown ONCE + referrer-no-referrer meta
 │   │   └── settings.twig                        active-tokens roster + Generate + Revoke
@@ -95,9 +103,10 @@ mishka/
     ├── Account/UserPreferenceRepositoryTest.php
     ├── Auth/{HouseholdAuthorizerTest,MishkaUserRepositoryTest}.php
     ├── Calendar/{EventRepositoryTest,MonthGridBuilderTest}.php
-    ├── Controllers/{Auth,Calendar,Home,Household}ControllerTest.php
+    ├── Chores/ChoreRepositoryTest.php
+    ├── Controllers/{Auth,Calendar,Chores,Home,Household}ControllerTest.php
     ├── Household/HouseholdRepositoryTest.php
-    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke}Test.php
+    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke,ChoreRepositoryPgSmoke}Test.php
     └── View/NavContextTest.php
 ```
 
@@ -130,6 +139,9 @@ mishka/
 21. **SHA-256 hashed iCal tokens with cap at 3** (v0.3.2). Raw 64-hex token shown to the user once; only the hash persists. Cap-at-3 auto-revokes the oldest active row on the 4th generate — bounded leak surface without forcing manual cleanup. `last_used_at` exposed in settings as a leak-detection signal.
 22. **sabre/vobject not eluceo/ical for iCal serialisation** (v0.3.2). eluceo/ical 2.x cannot emit `RECURRENCE-ID`; overrides need it. sabre/vobject also parses iCal — door open for v0.5+ "subscribe to external calendar".
 23. **Layered token-leak defences** (v0.3.2). `Referrer-Policy: no-referrer` on feed responses + `<meta name="referrer">` on the post-generate page + Caddy log-path redaction documented in INFRASTRUCTURE.md.
+24. **Live points tally, no ledger** (v0.4.0). `pointsTallyForHousehold` sums completed chores by `COALESCE(completed_by, assigned_to)` — the doer — driven off current `household_members`. `ORDER BY MIN(joined_at)` so PostgreSQL's GROUP BY rule holds. Documented limitation: editing/deleting a completed chore or removing a member shifts the tally; a durable ledger is the v0.4.2+ path.
+25. **Chores inert columns ship without a DB FK** (v0.4.0). `chores.schedule_id` is a bare `INTEGER` (no `REFERENCES`) because its v0.4.1 target table doesn't exist yet and the no-ALTER convention can't add the constraint later — integrity is app-enforced. No defensive `schedule_id IS NULL` list filter (templates live in a separate table, so v0.4.1 instances are first-class list rows, unlike the calendar's double-render risk).
+26. **Overdue computed in PHP against the chore's own timezone** (v0.4.0), never SQL `NOW()`. NULL due = never overdue. Same wall-clock + IANA model as events; the predicate is duplicated in `ChoresController` and `HomeController` (no shared base).
 
 ---
 
@@ -179,13 +191,12 @@ CI runs two jobs: `test` (SQLite in-memory + PHPStan) and `pg-smoke` (postgres:1
 
 ## Future work
 
-- **v0.3.1 calendar:** RRULE recurrence + single-occurrence editing (cancel + override). See `docs/CALENDAR.md`.
-- **v0.3.2 calendar:** Per-user signed iCal feed URL via `sabre/vobject`. See `docs/CALENDAR.md`.
-- **v0.4 chores:** Per-household chore list, RRULE recurrence (reuses v0.3.1's translator), round-robin assignment, kid-friendly points, in-app overdue badge. No notifications.
+- **v0.4.1 chores:** Recurring chores (`chore_schedules` + RRULE, reusing v0.3.1's translator) + round-robin assignment across all members, with skip/reassign of a single occurrence. See `docs/CHORES.md`.
+- **v0.4.2+ chores:** Durable points ledger (immutable history), leaderboards. The v0.4.0 tally is a live aggregate.
 - **Household lifecycle gaps:** leave/transfer/delete household, regenerate invite code, invite via email, household timezone editor.
 - **Email verification, password change/reset.**
 - **Profile editing.**
-- **Real migrations framework** — keep deferring. Schema stays additive across v0.3.
+- **Real migrations framework** — keep deferring. Schema stays additive.
 - **"Subscribe to external calendar"** — sabre/vobject parses iCal; v0.5+.
 
 ---

@@ -156,3 +156,37 @@ CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
 **Soft-delete via `revoked_at`** rather than DELETE: lets the user see "this URL got 240 fetches before I revoked it" in a future audit view (not in v0.3.2). All lookups filter `WHERE revoked_at IS NULL`.
 
 **Cap-at-3 active tokens per user** enforced in `IcalFeedTokenRepository::generate` — loop-and-revoke the oldest active row (by `created_at ASC, id ASC`) before inserting the new row whenever the active count is ≥3.
+
+## v0.4.0 — chores
+
+```sql
+CREATE TABLE IF NOT EXISTS chores (
+    id              SERIAL PRIMARY KEY,
+    household_id    INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    assigned_to     INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    completed_by    INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    title           VARCHAR(200) NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    points          INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    due_at_local    TIMESTAMP NULL,
+    timezone        VARCHAR(64) NOT NULL,
+    completed_at    TIMESTAMPTZ NULL,
+    schedule_id     INTEGER NULL,              -- v0.4.1 inert; NO DB FK (app-enforced)
+    occurrence_date TIMESTAMP NULL,            -- v0.4.1 inert
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chores_household_due ON chores(household_id, due_at_local);
+CREATE INDEX IF NOT EXISTS idx_chores_assigned_to   ON chores(assigned_to) WHERE assigned_to IS NOT NULL;
+```
+
+**Time model mirrors `events`** — wall-clock `due_at_local TIMESTAMP` interpreted in `timezone` (IANA, copied from the household at create-time), NOT UTC. NULL due = no deadline = never overdue. Overdue is computed in PHP against the chore's own `timezone`, never in SQL.
+
+**FK matrix** — `household_id` CASCADE (scope root); `created_by` RESTRICT (matches `events.created_by`; blocks an account delete that would orphan authorship); `assigned_to` / `completed_by` SET NULL (member/account gone → the chore survives as unassigned and the delete is never blocked).
+
+**`completed_at` is the sole done-indicator** (NULL = open). `completed_by` records who clicked Done.
+
+**Points = live aggregate, no ledger.** `pointsTallyForHousehold` sums completed chores by `COALESCE(completed_by, assigned_to)` — the doer — driven off `household_members` so only current members appear. Documented live-tally limitations: editing the points/assignee on an already-completed chore, deleting a completed chore, or removing a member adjusts/drops the tally. A durable ledger is the v0.4.2+ extension path. `ORDER BY MIN(joined_at)` keeps the grouped query valid under PostgreSQL's strict GROUP BY rule (SQLite is permissive).
+
+**`schedule_id` + `occurrence_date` ship inert for v0.4.1** (a generated recurring instance is a `chores` row back-linking its `chore_schedules` template + the occurrence it fills). `schedule_id` is a **bare `INTEGER` with no DB FK**: its target table ships in v0.4.1 and the no-ALTER convention forbids adding the constraint after the fact, so referential integrity is app-enforced (the repo only ever writes a `schedule_id` it just created). This is a deliberate, documented integrity downgrade vs `events.series_event_id` (which could be a real FK because it self-references an existing table).

@@ -73,3 +73,18 @@ Both confirm forms also carry `_expected_updated_at` + `_expected_exception_coun
 | GET | /ical/{token}.ics | **UNAUTHENTICATED.** Token IS the auth. 200 `text/calendar` on hit, 404 on invalid / revoked. `Referrer-Policy: no-referrer` + `Cache-Control: private, max-age=300` headers. |
 
 The public feed route shape-checks the token against `/^[0-9a-f]{64}$/` before hashing — cheap bot filter, no DB lookup on malformed input.
+
+## Chores (v0.4.0)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /chores | List: per-member points board + open chores (overdue badge) + collapsible "Done" section (recently-done first). |
+| GET | /chores/new | Create form; assignee dropdown from current members; due date optional. |
+| POST | /chores | Create. Whitelist `[title, description, points, due_at_local, assigned_to]`; forces household tz; 303 → /chores; 422 on error. |
+| GET | /chores/{id} | Edit form. 404 if the chore isn't in the active household. |
+| POST | /chores/{id} | Update (same whitelist); 303 → /chores; 422 on error. |
+| POST | /chores/{id}/delete | Delete (confirm dialog on the form); 303 → /chores. |
+| POST | /chores/{id}/done | Mark done (idempotent, credits the doer); 303 → /chores. |
+| POST | /chores/{id}/reopen | Reopen (clears completion, un-credits); 303 → /chores. |
+
+All routes are member-gated (`requireSession` + `requireMember`). Any member may act on any chore. `points` is shape-validated (blank → 0; non-numeric / negative / >1000 → 422); a non-member `assigned_to` is silently coerced to NULL. The home page (`/`) also surfaces the points board + an open/overdue count.
