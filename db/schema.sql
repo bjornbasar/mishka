@@ -196,3 +196,60 @@ CREATE TABLE IF NOT EXISTS ical_feed_tokens (
 -- Partial index for the cap-at-3 query (lookup of active tokens per user)
 CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
     ON ical_feed_tokens(user_id) WHERE revoked_at IS NULL;
+
+-- ============================================================
+-- v0.4.0: chores — per-household task list with assignment + points
+-- ============================================================
+--
+-- A household chore: a one-off task with an optional due date, an optional
+-- assignee, a point value, and a done/reopen toggle. Recurrence + round-robin
+-- land in v0.4.1.
+--
+-- Time model mirrors events: `due_at_local` is wall-clock TIMESTAMP interpreted
+-- in `timezone` (IANA, copied from the household at create-time). NULL due =
+-- no deadline = never overdue. Overdue is computed in PHP against the chore's
+-- own `timezone`, never in SQL (CURRENT_TIMESTAMP/NOW() is the wrong clock).
+--
+-- `completed_at` is the SOLE done-indicator (NULL = open). `completed_by`
+-- records who clicked Done. The points tally credits COALESCE(completed_by,
+-- assigned_to) — the doer — summed live over completed chores (no ledger;
+-- editing/deleting a completed chore or removing a member adjusts the tally,
+-- a documented v0.4.0 limitation).
+--
+-- FK matrix: household_id CASCADE (scope root); created_by RESTRICT (matches
+-- events — block account-delete that orphans authorship); assigned_to /
+-- completed_by SET NULL (member/account gone → chore survives as unassigned,
+-- never blocks a delete).
+--
+-- `schedule_id` + `occurrence_date` ship INERT for v0.4.1 (a generated
+-- recurring instance is a chores row back-linking its chore_schedules template
+-- + the occurrence it fills). schedule_id is a BARE INTEGER with NO DB FK: its
+-- target table ships in v0.4.1 and the no-ALTER convention means the constraint
+-- can't be added later, so referential integrity is app-enforced (the repo
+-- only ever writes a schedule_id it just created).
+
+CREATE TABLE IF NOT EXISTS chores (
+    id              SERIAL PRIMARY KEY,
+    household_id    INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    assigned_to     INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    completed_by    INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    title           VARCHAR(200) NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    points          INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    due_at_local    TIMESTAMP NULL,             -- wall-clock; NULL = no due date (never overdue)
+    timezone        VARCHAR(64) NOT NULL,       -- IANA, copied from household at create-time
+    completed_at    TIMESTAMPTZ NULL,           -- NULL = open; set = done
+    schedule_id     INTEGER NULL,               -- v0.4.1 inert; FK to chore_schedules enforced in app (no-ALTER)
+    occurrence_date TIMESTAMP NULL,             -- v0.4.1 inert; which schedule occurrence this instance fills
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chores_household_due
+    ON chores(household_id, due_at_local);
+
+-- v0.4.1-anticipatory (no v0.4.0 query filters on assigned_to alone; ships now
+-- to avoid a later index migration when the "my chores" view lands).
+CREATE INDEX IF NOT EXISTS idx_chores_assigned_to
+    ON chores(assigned_to) WHERE assigned_to IS NOT NULL;
