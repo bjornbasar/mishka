@@ -4,7 +4,23 @@
     {% if active_household %}
         <h1>Welcome back</h1>
         <p>You're in <strong>{{ active_household.name }}</strong>. <a href="/household">Manage household</a></p>
-        <p style="color:var(--muted);">Calendar, chores, lists, and meal plans are still on the way. For now this is your hub — the rest of mishka is being built around it.</p>
+
+        {% if chore_tally is defined and chore_tally|length > 0 %}
+            <section class="points-board" style="background:var(--card); border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.5rem; margin:1rem 0;">
+                <h2 style="margin:0 0 0.5rem; font-size:1.1rem;">Points</h2>
+                <ul style="list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0.5rem 1.5rem;">
+                    {% for member in chore_tally %}
+                        <li><strong>{{ member.display_name ?: member.email }}</strong> {{ member.total_points }} pt</li>
+                    {% endfor %}
+                </ul>
+                <p style="margin:0.75rem 0 0;">
+                    <a href="/chores">Chores</a> —
+                    {{ chore_open_count }} open{% if chore_overdue_count > 0 %}, <span style="color:var(--error);">{{ chore_overdue_count }} overdue</span>{% endif %}.
+                </p>
+            </section>
+        {% else %}
+            <p style="color:var(--muted);">No points yet. <a href="/chores">Add a chore</a> to get the household going.</p>
+        {% endif %}
     {% elseif session_email %}
         {# Logged in but no active household — HomeController normally redirects
            to /household/setup before this template renders, but in case of a

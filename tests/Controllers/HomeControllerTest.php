@@ -43,6 +43,35 @@ final class HomeControllerTest extends AppTestCase
         self::assertStringContainsString('Manage household', $response->body());
     }
 
+    public function test_home_shows_points_board_and_chore_counts(): void
+    {
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        // One completed chore worth 10 points + one open chore.
+        $done = $this->choreRepo->create([
+            'household_id' => $hid, 'created_by' => $userId, 'title' => 'Dishes',
+            'description' => '', 'points' => 10, 'due_at_local' => null,
+            'assigned_to' => $userId, 'timezone' => 'Pacific/Auckland',
+        ]);
+        $this->choreRepo->markDone($done, $userId);
+        $this->choreRepo->create([
+            'household_id' => $hid, 'created_by' => $userId, 'title' => 'Vacuum',
+            'description' => '', 'points' => 5, 'due_at_local' => null,
+            'assigned_to' => $userId, 'timezone' => 'Pacific/Auckland',
+        ]);
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Points', $response->body());
+        self::assertStringContainsString('10', $response->body());          // earned points
+        self::assertStringContainsString('1 open', $response->body());      // one open chore
+        self::assertStringContainsString('/chores', $response->body());
+    }
+
     public function test_logged_in_with_stale_active_household_redirects_to_setup(): void
     {
         // Session says active_household_id=$hid; user was kicked before this request.

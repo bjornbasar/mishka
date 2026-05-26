@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Chores\ChoreRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Http\Request;
@@ -29,6 +30,7 @@ final class HomeController
     public function __construct(
         private readonly TwigAdapter $view,
         private readonly NavContext $nav,
+        private readonly ChoreRepository $chores,
     ) {}
 
     #[Route('/', name: 'home')]
@@ -50,8 +52,36 @@ final class HomeController
             return (new Response())->redirect('/household/setup', 302);
         }
 
+        $hid = (int) $ctx['active_household']['id'];
+        $chores = $this->chores->listForHousehold($hid);
+        $openCount = 0;
+        $overdueCount = 0;
+        foreach ($chores as $chore) {
+            if ($chore['is_done']) {
+                continue;
+            }
+            $openCount++;
+            if ($this->isOverdue($chore)) {
+                $overdueCount++;
+            }
+        }
+
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
-            ->withBody($this->view->render('home.twig', $ctx));
+            ->withBody($this->view->render('home.twig', [
+                'chore_tally' => $this->chores->pointsTallyForHousehold($hid),
+                'chore_open_count' => $openCount,
+                'chore_overdue_count' => $overdueCount,
+            ] + $ctx));
+    }
+
+    /** @param array<string, mixed> $chore */
+    private function isOverdue(array $chore): bool
+    {
+        if ($chore['due_at_local'] === null || $chore['is_done']) {
+            return false;
+        }
+        $tz = new \DateTimeZone((string) $chore['timezone']);
+        return new \DateTimeImmutable((string) $chore['due_at_local'], $tz) < new \DateTimeImmutable('now', $tz);
     }
 }
