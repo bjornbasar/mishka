@@ -1,0 +1,392 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Tests\Chores;
+
+use App\Chores\ChoreRepository;
+use Karhu\Db\Connection;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Unit tests against the in-memory SQLite test DB. Outer transaction wraps each
+ * test for isolation (matches the v0.2/v0.3 repo-test pattern).
+ *
+ * Helpers insertUser/insertHousehold/minimalChoreData keep each test focused on
+ * its assertion rather than scaffolding.
+ */
+final class ChoreRepositoryTest extends TestCase
+{
+    private Connection $db;
+    private ChoreRepository $repo;
+
+    protected function setUp(): void
+    {
+        $this->db = $GLOBALS['test_db'];
+        $this->db->pdo()->beginTransaction();
+        $this->repo = new ChoreRepository($this->db);
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->db->pdo()->inTransaction()) {
+            $this->db->pdo()->rollBack();
+        }
+    }
+
+    public function test_create_persists_chore_with_household_timezone(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, [
+            'title' => 'Take out bins',
+            'points' => 10,
+            'assigned_to' => $uid,
+        ]));
+
+        self::assertGreaterThan(0, $id);
+        $row = $this->db->fetchOne('SELECT * FROM chores WHERE id = :id', ['id' => $id]);
+        self::assertSame('Take out bins', $row['title']);
+        self::assertSame('Pacific/Auckland', $row['timezone']);
+        self::assertSame(10, (int) $row['points']);
+        self::assertSame($uid, (int) $row['assigned_to']);
+        self::assertNull($row['completed_at']);
+    }
+
+    public function test_create_works_under_an_outer_transaction(): void
+    {
+        // setUp already opened a transaction; create() must not try to commit it.
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid));
+
+        self::assertTrue($this->db->pdo()->inTransaction());
+        self::assertNotNull($this->repo->findById($id));
+    }
+
+    public function test_create_rejects_invalid_timezone(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->repo->create($this->minimalChoreData($hid, $uid, ['timezone' => 'Mars/Phobos']));
+    }
+
+    public function test_create_truncates_due_seconds_to_minute(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, [
+            'due_at_local' => '2026-07-14 15:30:45',
+        ]));
+
+        $row = $this->db->fetchOne('SELECT due_at_local FROM chores WHERE id = :id', ['id' => $id]);
+        self::assertSame('2026-07-14 15:30:00', $row['due_at_local']);
+    }
+
+    public function test_create_allows_null_due_date(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['due_at_local' => null]));
+
+        $chore = $this->repo->findById($id);
+        self::assertNotNull($chore);
+        self::assertNull($chore['due_at_local']);
+    }
+
+    public function test_create_allows_null_assignee(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['assigned_to' => null]));
+
+        $chore = $this->repo->findById($id);
+        self::assertNotNull($chore);
+        self::assertNull($chore['assigned_to']);
+    }
+
+    public function test_check_constraint_rejects_negative_points(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        // The DB CHECK (points >= 0) is the integrity backstop behind the
+        // controller validator. A direct negative insert must raise a catchable
+        // PDO error rather than silently storing a negative value.
+        $this->expectException(\PDOException::class);
+        $this->db->run(
+            "INSERT INTO chores (household_id, created_by, title, points, timezone)
+             VALUES (:hid, :uid, 'Bad', -5, 'Pacific/Auckland')",
+            ['hid' => $hid, 'uid' => $uid],
+        );
+    }
+
+    public function test_find_by_id_returns_null_for_missing(): void
+    {
+        self::assertNull($this->repo->findById(999999));
+    }
+
+    public function test_list_for_household_orders_open_first_then_due(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+
+        $noDue = $this->repo->create($this->minimalChoreData($hid, $uid, ['title' => 'No due', 'due_at_local' => null]));
+        $late = $this->repo->create($this->minimalChoreData($hid, $uid, ['title' => 'Late', 'due_at_local' => '2026-07-20 09:00:00']));
+        $early = $this->repo->create($this->minimalChoreData($hid, $uid, ['title' => 'Early', 'due_at_local' => '2026-07-10 09:00:00']));
+        $done = $this->repo->create($this->minimalChoreData($hid, $uid, ['title' => 'Done', 'due_at_local' => '2026-07-05 09:00:00']));
+        $this->repo->markDone($done, $uid);
+
+        $list = $this->repo->listForHousehold($hid);
+        $titles = array_map(fn(array $c): string => $c['title'], $list);
+
+        // Open chores first (early due, then late due, then null-due last), done chore last.
+        self::assertSame(['Early', 'Late', 'No due', 'Done'], $titles);
+    }
+
+    public function test_update_changes_whitelisted_columns_only(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['title' => 'Old', 'points' => 1]));
+
+        $this->repo->update($id, [
+            'title' => 'New',
+            'points' => 25,
+            'household_id' => 99999,   // must be ignored
+            'created_by' => 99999,     // must be ignored
+        ]);
+
+        $chore = $this->repo->findById($id);
+        self::assertSame('New', $chore['title']);
+        self::assertSame(25, $chore['points']);
+        self::assertSame($hid, $chore['household_id']);
+        self::assertSame($uid, $chore['created_by']);
+    }
+
+    public function test_mark_done_sets_completed_at_and_by(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid));
+
+        $this->repo->markDone($id, $uid);
+
+        $chore = $this->repo->findById($id);
+        self::assertTrue($chore['is_done']);
+        self::assertNotNull($chore['completed_at']);
+        self::assertSame($uid, $chore['completed_by']);
+    }
+
+    public function test_mark_done_is_idempotent(): void
+    {
+        $first = $this->insertUser('a@example.com');
+        $second = $this->insertUser('b@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $first));
+
+        $this->repo->markDone($id, $first);
+        $after = $this->repo->findById($id);
+        $completedAt = $after['completed_at'];
+
+        // A second markDone by a different user must NOT overwrite completer/time.
+        $this->repo->markDone($id, $second);
+        $again = $this->repo->findById($id);
+
+        self::assertSame($first, $again['completed_by']);
+        self::assertSame($completedAt, $again['completed_at']);
+    }
+
+    public function test_reopen_clears_completed_fields(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid));
+        $this->repo->markDone($id, $uid);
+
+        $this->repo->reopen($id);
+
+        $chore = $this->repo->findById($id);
+        self::assertFalse($chore['is_done']);
+        self::assertNull($chore['completed_at']);
+        self::assertNull($chore['completed_by']);
+    }
+
+    public function test_points_tally_sums_completed_by_credited_member(): void
+    {
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $bob = $this->insertUser('bob@example.com', 'Bob');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $this->addMember($hid, $bob, 'member');
+
+        $c1 = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 10, 'assigned_to' => $alice]));
+        $c2 = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 5, 'assigned_to' => $alice]));
+        $this->repo->markDone($c1, $alice);
+        $this->repo->markDone($c2, $alice);
+
+        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
+
+        self::assertSame(15, $tally[$alice]);
+        self::assertSame(0, $tally[$bob]);  // member with no completed chores still listed at 0
+    }
+
+    public function test_points_tally_uncredits_after_reopen(): void
+    {
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $id = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 10, 'assigned_to' => $alice]));
+        $this->repo->markDone($id, $alice);
+
+        self::assertSame(10, $this->indexTally($this->repo->pointsTallyForHousehold($hid))[$alice]);
+
+        $this->repo->reopen($id);
+        self::assertSame(0, $this->indexTally($this->repo->pointsTallyForHousehold($hid))[$alice]);
+    }
+
+    public function test_points_tally_credits_completer_when_assignee_removed(): void
+    {
+        // A chore assigned to Carol but completed by Bob. Carol is then removed
+        // from the household. Credit must follow the DOER (Bob, via completed_by),
+        // not the now-departed assignee — and Bob's points must show on the board.
+        $bob = $this->insertUser('bob@example.com', 'Bob');
+        $carol = $this->insertUser('carol@example.com', 'Carol');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $bob, 'owner');
+        $this->addMember($hid, $carol, 'member');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $bob, ['points' => 50, 'assigned_to' => $carol]));
+        $this->repo->markDone($id, $bob);
+
+        // Carol leaves the household.
+        $this->db->run('DELETE FROM household_members WHERE household_id = :h AND user_id = :u', ['h' => $hid, 'u' => $carol]);
+
+        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
+        self::assertSame(50, $tally[$bob]);
+        self::assertArrayNotHasKey($carol, $tally);  // Carol no longer on the board
+    }
+
+    public function test_points_tally_falls_back_to_assignee_when_completer_account_deleted(): void
+    {
+        // completed_by is ON DELETE SET NULL. If the completer's ACCOUNT is
+        // deleted, completed_by → NULL and credit falls back to assigned_to.
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $temp = $this->insertUser('temp@example.com', 'Temp');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+
+        $id = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 30, 'assigned_to' => $alice]));
+        $this->repo->markDone($id, $temp);
+
+        // Temp's account is deleted; SET NULL nulls completed_by.
+        $this->db->run('DELETE FROM household_members WHERE user_id = :u', ['u' => $temp]);
+        $this->db->run('DELETE FROM users WHERE id = :u', ['u' => $temp]);
+
+        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
+        self::assertSame(30, $tally[$alice]);  // fell back to assigned_to
+    }
+
+    public function test_household_delete_cascades_to_chores(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $this->repo->create($this->minimalChoreData($hid, $uid));
+        $this->repo->create($this->minimalChoreData($hid, $uid));
+
+        $this->db->run('DELETE FROM households WHERE id = :id', ['id' => $hid]);
+
+        $count = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM chores WHERE household_id = :h', ['h' => $hid]);
+        self::assertSame(0, $count);
+    }
+
+    public function test_assignee_account_delete_sets_assigned_to_null(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $helper = $this->insertUser('helper@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $owner, ['assigned_to' => $helper]));
+
+        // Helper's account is deleted — created_by is owner (RESTRICT) so this is allowed.
+        $this->db->run('DELETE FROM household_members WHERE user_id = :u', ['u' => $helper]);
+        $this->db->run('DELETE FROM users WHERE id = :u', ['u' => $helper]);
+
+        $chore = $this->repo->findById($id);
+        self::assertNull($chore['assigned_to']);
+    }
+
+    public function test_delete_removes_chore(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid));
+
+        $this->repo->delete($id);
+
+        self::assertNull($this->repo->findById($id));
+    }
+
+    // --- helpers ---
+
+    private function insertUser(string $email, string $name = 'Test'): int
+    {
+        return (int) $this->db->fetchScalar(
+            'INSERT INTO users (email, password_hash, display_name) VALUES (:email, :hash, :name) RETURNING id',
+            ['email' => $email, 'hash' => 'unused', 'name' => $name],
+        );
+    }
+
+    private function insertHousehold(string $name): int
+    {
+        return (int) $this->db->fetchScalar(
+            "INSERT INTO households (name, join_code, timezone) VALUES (:name, :code, 'Pacific/Auckland') RETURNING id",
+            ['name' => $name, 'code' => substr(bin2hex(random_bytes(4)), 0, 8)],
+        );
+    }
+
+    private function addMember(int $hid, int $uid, string $role): void
+    {
+        $this->db->run(
+            'INSERT INTO household_members (household_id, user_id, role) VALUES (:h, :u, :r)',
+            ['h' => $hid, 'u' => $uid, 'r' => $role],
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private function minimalChoreData(int $hid, int $uid, array $overrides = []): array
+    {
+        return $overrides + [
+            'household_id' => $hid,
+            'created_by' => $uid,
+            'title' => 'Test chore',
+            'description' => '',
+            'points' => 0,
+            'due_at_local' => '2026-07-14 09:00:00',
+            'assigned_to' => null,
+            'timezone' => 'Pacific/Auckland',
+        ];
+    }
+
+    /**
+     * @param list<array{user_id: int, display_name: string, email: string, total_points: int}> $tally
+     * @return array<int, int>
+     */
+    private function indexTally(array $tally): array
+    {
+        $out = [];
+        foreach ($tally as $row) {
+            $out[$row['user_id']] = $row['total_points'];
+        }
+        return $out;
+    }
+}
