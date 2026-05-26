@@ -3,6 +3,7 @@
 -- v0.2: households + household_members + user_preferences
 -- v0.3.0: events
 -- v0.3.1: event_exceptions
+-- v0.3.2: ical_feed_tokens
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -161,3 +162,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_event_exceptions_one_per_occurrence
 
 CREATE INDEX IF NOT EXISTS idx_event_exceptions_override_event_id
     ON event_exceptions(override_event_id) WHERE override_event_id IS NOT NULL;
+
+-- ============================================================
+-- v0.3.2: ical_feed_tokens — per-user signed URLs for calendar subscription
+-- ============================================================
+--
+-- Each row backs a `/ical/{raw_token}.ics` URL the user pastes into their
+-- phone calendar app. The raw 64-char hex token is shown to the user ONCE
+-- post-generate; only the SHA-256 hash is stored, looked up via the UNIQUE
+-- index on token_hash. The route is unauthenticated — the token IS the auth.
+--
+-- Token cap policy (v0.3.2): max 3 active tokens per user. The 4th generate
+-- auto-revokes the oldest active token (sorted by created_at ASC) so users
+-- can rotate devices without manually cleaning up.
+--
+-- scope_household_id is always NULL in v0.3.2 (all-households-merged feed
+-- per the locked design). v0.4+ can issue per-household feeds by setting it.
+--
+-- `last_used_at` is updated on every hit. Surface this in the settings UI
+-- as a leak-detection signal (a feed URL being scraped silently shows a
+-- recent timestamp the user didn't expect).
+
+CREATE TABLE IF NOT EXISTS ical_feed_tokens (
+    id                 SERIAL PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope_household_id INTEGER NULL REFERENCES households(id) ON DELETE CASCADE,
+    token_hash         CHAR(64) NOT NULL UNIQUE,    -- SHA-256 of the raw hex token
+    last_used_at       TIMESTAMPTZ NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at         TIMESTAMPTZ NULL
+);
+
+-- Partial index for the cap-at-3 query (lookup of active tokens per user)
+CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
+    ON ical_feed_tokens(user_id) WHERE revoked_at IS NULL;
