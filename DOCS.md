@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.3.1 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.3.2 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -8,7 +8,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 
 - **[docs/SCHEMA.md](docs/SCHEMA.md)** — full database schema, every table, design notes per release
 - **[docs/ROUTES.md](docs/ROUTES.md)** — full route table grouped by feature
-- **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, planned v0.3.1/v0.3.2 sections)
+- **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, recurrence, single-occurrence editing, iCal feed)
 
 ---
 
@@ -41,14 +41,21 @@ mishka/
 │   │   └── MishkaUserRepository.php
 │   ├── Calendar/                                v0.3.0+
 │   │   ├── ConcurrentUpdateException.php       optimistic-concurrency signal
+│   │   ├── EventExceptionRepository.php         v0.3.1; two-step DELETE in dropAllForEvent
 │   │   ├── EventRepository.php                  events CRUD; defensive series_event_id IS NULL filter
-│   │   └── MonthGridBuilder.php                 6×7 grid + slot assignment for multi-day pills
+│   │   ├── EventService.php                     v0.3.1; cascade coordinator
+│   │   ├── IcalFeedBuilder.php                  v0.3.2; sabre/vobject VCALENDAR builder
+│   │   ├── IcalFeedTokenRepository.php          v0.3.2; SHA-256 hashed, cap-at-3
+│   │   ├── MonthGridBuilder.php                 6×7 grid + slot assignment for multi-day pills
+│   │   ├── RangeExpander.php                    v0.3.1; recurr-driven expansion + override de-dup
+│   │   └── RruleTranslator.php                  v0.3.1; preset form ↔ RRULE round-trip
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
 │   │   ├── AuthController.php
-│   │   ├── CalendarController.php               v0.3.0+
+│   │   ├── CalendarController.php               v0.3.0+ (single-occurrence routes v0.3.1)
 │   │   ├── HomeController.php
-│   │   └── HouseholdController.php
+│   │   ├── HouseholdController.php
+│   │   └── IcalFeedController.php               v0.3.2
 │   ├── Household/HouseholdRepository.php
 │   └── View/
 │       ├── CsrfTwigExtension.php
@@ -68,10 +75,16 @@ mishka/
 ├── templates/
 │   ├── auth/{register,login}.twig
 │   ├── calendar/                                v0.3.0+
+│   │   ├── _cascade_confirm.twig                v0.3.1; time-shift dialog with affected-list
+│   │   ├── _drop_confirm.twig                   v0.3.1; structural-change dialog with affected-list
 │   │   ├── _stale_data.twig                    409 partial for optimistic-concurrency conflicts
 │   │   ├── agenda.twig
 │   │   ├── event_form.twig                      shared by new/edit
-│   │   └── month.twig
+│   │   ├── month.twig
+│   │   └── occurrence_edit.twig                 v0.3.1; single-occurrence override form
+│   ├── feed/                                    v0.3.2
+│   │   ├── generated.twig                       raw token shown ONCE + referrer-no-referrer meta
+│   │   └── settings.twig                        active-tokens roster + Generate + Revoke
 │   ├── household/{setup,index}.twig
 │   ├── _partials/household_switcher.twig
 │   ├── home.twig
@@ -114,6 +127,9 @@ mishka/
 18. **Two-step DELETE for dropping overrides** (v0.3.1). FK CASCADE points `event_exceptions → events`, so deleting an exception row does NOT delete the override Event. `EventExceptionRepository::dropAllForEvent` deletes the override events first (CASCADE wipes the exception rows), then deletes the remaining cancellation rows.
 19. **Cascade-on-series-edit with confirmation dialogs** (v0.3.1). Clean time-shifts cascade override `original_starts_at` by the same delta; structural rrule/all_day changes drop overrides with a list of what's affected. `_expected_exception_count` hidden field protects the dialog flow against another tab adding/removing exceptions mid-dialog.
 20. **Defensive `series_event_id IS NULL` + `rrule IS NULL` filter** (v0.3.1) in `EventRepository::findInRangeForHousehold`. Override events would otherwise double-render through the one-off branch; recurring series would otherwise leak through the same branch alongside the RangeExpander.
+21. **SHA-256 hashed iCal tokens with cap at 3** (v0.3.2). Raw 64-hex token shown to the user once; only the hash persists. Cap-at-3 auto-revokes the oldest active row on the 4th generate — bounded leak surface without forcing manual cleanup. `last_used_at` exposed in settings as a leak-detection signal.
+22. **sabre/vobject not eluceo/ical for iCal serialisation** (v0.3.2). eluceo/ical 2.x cannot emit `RECURRENCE-ID`; overrides need it. sabre/vobject also parses iCal — door open for v0.5+ "subscribe to external calendar".
+23. **Layered token-leak defences** (v0.3.2). `Referrer-Policy: no-referrer` on feed responses + `<meta name="referrer">` on the post-generate page + Caddy log-path redaction documented in INFRASTRUCTURE.md.
 
 ---
 

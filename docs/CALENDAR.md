@@ -118,11 +118,67 @@ Cut from v0.3.1: UNTIL, COUNT, BYSETPOS, custom free-text RRULE. Rules run forev
 
 ## v0.3.2 — iCal feed
 
-*(not yet implemented)*
+### Tables
 
-Plan-locked design:
-- `ical_feed_tokens` table; per-user signed URL; SHA-256 hashed; cap at 3 active tokens (auto-revoke oldest on the 4th `generate`)
-- `sabre/vobject ^4.5` for serialisation (eluceo/ical 2.x can't emit `RECURRENCE-ID`; sabre/vobject does, natively, plus parses iCal — future-proof for v0.5+ "subscribe to external calendar")
-- All-households-merged feed by default (`scope_household_id NULL`); v0.4+ adds per-household feeds via the column
-- `Referrer-Policy: no-referrer` on the feed + `<meta name="referrer" content="no-referrer">` on the post-generate page; Caddy log-path redaction documented in INFRASTRUCTURE.md
-- VTIMEZONE block embedded per unique event timezone via `\Sabre\VObject\TimeZoneUtil::getVTimeZone()` so Apple Calendar / Google Calendar / Outlook render the local time correctly
+```sql
+CREATE TABLE ical_feed_tokens (
+    id                 SERIAL PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope_household_id INTEGER NULL REFERENCES households(id) ON DELETE CASCADE,
+    token_hash         CHAR(64) NOT NULL UNIQUE,           -- SHA-256 of raw hex token
+    last_used_at       TIMESTAMPTZ NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at         TIMESTAMPTZ NULL
+);
+CREATE INDEX idx_ical_feed_tokens_user_active
+    ON ical_feed_tokens(user_id) WHERE revoked_at IS NULL;
+```
+
+`scope_household_id` is always `NULL` in v0.3.2 — the feed merges every household the user is a member of. The column ships now so v0.4+ can add a "feed for this household only" button without an ALTER.
+
+### Token model (IcalFeedTokenRepository)
+
+- `generate(int $userId): string` returns a 64-hex raw token (`bin2hex(random_bytes(32))`); only the SHA-256 hash is persisted. The raw value is shown to the user **once** on the post-generate page and is irrecoverable thereafter.
+- `findByRawToken(string $raw): ?array` hashes + looks up via the `UNIQUE token_hash` index. On hit, updates `last_used_at`. The UI surfaces `last_used_at` so the owner can spot a leaked URL (recent activity from a device they don't recognise).
+- **Cap at 3 active tokens.** `generate` loop-and-revokes the oldest active row (by `created_at ASC, id ASC`) before inserting the new row whenever the active count is ≥3. Locked round-3 with the user — bounded surface area without forcing manual cleanup on device-switching.
+- `revoke(int $tokenId, int $byUserId): void` requires ownership and throws `RuntimeException` on a stranger trying to revoke someone else's token.
+
+### Feed builder (IcalFeedBuilder via sabre/vobject)
+
+The builder walks every household membership for the requesting user and emits a `VCALENDAR` containing:
+
+- **One-off events** (`rrule IS NULL`) whose `[starts_at_local, ends_at_local]` intersect the window `[-31 days, +366 days]` of "now". DTSTART / DTEND carry the event's TZID.
+- **Recurring series** — every event with a non-null `rrule` is emitted unconditionally (no UNTIL pre-expansion). Clients expand the RRULE in their own timezone library, which keeps the feed compact and DST-correct without us pre-computing every occurrence.
+- **Cancellations** — every `event_exceptions` row with `override_event_id IS NULL` adds an EXDATE entry on the series VEVENT.
+- **Overrides** — every `event_exceptions` row with `override_event_id IS NOT NULL` emits a **separate VEVENT** with the **same UID** as the series, plus a `RECURRENCE-ID` property pointing at the original occurrence's TZID-qualified local time. RFC 5545 compliant; clients render the override in place of the series occurrence.
+- **VTIMEZONE block per unique event timezone.** Constructed via `$vcal->createComponent('STANDARD')` rather than `$vtz->add('STANDARD')` because STANDARD isn't in VCalendar's `$componentMap` — the latter call would return a Property, not a Component. Minimal RFC 5545 envelope (TZID + a single STANDARD subcomponent with the current standard-time offset); modern clients resolve the TZID against their own tzdb if the embedded block is sparse.
+
+UID format: `mishka-event-{event_id}@bjornbasar/mishka`. Stable across re-fetches so client-side update logic doesn't dup-create.
+
+### Why sabre/vobject not eluceo/ical
+
+`eluceo/ical ^2.16` cannot emit `RECURRENCE-ID` — verified by source inspection. Overrides need it. `sabre/vobject ^4.5` ships it natively, and additionally parses iCal — which leaves the door open for v0.5+ "subscribe to external calendar" without adding another library.
+
+### Routes (IcalFeedController)
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /me/calendar/feed` | session | Settings page; lists active tokens (created_at + last_used_at) |
+| `POST /me/calendar/feed/generate` | session | Generate a token; render the post-generate page with raw URL shown ONCE |
+| `POST /me/calendar/feed/tokens/{id}/revoke` | session | Owner-gated revoke; 303 to settings |
+| `GET /ical/{token}.ics` | **none** | Hash lookup; 200 with `text/calendar` body, or 404 |
+
+The public feed route is intentionally unauthenticated — the token IS the auth. The raw URL works the same way phone calendar apps expect (no Basic auth challenge, no OAuth). 404 covers both invalid and revoked tokens (no distinguishing signal to a guesser).
+
+### Token-leak defences (layered)
+
+1. **`Referrer-Policy: no-referrer`** on both the public feed response and the post-generate page. Phone calendar apps don't leak the URL back in a Referer header on subsequent fetches.
+2. **`<meta name="referrer" content="no-referrer">`** in the post-generate page's `<head>`. The page contains a `webcal://` link; the meta tag covers the browser-side leak from any clicks before the user navigates away.
+3. **64-hex shape check** at the start of `serveFeed()`. A bot guessing short paths can't even trigger a DB lookup.
+4. **Caddy log-path redaction**. The token sits in the URL path, so reverse-proxy access logs would otherwise persist it on disk. Configuration snippet documented in [INFRASTRUCTURE.md](../../INFRASTRUCTURE.md#mishka-ical-feed-log-redaction).
+
+### What we *don't* do (deferred to v0.4+)
+
+- Per-household feeds. The `scope_household_id` column is there; the UI isn't.
+- In-app rate limiting on `/ical/{token}.ics`. Rely on the reverse-proxy layer (Caddy / nginx) — calendar apps fetch every few minutes per device, and three devices × every-15-minutes is well below any plausible threshold.
+- Subscribe-to-external-calendar (the reverse direction). sabre/vobject parses iCal so the door is open.

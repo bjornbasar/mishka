@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.3.1** — recurrence + single-occurrence editing. Weekly chores, monthly bills, yearly birthdays all expand on the calendar grid; edit "just this Tuesday" without breaking the rest of the series. iCal feed is next (v0.3.2).
+**v0.3.2** — per-user signed iCal feed. Subscribe to your household calendar from any phone or desktop calendar app; recurrence, single-occurrence overrides, and cancellations all surface as RFC 5545 VEVENTs.
 
 ## Quick start
 
@@ -32,20 +32,21 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.3.1
+## What works in v0.3.2
 
-Carried forward from v0.1/v0.2/v0.3.0: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar with month grid + agenda + optimistic-concurrency event edits.
+Carried forward from v0.1/v0.2/v0.3.0/v0.3.1: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar with month grid + agenda + optimistic-concurrency event edits, RRULE recurrence with preset UX, single-occurrence cancel/override, cascade-on-series-edit dialogs.
 
-**New in v0.3.1:**
-- **RRULE recurrence** with preset UX (none / daily / weekly / monthly / yearly + INTERVAL). DST-safe expansion in the event's timezone — "9am every Tuesday in NZ" stays 9am wall-clock across NZDT/NZST transitions.
-- **Single-occurrence editing** — cancel or override a specific occurrence of a recurring series without disturbing the rest. Edit "just this Tuesday" to 7pm; the next Tuesdays stay at 6pm.
-- **Cascade-on-series-edit dialogs** — when you move a recurring event's time or change its repeat pattern with existing customisations, you see exactly which ones will shift (clean time-delta) or drop (structural change) before you confirm. Two-step concurrency check protects against another tab adding/removing an exception mid-dialog.
+**New in v0.3.2:**
+- **Per-user signed iCal feed.** Visit `/me/calendar/feed`, generate a URL, and subscribe in iOS Calendar / Google Calendar / Outlook / Thunderbird. The feed merges every household you're a member of; recurring events emit raw RRULEs so the client expands client-side (DST-correct without us pre-expanding).
+- **RECURRENCE-ID overrides + EXDATE cancellations** — single-occurrence edits and cancels from v0.3.1 surface natively in subscribed calendars via `sabre/vobject` (eluceo/ical 2.x can't emit RECURRENCE-ID; that's why we picked sabre/vobject).
+- **VTIMEZONE block per event timezone** — Apple Calendar / Google Calendar / Outlook render the wall-clock time correctly across NZDT / NZST.
+- **Cap at 3 active tokens** with auto-revoke oldest on the 4th generate; `last_used_at` surfaces in the settings page as a leak-detection signal.
+- **Token-leak defences**: `Referrer-Policy: no-referrer` on feed responses + `<meta name="referrer">` on the post-generate page + Caddy log-path redaction documented in [INFRASTRUCTURE.md](../INFRASTRUCTURE.md#mishka-ical-feed-log-redaction).
 
 ## Roadmap
 
-- **v0.3.2** — Per-user signed iCal feed for phone-calendar subscription. `sabre/vobject` builds VCALENDAR with RECURRENCE-ID overrides + VTIMEZONE; cap at 3 active tokens with auto-revoke oldest.
 - **v0.4** — Chores: per-household list, round-robin assignment, kid-friendly points, in-app overdue badges
-- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset
+- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds (column already nullable), subscribe-to-external-calendar (sabre/vobject parses iCal)
 
 ## Docs
 

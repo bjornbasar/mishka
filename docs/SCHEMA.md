@@ -131,6 +131,28 @@ CREATE INDEX IF NOT EXISTS idx_event_exceptions_override_event_id
 
 **Why two-step DELETE for `dropAllForEvent`:** the FK direction is `event_exceptions → events`, so deleting an exception row does NOT delete the referenced override Event. To wipe both, the service deletes the override Event rows first (CASCADE clears the matching exception rows), then deletes the remaining cancellation rows directly. Round-3 review BLOCKING-bug-fix.
 
-## Future schema additions (v0.3.2)
+## v0.3.2 — iCal feed
 
-- `ical_feed_tokens` table for per-user signed iCal feed URLs
+```sql
+CREATE TABLE IF NOT EXISTS ical_feed_tokens (
+    id                 SERIAL PRIMARY KEY,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope_household_id INTEGER NULL REFERENCES households(id) ON DELETE CASCADE,
+    token_hash         CHAR(64) NOT NULL UNIQUE,
+    last_used_at       TIMESTAMPTZ NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at         TIMESTAMPTZ NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
+    ON ical_feed_tokens(user_id) WHERE revoked_at IS NULL;
+```
+
+**`token_hash` stores SHA-256(raw)**, not the raw token. The 64-char hex raw token is shown to the user once on the post-generate page and is irrecoverable thereafter. UNIQUE on the hash means lookups are O(log n) via the index and brute-force on 256 bits of entropy is computationally infeasible.
+
+**`scope_household_id NULL` = all-households-merged feed.** v0.3.2 always sets this to NULL; the column ships now so v0.4+ can add a "feed for this household only" UI without an ALTER.
+
+**`last_used_at`** is updated on every successful `findByRawToken` hit and surfaced in the settings page as a leak-detection signal — a feed URL being scraped silently shows a recent timestamp the owner didn't expect.
+
+**Soft-delete via `revoked_at`** rather than DELETE: lets the user see "this URL got 240 fetches before I revoked it" in a future audit view (not in v0.3.2). All lookups filter `WHERE revoked_at IS NULL`.
+
+**Cap-at-3 active tokens per user** enforced in `IcalFeedTokenRepository::generate` — loop-and-revoke the oldest active row (by `created_at ASC, id ASC`) before inserting the new row whenever the active count is ≥3.

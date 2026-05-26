@@ -63,7 +63,13 @@ POST `/calendar/events/{id}` either applies the change directly or — when ther
 
 Both confirm forms also carry `_expected_updated_at` + `_expected_exception_count` so the second submit re-runs the optimistic-concurrency checks against fresh state.
 
-## Future routes (v0.3.2+)
+## iCal feed (v0.3.2)
 
-Documented in `docs/CALENDAR.md`:
-- v0.3.2: `/me/calendar/feed`, `/me/calendar/feed/generate`, `/me/calendar/feed/tokens/{id}/revoke`, `/ical/{token}.ics` (per-user iCal feed)
+| Method | Path | Notes |
+|---|---|---|
+| GET | /me/calendar/feed | Settings page; lists active tokens (created_at + last_used_at). Session-gated. |
+| POST | /me/calendar/feed/generate | Cap-aware generate; renders the post-generate page with the raw URL shown ONCE. `Referrer-Policy: no-referrer` header. |
+| POST | /me/calendar/feed/tokens/{id}/revoke | Owner-gated; 303 → /me/calendar/feed. Stranger-revoke throws RuntimeException at repo layer. |
+| GET | /ical/{token}.ics | **UNAUTHENTICATED.** Token IS the auth. 200 `text/calendar` on hit, 404 on invalid / revoked. `Referrer-Policy: no-referrer` + `Cache-Control: private, max-age=300` headers. |
+
+The public feed route shape-checks the token against `/^[0-9a-f]{64}$/` before hashing — cheap bot filter, no DB lookup on malformed input.
