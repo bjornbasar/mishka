@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.3.0** — calendar lands: month grid + agenda + create/edit/delete one-off events. Recurrence + iCal feed are next (v0.3.1 → v0.3.2 release train).
+**v0.3.1** — recurrence + single-occurrence editing. Weekly chores, monthly bills, yearly birthdays all expand on the calendar grid; edit "just this Tuesday" without breaking the rest of the series. iCal feed is next (v0.3.2).
 
 ## Quick start
 
@@ -32,20 +32,18 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.3.0
+## What works in v0.3.1
 
-Carried forward from v0.1/v0.2: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed, switcher dropdown), stale-session self-heal.
+Carried forward from v0.1/v0.2/v0.3.0: registration + login (timing-safe), logout (cookie-clearing), CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar with month grid + agenda + optimistic-concurrency event edits.
 
-**New in v0.3.0:**
-- Household calendar at `/calendar` — month grid + agenda fallback
-- Create / edit / delete one-off events (title, datetime, location, description, all-day flag)
-- DST-safe time storage (local + IANA timezone)
-- Optimistic-concurrency on event edits — two-tab edits land cleanly on a "View current event" page instead of overwriting each other
+**New in v0.3.1:**
+- **RRULE recurrence** with preset UX (none / daily / weekly / monthly / yearly + INTERVAL). DST-safe expansion in the event's timezone — "9am every Tuesday in NZ" stays 9am wall-clock across NZDT/NZST transitions.
+- **Single-occurrence editing** — cancel or override a specific occurrence of a recurring series without disturbing the rest. Edit "just this Tuesday" to 7pm; the next Tuesdays stay at 6pm.
+- **Cascade-on-series-edit dialogs** — when you move a recurring event's time or change its repeat pattern with existing customisations, you see exactly which ones will shift (clean time-delta) or drop (structural change) before you confirm. Two-step concurrency check protects against another tab adding/removing an exception mid-dialog.
 
 ## Roadmap
 
-- **v0.3.1** — RRULE recurrence + single-occurrence editing (cancel + override an individual occurrence of a recurring event)
-- **v0.3.2** — Per-user signed iCal feed for phone-calendar subscription
+- **v0.3.2** — Per-user signed iCal feed for phone-calendar subscription. `sabre/vobject` builds VCALENDAR with RECURRENCE-ID overrides + VTIMEZONE; cap at 3 active tokens with auto-revoke oldest.
 - **v0.4** — Chores: per-household list, round-robin assignment, kid-friendly points, in-app overdue badges
 - Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset
 

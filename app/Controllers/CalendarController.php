@@ -8,6 +8,7 @@ use App\Auth\HouseholdAuthorizer;
 use App\Calendar\ConcurrentUpdateException;
 use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
+use App\Calendar\EventService;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
@@ -44,6 +45,7 @@ final class CalendarController
         private readonly RangeExpander $expander,
         private readonly RruleTranslator $rrules,
         private readonly EventExceptionRepository $exceptions,
+        private readonly EventService $eventService,
     ) {}
 
     #[Route('/calendar', methods: ['GET'], name: 'calendar.month')]
@@ -221,6 +223,8 @@ final class CalendarController
 
         $household = $this->households->findById($hid);
 
+        $exceptionCount = count($this->exceptions->listForEvent($eid));
+
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('calendar/event_form.twig', [
@@ -228,6 +232,7 @@ final class CalendarController
                 'errors' => [],
                 'event' => $this->eventForForm($event),
                 'recurrence' => $this->rrules->toForm($event['rrule']),
+                'exception_count' => $exceptionCount,
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
     }
@@ -280,17 +285,69 @@ final class CalendarController
             'rrule' => $rrule,
         ];
 
+        // Dialog confirmations + exception-count come from hidden form fields
+        // that the cascade/drop confirm dialogs add to the resubmit.
+        $cascadeConfirmed = $this->readField($request, '_cascade_confirmed') === '1';
+        $dropConfirmed = $this->readField($request, '_drop_confirmed') === '1';
+        $expectedExceptionCount = (int) $this->readField($request, '_expected_exception_count');
+
         try {
-            $this->events->update($eid, $writable, $expectedUpdatedAt);
+            $result = $this->eventService->updateSeries(
+                $eid,
+                $writable,
+                $expectedUpdatedAt,
+                $cascadeConfirmed,
+                $dropConfirmed,
+                $expectedExceptionCount,
+            );
         } catch (ConcurrentUpdateException $e) {
-            // Stale data: someone else (or another tab) edited this event since the
-            // form was rendered. Show the partial with a "View current event" link.
             $fresh = $this->events->findById($eid);
             return (new Response(409))
                 ->withHeader('Content-Type', 'text/html; charset=utf-8')
                 ->withBody($this->view->render('calendar/_stale_data.twig', [
                     'event' => $fresh,
                     'household' => $household,
+                ] + $this->nav->forCurrentUser()));
+        }
+
+        if ($result->status === 'requires_cascade_confirm') {
+            return (new Response())
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody($this->view->render('calendar/_cascade_confirm.twig', [
+                    'event_id' => $eid,
+                    'event' => $writable + ['id' => $eid],
+                    'recurrence' => $this->extractRecurrenceForm($input),
+                    'expected_updated_at' => $expectedUpdatedAt,
+                    'exception_count' => $result->exceptionCount,
+                    'affected' => $result->affected,
+                    'household' => $household,
+                ] + $this->nav->forCurrentUser()));
+        }
+
+        if ($result->status === 'requires_drop_confirm') {
+            return (new Response())
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody($this->view->render('calendar/_drop_confirm.twig', [
+                    'event_id' => $eid,
+                    'event' => $writable + ['id' => $eid],
+                    'recurrence' => $this->extractRecurrenceForm($input),
+                    'expected_updated_at' => $expectedUpdatedAt,
+                    'exception_count' => $result->exceptionCount,
+                    'affected' => $result->affected,
+                    'household' => $household,
+                ] + $this->nav->forCurrentUser()));
+        }
+
+        if ($result->status === 'stale_data') {
+            // Exception count changed between the dialog and confirm. Re-render
+            // the edit form with the fresh state + a warning.
+            $fresh = $this->events->findById($eid);
+            return (new Response(409))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody($this->view->render('calendar/_stale_data.twig', [
+                    'event' => $fresh,
+                    'household' => $household,
+                    'stale_reason' => 'Someone added or removed an occurrence customisation while you were on the dialog. Re-open the event to see the current state.',
                 ] + $this->nav->forCurrentUser()));
         }
 

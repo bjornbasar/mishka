@@ -1,0 +1,47 @@
+{% extends "layout.twig" %}
+
+{% block title %}Confirm structural change — {{ event.title }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Drop customisations and apply structural change?</h1>
+    <p>
+        You're changing the repeat pattern of <strong>{{ event.title }}</strong>. The new schedule
+        won't line up with the existing per-occurrence customisations, so they need to be removed.
+        Confirming will delete <strong>{{ exception_count }}</strong> customisation{{ exception_count == 1 ? '' : 's' }}:
+    </p>
+
+    <ul class="errors">
+        {% for a in affected %}
+            <li><strong>{{ a.date }}</strong> — {{ a.summary }}</li>
+        {% endfor %}
+    </ul>
+
+    <p style="color:var(--muted); font-size:0.9em;">
+        This can't be undone. If you'd rather keep them, cancel and edit just the timing or title instead
+        — those won't trigger this dialog.
+    </p>
+
+    <form method="POST" action="/calendar/events/{{ event_id }}" class="auth">
+        {{ csrf_field() }}
+
+        <input type="hidden" name="title" value="{{ event.title }}">
+        <input type="hidden" name="description" value="{{ event.description|default('') }}">
+        <input type="hidden" name="location" value="{{ event.location|default('') }}">
+        <input type="hidden" name="starts_at_local" value="{{ event.starts_at_local|replace({' ': 'T'})|slice(0, 16) }}">
+        <input type="hidden" name="ends_at_local" value="{{ event.ends_at_local|replace({' ': 'T'})|slice(0, 16) }}">
+        <input type="hidden" name="all_day" value="{{ event.all_day|default(false) ? '1' : '' }}">
+        <input type="hidden" name="recurrence_preset" value="{{ recurrence.preset }}">
+        <input type="hidden" name="recurrence_interval" value="{{ recurrence.interval }}">
+        {% for d in recurrence.byday %}<input type="hidden" name="recurrence_byday[]" value="{{ d }}">{% endfor %}
+        <input type="hidden" name="recurrence_monthly_day" value="{{ recurrence.monthly_day }}">
+
+        <input type="hidden" name="_expected_updated_at" value="{{ expected_updated_at }}">
+        <input type="hidden" name="_expected_exception_count" value="{{ exception_count }}">
+        <input type="hidden" name="_drop_confirmed" value="1">
+
+        <div style="display:flex; gap:0.5rem;">
+            <button type="submit" style="background:var(--error); color:#fff;">Drop {{ exception_count }} customisation{{ exception_count == 1 ? '' : 's' }} and save</button>
+            <a href="/calendar/events/{{ event_id }}" style="align-self:center; color:var(--muted);">Cancel</a>
+        </div>
+    </form>
+{% endblock %}

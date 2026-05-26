@@ -56,14 +56,65 @@ Events round to whole minutes on insert/update (`EventRepository::truncateSecond
 
 ## v0.3.1 — recurrence + single-occurrence editing
 
-*(not yet implemented)*
+### Tables
 
-Plan-locked design:
-- `event_exceptions` table tracking cancellations (`override_event_id IS NULL`) and overrides (`override_event_id` → standalone Event row, with `series_event_id` back-ref to the series)
-- `simshaun/recurr ^6.0` expands RRULE in the event's timezone
-- Single-occurrence URL slug `YYYY-MM-DDTHH-MM` (regex-validated before parsing)
-- RRULE preset UX: dropdown of `none / daily / weekly / monthly / yearly` + INTERVAL; no UNTIL, no COUNT (rules run forever like phone calendars); no custom RRULE
-- Cascade-on-series-edit policy: clean time-shifts cascade override `original_starts_at` by the same delta; structural rrule changes drop overrides (with explicit two-step DELETE because `event_exceptions → events` CASCADE points the wrong way for the override-event cleanup)
+`event_exceptions` records cancellations + per-occurrence overrides for a recurring series:
+- `event_id` → series row in `events`
+- `original_starts_at` → the occurrence date+time in the event's timezone (canonical key)
+- `override_event_id` → `NULL` means cancelled; non-`NULL` points at a standalone `events` row that *replaces* the occurrence (which has its own `series_event_id` back-ref to the series)
+
+UNIQUE `(event_id, original_starts_at)` makes cancel() idempotent and prevents two overrides on the same occurrence.
+
+### Recurrence expansion (RangeExpander)
+
+`simshaun/recurr ^6.0` expands RRULE strings in the event's timezone — wall-clock time stays stable across DST transitions ("9am every Tuesday in NZ" stays 9am local). Each query auto-sizes the virtual-recurrence limit to `max(31, range_days + 31)` so the month-grid view doesn't over-expand and a DAILY rule with no UNTIL still terminates.
+
+The expansion path applies cancellations (drop the occurrence) then substitutes overrides (occurrence emits as `is_override: true` with the override Event's time + title). Override Events themselves are excluded from the one-off branch via `series_event_id IS NULL` — the round-3 BLOCKING-bug-fix that prevents them double-rendering.
+
+### Cascade policy on series edits (EventService)
+
+Three diff classifications:
+- **Cosmetic** (title/description/location only) — apply directly, no dialog.
+- **Time-shift** (starts_at_local changed, rrule + all_day unchanged) — with overrides, render `_cascade_confirm.twig` listing each affected customisation. On confirm, `EventExceptionRepository::cascadeShift` adds the same delta to every `original_starts_at` so customisations still line up with the new schedule.
+- **Structural** (rrule changed or all_day flipped) — with overrides, render `_drop_confirm.twig` listing each customisation that will be lost. On confirm, `EventExceptionRepository::dropAllForEvent` runs the **two-step DELETE** pattern: delete each override Event row first (CASCADEs the matching exception row via the override_event_id FK), then delete the remaining cancellation rows.
+
+Why two-step? FK `ON DELETE CASCADE` on `event_exceptions.override_event_id REFERENCES events(id)` propagates **only** when the referenced Event row is deleted — not when the exception row is. Deleting just the exception rows would orphan the override Event rows. The plan's round-3 review caught this; the code carries explicit comments at the relevant queries.
+
+### Optimistic concurrency (two-step)
+
+Every edit form carries two hidden fields:
+- `_expected_updated_at` — `events.updated_at` at form-render time. Mismatch → `ConcurrentUpdateException` → 409 + `_stale_data.twig` ("View current event" link).
+- `_expected_exception_count` — `COUNT(*)` from `event_exceptions` at form-render time. Mismatch on submit → `UpdateResult::stale_data` (the cascade/drop dialog was open while someone else added/removed an exception). Forces the user to re-open the form against fresh state.
+
+### Single-occurrence URLs
+
+Slug format `YYYY-MM-DDTHH-MM` (regex `^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}$`). No colons (URL-encoding fragility), no Z (timezone is implied by the event row), no seconds (mishka enforces minute precision on insert).
+
+Validation chain in `resolveOccurrence`:
+1. Regex shape check → 404 if malformed
+2. Series exists + belongs to active household → 404 if foreign
+3. Series has `rrule` → 404 if not recurring
+4. Parse to `DateTimeImmutable` in the series timezone
+5. `RangeExpander` confirms the parsed time is a real occurrence OR an existing exception row sits there → 404 otherwise
+
+The "existing exception" fallback lets users edit already-cancelled or already-overridden occurrences.
+
+Four routes:
+- `GET /calendar/events/{id}/occurrences/{key}/edit` — pre-fills from existing override OR series defaults
+- `POST /calendar/events/{id}/occurrences/{key}` — save override (wipes any existing exception first to dodge the UNIQUE constraint, then `addOverride`)
+- `POST /calendar/events/{id}/occurrences/{key}/cancel` — `cancel` (idempotent)
+- `POST /calendar/events/{id}/occurrences/{key}/restore` — drop the exception (two-step DELETE if it was an override)
+
+### RRULE input UX (RruleTranslator)
+
+The event form's "Repeats" dropdown shows five presets: `Does not repeat / Daily / Weekly / Monthly / Yearly`. Pure CSS `:has()` shows only the sub-fields relevant to the selected preset (no JS).
+
+- **Weekly** — checkboxes for BYDAY (Mon–Sun). Empty selection defaults to the start date's weekday.
+- **Monthly** — `monthly_day` number input clamped to 1–28 (so the rule stays valid across all months; "last day of month" via BYMONTHDAY=-1 waits for the v0.4+ custom builder).
+- **Yearly** — emits bare `FREQ=YEARLY`. Recurr derives the month + day from DTSTART, so editing the start date naturally moves the yearly recurrence with it.
+- **Optional INTERVAL** ("every 2 weeks", "every 3 months") via a single number input.
+
+Cut from v0.3.1: UNTIL, COUNT, BYSETPOS, custom free-text RRULE. Rules run forever like phone calendars. Unsupported existing RRULE strings (e.g. imported from elsewhere) round-trip as `preset: 'custom'` so the edit form still renders without throwing.
 
 ## v0.3.2 — iCal feed
 

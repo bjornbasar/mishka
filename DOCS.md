@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.3.0 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.3.1 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -21,7 +21,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 | Database | PostgreSQL via karhu-db (PDO) |
 | Views | Twig via karhu-view |
 | Auth | karhu's argon2id PasswordHasher + Rbac + Session/CSRF middleware + `Karhu\Error\ForbiddenException` (v0.1.1) |
-| Recurrence (v0.3.1+) | `simshaun/recurr ^6.0` |
+| Recurrence | `simshaun/recurr ^6.0` (v0.3.1+) |
 | iCal (v0.3.2+) | `sabre/vobject ^4.5` |
 | Env loader | `vlucas/phpdotenv ^5.6` |
 | Testing | PHPUnit 11 — SQLite in-memory for unit/integration; PostgreSQL smoke job in CI |
@@ -110,6 +110,10 @@ mishka/
 14. **Schema additive-only** (v0.3.0 includes inert `rrule` + `series_event_id` columns) so v0.3.1 doesn't need an ALTER.
 15. **Optimistic concurrency on event edits** (v0.3.0). `_expected_updated_at` hidden field; 409 + stale-data partial on mismatch.
 16. **POST whitelist** (v0.3.0). Calendar controller never accepts `series_event_id`, `timezone`, `created_by`, or system columns from form input.
+17. **Pattern B for single-occurrence editing** (v0.3.1). `event_exceptions(event_id, original_starts_at, override_event_id NULL)` with RFC 5545 RECURRENCE-ID semantics in mind for the future iCal feed.
+18. **Two-step DELETE for dropping overrides** (v0.3.1). FK CASCADE points `event_exceptions → events`, so deleting an exception row does NOT delete the override Event. `EventExceptionRepository::dropAllForEvent` deletes the override events first (CASCADE wipes the exception rows), then deletes the remaining cancellation rows.
+19. **Cascade-on-series-edit with confirmation dialogs** (v0.3.1). Clean time-shifts cascade override `original_starts_at` by the same delta; structural rrule/all_day changes drop overrides with a list of what's affected. `_expected_exception_count` hidden field protects the dialog flow against another tab adding/removing exceptions mid-dialog.
+20. **Defensive `series_event_id IS NULL` + `rrule IS NULL` filter** (v0.3.1) in `EventRepository::findInRangeForHousehold`. Override events would otherwise double-render through the one-off branch; recurring series would otherwise leak through the same branch alongside the RangeExpander.
 
 ---
 

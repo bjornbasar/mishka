@@ -18,6 +18,7 @@
 
         {% if mode == 'edit' %}
             <input type="hidden" name="_expected_updated_at" value="{{ event.updated_at }}">
+            <input type="hidden" name="_expected_exception_count" value="{{ exception_count|default(0) }}">
         {% endif %}
 
         <label>

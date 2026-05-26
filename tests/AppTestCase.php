@@ -9,6 +9,7 @@ use App\Auth\HouseholdAuthorizer;
 use App\Auth\MishkaUserRepository;
 use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
+use App\Calendar\EventService;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
@@ -79,6 +80,7 @@ abstract class AppTestCase extends TestCase
         $monthGrid = new MonthGridBuilder();
         $rangeExpander = new RangeExpander($this->eventRepo, $exceptionRepo);
         $rruleTranslator = new RruleTranslator();
+        $eventService = new EventService($this->eventRepo, $exceptionRepo);
         $this->hasher = new PasswordHasher();
         $rbac = new Rbac($this->userRepo);
         $authz = new HouseholdAuthorizer($this->householdRepo);
@@ -100,6 +102,7 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(MonthGridBuilder::class, $monthGrid);
         $app->container()->set(RangeExpander::class, $rangeExpander);
         $app->container()->set(RruleTranslator::class, $rruleTranslator);
+        $app->container()->set(EventService::class, $eventService);
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);

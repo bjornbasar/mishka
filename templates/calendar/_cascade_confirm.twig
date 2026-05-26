@@ -1,0 +1,44 @@
+{% extends "layout.twig" %}
+
+{% block title %}Confirm shift — {{ event.title }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Shift customisations along with the series?</h1>
+    <p>
+        You're moving <strong>{{ event.title }}</strong> to a new time. The series has
+        <strong>{{ exception_count }}</strong> customisation{{ exception_count == 1 ? '' : 's' }}
+        (cancellations or per-occurrence overrides). Confirming will shift each customisation's
+        original-occurrence date by the same amount so it still lines up with the right occurrence.
+    </p>
+
+    <ul class="errors" style="background:rgba(184,135,70,0.1); border-color:var(--accent); color:var(--fg);">
+        {% for a in affected %}
+            <li><strong>{{ a.date }}</strong> — {{ a.summary }}</li>
+        {% endfor %}
+    </ul>
+
+    <form method="POST" action="/calendar/events/{{ event_id }}" class="auth">
+        {{ csrf_field() }}
+
+        {# Resubmit every field of the original edit so the service can re-process #}
+        <input type="hidden" name="title" value="{{ event.title }}">
+        <input type="hidden" name="description" value="{{ event.description|default('') }}">
+        <input type="hidden" name="location" value="{{ event.location|default('') }}">
+        <input type="hidden" name="starts_at_local" value="{{ event.starts_at_local|replace({' ': 'T'})|slice(0, 16) }}">
+        <input type="hidden" name="ends_at_local" value="{{ event.ends_at_local|replace({' ': 'T'})|slice(0, 16) }}">
+        <input type="hidden" name="all_day" value="{{ event.all_day|default(false) ? '1' : '' }}">
+        <input type="hidden" name="recurrence_preset" value="{{ recurrence.preset }}">
+        <input type="hidden" name="recurrence_interval" value="{{ recurrence.interval }}">
+        {% for d in recurrence.byday %}<input type="hidden" name="recurrence_byday[]" value="{{ d }}">{% endfor %}
+        <input type="hidden" name="recurrence_monthly_day" value="{{ recurrence.monthly_day }}">
+
+        <input type="hidden" name="_expected_updated_at" value="{{ expected_updated_at }}">
+        <input type="hidden" name="_expected_exception_count" value="{{ exception_count }}">
+        <input type="hidden" name="_cascade_confirmed" value="1">
+
+        <div style="display:flex; gap:0.5rem;">
+            <button type="submit">Shift {{ exception_count }} customisation{{ exception_count == 1 ? '' : 's' }} and save</button>
+            <a href="/calendar/events/{{ event_id }}" style="align-self:center; color:var(--muted);">Cancel</a>
+        </div>
+    </form>
+{% endblock %}

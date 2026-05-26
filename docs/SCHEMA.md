@@ -103,8 +103,34 @@ CREATE INDEX IF NOT EXISTS idx_events_series_event_id
 
 **Partial index** on `series_event_id` powers v0.3.1's override-lookup path. The defensive `WHERE series_event_id IS NULL` filter in `EventRepository::findInRangeForHousehold` keeps v0.3.1's override events from double-rendering through this code path.
 
-## Future schema additions (v0.3.1+)
+## v0.3.1 — event_exceptions
 
-Documented in `docs/CALENDAR.md`:
-- v0.3.1: `event_exceptions` table for cancellations + override-event back-references
-- v0.3.2: `ical_feed_tokens` table for per-user signed iCal feed URLs
+```sql
+CREATE TABLE IF NOT EXISTS event_exceptions (
+    id                 SERIAL PRIMARY KEY,
+    event_id           INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    original_starts_at TIMESTAMP NOT NULL,
+    override_event_id  INTEGER NULL REFERENCES events(id) ON DELETE CASCADE,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_event_exceptions_one_per_occurrence
+    ON event_exceptions(event_id, original_starts_at);
+
+CREATE INDEX IF NOT EXISTS idx_event_exceptions_override_event_id
+    ON event_exceptions(override_event_id) WHERE override_event_id IS NOT NULL;
+```
+
+**Semantics:** each row marks a single occurrence of a recurring series (`event_id`) as either cancelled (`override_event_id IS NULL`) or overridden (`override_event_id → events`). The override Event row has `series_event_id` pointing back at the series (the back-ref column shipped inert in v0.3.0).
+
+**CASCADE chains:**
+- `events.household_id ON DELETE CASCADE → events` (the household goes, its events go)
+- `events.series_event_id ON DELETE CASCADE → override events` (the series goes, its overrides go)
+- `event_exceptions.event_id ON DELETE CASCADE → event_exceptions` (the series goes, its exceptions go)
+- `event_exceptions.override_event_id ON DELETE CASCADE → event_exceptions` (the override Event row goes, its exception row goes — this is the *load-bearing* direction for `dropAllForEvent`'s two-step DELETE)
+
+**Why two-step DELETE for `dropAllForEvent`:** the FK direction is `event_exceptions → events`, so deleting an exception row does NOT delete the referenced override Event. To wipe both, the service deletes the override Event rows first (CASCADE clears the matching exception rows), then deletes the remaining cancellation rows directly. Round-3 review BLOCKING-bug-fix.
+
+## Future schema additions (v0.3.2)
+
+- `ical_feed_tokens` table for per-user signed iCal feed URLs

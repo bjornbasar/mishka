@@ -342,6 +342,66 @@ final class CalendarControllerTest extends AppTestCase
         );
     }
 
+    public function test_time_shift_with_overrides_renders_cascade_confirm_dialog(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        // Add one cancellation so the cascade gate kicks in
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00/cancel");
+
+        $current = $this->db->fetchOne('SELECT updated_at FROM events WHERE id = :id', ['id' => $eid]);
+
+        $response = $this->request('POST', "/calendar/events/{$eid}", [
+            'title' => 'Soccer',
+            'starts_at_local' => '2026-07-07T19:00',  // +1h shift
+            'ends_at_local' => '2026-07-07T20:00',
+            'recurrence_preset' => 'weekly',
+            'byday' => ['TU'],
+            '_expected_updated_at' => $current['updated_at'],
+            '_expected_exception_count' => '1',
+        ]);
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Shift', $response->body());
+        self::assertStringContainsString('2026-07-14 18:00:00', $response->body());
+
+        // Confirm dialog rendered but event row NOT yet updated
+        self::assertSame('2026-07-07 18:00:00', $this->eventRepo->findById($eid)['starts_at_local']);
+    }
+
+    public function test_structural_change_with_overrides_renders_drop_confirm_dialog(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $eid = $this->createRecurringEvent($hid, $uid);
+
+        // Add an override
+        $this->request('POST', "/calendar/events/{$eid}/occurrences/2026-07-14T18-00", [
+            'title' => 'Moved',
+            'starts_at_local' => '2026-07-14T19:00',
+            'ends_at_local' => '2026-07-14T20:00',
+        ]);
+
+        $current = $this->db->fetchOne('SELECT updated_at FROM events WHERE id = :id', ['id' => $eid]);
+
+        // Change rrule from Tue to Wed — structural
+        $response = $this->request('POST', "/calendar/events/{$eid}", [
+            'title' => 'Soccer',
+            'starts_at_local' => '2026-07-07T18:00',
+            'ends_at_local' => '2026-07-07T19:00',
+            'recurrence_preset' => 'weekly',
+            'byday' => ['WE'],
+            '_expected_updated_at' => $current['updated_at'],
+            '_expected_exception_count' => '1',
+        ]);
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('Drop', $response->body());
+
+        // Series + override + exception all still present
+        self::assertSame('FREQ=WEEKLY;BYDAY=TU', $this->eventRepo->findById($eid)['rrule']);
+    }
+
     public function test_get_occurrence_edit_loads_existing_override(): void
     {
         [$uid, $hid] = $this->signInAsHouseholdOwner();

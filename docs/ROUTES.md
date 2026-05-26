@@ -44,8 +44,26 @@ All gated on `Session::has('user_id')` + `Session::has('active_household_id')` +
 | POST | /calendar/events/{id} | Update with `_expected_updated_at` optimistic-concurrency. 409 + stale-data partial on mismatch. |
 | POST | /calendar/events/{id}/delete | Delete; 303 to /calendar |
 
-## Future routes (v0.3.1+)
+## Calendar single-occurrence (v0.3.1)
+
+Same gates as the calendar routes above. Slug regex: `^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}$`.
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET  | /calendar/events/{id}/occurrences/{key}/edit | Pre-fills from existing override OR series defaults. Cancellation state shown as a banner. 404 on malformed slug / non-occurrence / non-recurring series. |
+| POST | /calendar/events/{id}/occurrences/{key} | Save override. Wipes any prior exception for this occurrence (cancellation OR earlier override) before `addOverride` runs, so the UNIQUE constraint can't trip. |
+| POST | /calendar/events/{id}/occurrences/{key}/cancel | Insert a cancellation row (idempotent via UNIQUE). |
+| POST | /calendar/events/{id}/occurrences/{key}/restore | Drop the exception (two-step DELETE if it was an override). |
+
+## Series-edit confirm dialogs (v0.3.1)
+
+POST `/calendar/events/{id}` either applies the change directly or — when there are existing exceptions and the edit is a clean time-shift or structural — renders one of:
+- `_cascade_confirm.twig` — clean time-shift; confirming sets `_cascade_confirmed=1` and resubmits to the same route
+- `_drop_confirm.twig` — structural change; confirming sets `_drop_confirmed=1` and resubmits
+
+Both confirm forms also carry `_expected_updated_at` + `_expected_exception_count` so the second submit re-runs the optimistic-concurrency checks against fresh state.
+
+## Future routes (v0.3.2+)
 
 Documented in `docs/CALENDAR.md`:
-- v0.3.1: `/calendar/events/{id}/occurrences/{slug}/edit`, `/cancel`, `/restore` (single-occurrence editing)
 - v0.3.2: `/me/calendar/feed`, `/me/calendar/feed/generate`, `/me/calendar/feed/tokens/{id}/revoke`, `/ical/{token}.ics` (per-user iCal feed)
