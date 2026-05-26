@@ -1,0 +1,78 @@
+{% extends "layout.twig" %}
+
+{% block title %}Chores — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Chores</h1>
+        <div class="calendar-nav">
+            <a href="/chores/new" class="new-event-link">+ New chore</a>
+        </div>
+    </div>
+
+    {% if tally|length > 0 %}
+        <section class="points-board" style="background:var(--card); border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.5rem; margin-bottom:1.5rem;">
+            <h2 style="margin:0 0 0.5rem; font-size:1.1rem;">Points</h2>
+            <ul style="list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0.5rem 1.5rem;">
+                {% for member in tally %}
+                    <li><strong>{{ member.display_name ?: member.email }}</strong> {{ member.total_points }} pt</li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% endif %}
+
+    <section>
+        <h2 style="font-size:1.1rem;">To do</h2>
+        {% if open_chores|length == 0 %}
+            <p style="color:var(--muted);">Nothing to do — all caught up.</p>
+        {% else %}
+            <ul class="chore-list" style="list-style:none; margin:0; padding:0;">
+                {% for c in open_chores %}
+                    <li class="chore-item" style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+                        <form method="POST" action="/chores/{{ c.id }}/done" style="margin:0;">
+                            {{ csrf_field() }}
+                            <button type="submit" title="Mark done" style="background:transparent; border:1px solid var(--border); color:var(--fg); border-radius:0.25rem; cursor:pointer; padding:0.1rem 0.5rem;">Done</button>
+                        </form>
+                        <span style="flex:1;">
+                            <a href="/chores/{{ c.id }}" style="color:var(--fg);">{{ c.title }}</a>
+                            {% if c.is_overdue %}<span class="overdue-badge" style="color:var(--error); font-size:0.8em; font-weight:bold; margin-left:0.4rem;">Overdue</span>{% endif %}
+                            <small style="color:var(--muted); display:block;">
+                                {{ c.assignee_name }}
+                                {% if c.due_at_local %} · due {{ c.due_at_local|slice(0, 16)|replace({'T': ' '}) }}{% endif %}
+                                {% if c.points > 0 %} · {{ c.points }} pt{% endif %}
+                            </small>
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </section>
+
+    <details class="chores-done" style="margin-top:1.5rem;" {% if open_chores|length == 0 and done_chores|length > 0 %}open{% endif %}>
+        <summary style="cursor:pointer; color:var(--muted);">Done ({{ done_chores|length }})</summary>
+        {% if done_chores|length == 0 %}
+            <p style="color:var(--muted); margin:0.5rem 0;">No completed chores yet.</p>
+        {% else %}
+            <ul class="chore-list" style="list-style:none; margin:0.5rem 0 0; padding:0;">
+                {% for c in done_chores %}
+                    <li class="chore-item" style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border);">
+                        <form method="POST" action="/chores/{{ c.id }}/reopen" style="margin:0;">
+                            {{ csrf_field() }}
+                            <button type="submit" title="Reopen" style="background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:0.25rem; cursor:pointer; padding:0.1rem 0.5rem;">Reopen</button>
+                        </form>
+                        <span style="flex:1; color:var(--muted); text-decoration:line-through;">
+                            <a href="/chores/{{ c.id }}" style="color:var(--muted);">{{ c.title }}</a>
+                            <small style="display:block;">
+                                {{ c.assignee_name }}{% if c.points > 0 %} · {{ c.points }} pt{% endif %}
+                            </small>
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </details>
+
+    {% if open_chores|length == 0 and done_chores|length == 0 %}
+        <p style="color:var(--muted); margin-top:1rem;">No chores yet. <a href="/chores/new">Add the first one.</a></p>
+    {% endif %}
+{% endblock %}

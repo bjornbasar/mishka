@@ -15,8 +15,10 @@ use App\Calendar\IcalFeedTokenRepository;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
+use App\Chores\ChoreRepository;
 use App\Controllers\AuthController;
 use App\Controllers\CalendarController;
+use App\Controllers\ChoresController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
@@ -53,6 +55,7 @@ abstract class AppTestCase extends TestCase
     protected UserPreferenceRepository $prefsRepo;
     protected EventRepository $eventRepo;
     protected IcalFeedTokenRepository $tokenRepo;
+    protected ChoreRepository $choreRepo;
     protected PasswordHasher $hasher;
 
     protected function setUp(): void
@@ -87,6 +90,7 @@ abstract class AppTestCase extends TestCase
         $eventService = new EventService($this->eventRepo, $exceptionRepo);
         $this->tokenRepo = new IcalFeedTokenRepository($this->db);
         $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo);
+        $this->choreRepo = new ChoreRepository($this->db);
         $this->hasher = new PasswordHasher();
         $rbac = new Rbac($this->userRepo);
         $authz = new HouseholdAuthorizer($this->householdRepo);
@@ -111,6 +115,7 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(EventService::class, $eventService);
         $app->container()->set(IcalFeedTokenRepository::class, $this->tokenRepo);
         $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
+        $app->container()->set(ChoreRepository::class, $this->choreRepo);
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
@@ -127,6 +132,7 @@ abstract class AppTestCase extends TestCase
             HouseholdController::class,
             CalendarController::class,
             IcalFeedController::class,
+            ChoresController::class,
         ]);
 
         return $app;

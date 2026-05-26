@@ -1,0 +1,69 @@
+{% extends "layout.twig" %}
+
+{% block title %}{{ mode == 'edit' ? 'Edit chore' : 'New chore' }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>{{ mode == 'edit' ? 'Edit chore' : 'New chore' }}</h1>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST"
+          action="{{ mode == 'edit' ? '/chores/' ~ chore.id : '/chores' }}"
+          class="auth">
+        {{ csrf_field() }}
+
+        <label>
+            Title
+            <input type="text" name="title" required maxlength="200" value="{{ chore.title|default('') }}" autofocus>
+        </label>
+
+        <label>
+            Points <small style="color:var(--muted)">(0–1000)</small>
+            <input type="number" name="points" min="0" max="1000" value="{{ chore.points|default(0) }}">
+        </label>
+
+        <label>
+            Due <small style="color:var(--muted)">(optional)</small>
+            <input type="datetime-local" name="due_at_local" value="{{ chore.due_at_local|default('') }}">
+        </label>
+
+        <label>
+            Assigned to
+            <select name="assigned_to">
+                <option value="">— Unassigned —</option>
+                {% for m in members %}
+                    <option value="{{ m.user_id }}" {% if chore.assigned_to|default(null) == m.user_id %}selected{% endif %}>
+                        {{ m.display_name ?: m.email }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>
+            Description <small style="color:var(--muted)">(optional)</small>
+            <textarea name="description" rows="3">{{ chore.description|default('') }}</textarea>
+        </label>
+
+        <p style="color:var(--muted); font-size:0.9em;">
+            Due times are in <strong>{{ household.timezone }}</strong> (household timezone).
+        </p>
+
+        <div style="display:flex; gap:0.5rem; justify-content:flex-start;">
+            <button type="submit">{{ mode == 'edit' ? 'Save changes' : 'Create chore' }}</button>
+            <a href="/chores" style="align-self:center; color:var(--muted);">Cancel</a>
+        </div>
+    </form>
+
+    {% if mode == 'edit' %}
+        <hr style="border-color:var(--border); margin:1.5rem 0 0.5rem;">
+        <form method="POST" action="/chores/{{ chore.id }}/delete" style="margin:0;"
+              onsubmit="return confirm('Delete this chore?');">
+            {{ csrf_field() }}
+            <button type="submit" class="link" style="background:transparent; border:0; color:var(--error); cursor:pointer; padding:0; font:inherit;">Delete chore</button>
+        </form>
+    {% endif %}
+{% endblock %}
