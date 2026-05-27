@@ -107,6 +107,43 @@ final class ChoreScheduleRepositoryPgSmokeTest extends TestCase
         self::assertNull($this->schedules->findById($sid));
     }
 
+    public function test_pause_pk_is_idempotent_and_cascades_on_schedule_delete(): void
+    {
+        $uid = $this->insertUser('e@example.com');
+        $hid = $this->households->createForOwner('Den', $uid);
+        $sid = $this->schedules->create($this->scheduleData($hid, $uid));
+
+        $this->schedules->pause($sid);
+        $this->schedules->pause($sid);  // ON CONFLICT DO NOTHING (PK collision)
+        self::assertTrue($this->schedules->isPaused($sid));
+
+        $this->schedules->delete($sid);  // FK CASCADE drops the pause row
+        $count = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chore_schedule_pauses WHERE schedule_id = :s',
+            ['s' => $sid],
+        );
+        self::assertSame(0, $count);
+    }
+
+    public function test_participants_composite_pk_and_cascade_on_schedule_delete(): void
+    {
+        $uid = $this->insertUser('f@example.com');
+        $bob = $this->insertUser('g@example.com');
+        $hid = $this->households->createForOwner('Den', $uid);
+        $this->households->addMember($hid, $bob);
+        $sid = $this->schedules->create($this->scheduleData($hid, $uid));
+
+        $this->schedules->setParticipants($sid, [$uid, $bob]);
+        self::assertCount(2, $this->schedules->listParticipantIds($sid));
+
+        $this->schedules->delete($sid);  // FK CASCADE drops participant rows
+        $count = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chore_schedule_participants WHERE schedule_id = :s',
+            ['s' => $sid],
+        );
+        self::assertSame(0, $count);
+    }
+
     private function insertUser(string $email): int
     {
         $suffix = bin2hex(random_bytes(4));

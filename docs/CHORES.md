@@ -24,19 +24,10 @@ SQL `NOW()` / `CURRENT_TIMESTAMP` is deliberately NOT used — it's UTC/server-c
 
 `completed_at` is the **sole done-indicator** (NULL = open; set = done). `markDone` is idempotent (`WHERE completed_at IS NULL`), so two people clicking Done at once is harmless and the first completer keeps the credit. `completed_by` records who clicked Done. Reopen clears both fields.
 
-Points are a **live aggregate query**, not a ledger. `pointsTallyForHousehold` sums `points` over completed chores, credited to `COALESCE(completed_by, assigned_to)` — the **doer** — and is driven off `household_members` so:
-- every current member appears (0 if they've earned nothing);
-- a departed member silently drops off the board;
-- a chore assigned to a since-removed member but completed by a current one credits the **doer** (no points lost to a "ghost").
-
-`ORDER BY MIN(joined_at)` keeps the grouped query valid under PostgreSQL's strict GROUP BY rule (SQLite is permissive — only the PG smoke test catches a regression here).
-
-**Documented live-tally limitations** (accepted for a personal family app; the user chose "simple tally, easy to extend later"):
-- Editing the `points` or `assigned_to` of an *already-completed* chore changes the historical total.
-- Deleting a completed chore removes its points. (The "Done" section — rather than a delete-to-declutter habit — is the mitigation: completed chores stay visible without being deleted.)
-- If the completer's *account* is deleted, `completed_by` is SET NULL and credit falls back to `assigned_to`.
-
-A durable append-only ledger (immune to all of the above) is the v0.4.2+ extension path if history ever needs to be permanent.
+Points credit the **doer** (`COALESCE(completed_by, assigned_to)`). v0.4.0 shipped this as a live aggregate over the `chores` table; **v0.4.2 replaced it with a durable ledger** (see the v0.4.2 section) — the live-aggregate limitations below are now RESOLVED and kept only as history of the design path:
+- ~~Editing the points/assignee of an already-completed chore changed the historical total.~~ → ledger snapshots points at completion, immutable.
+- ~~Deleting a completed chore removed its points.~~ → the ledger row survives (chore_id SET NULL).
+- ~~A completer's account deletion fell back to crediting the assignee.~~ → the ledger froze the doer; account deletion orphans the row (unattributed) rather than re-crediting someone who didn't do it.
 
 ### Assignment
 
@@ -89,10 +80,25 @@ Each occurrence's `occurrence_date` (the UNIQUE key) and `due_at_local` are form
 
 No new machinery: a generated occurrence is a real chore. **Skip** = delete it (`POST /chores/{id}/delete`); the watermark means it won't regenerate. **Reassign just this one** = edit its `assigned_to` (`POST /chores/{id}`); the schedule's rotation cursor is untouched.
 
-## Future work (post-v0.4.1)
+## v0.4.2 — points ledger + leaderboard + pause + pools
 
-- Pause/deactivate a schedule (currently delete-only).
-- Durable points ledger / immutable history / weekly leaderboards / badges / streaks.
-- Per-chore participant pools (rotation currently cycles all members).
-- Penalty (negative) points.
+### Durable points ledger
+
+`chore_points_ledger` is an append-only history. `markDone` writes one row **iff** its guarded UPDATE actually transitioned the chore (`Connection::run() === 1`), inside one nested-txn-guarded block, crediting the doer with the chore's points captured at completion via a single UTC timestamp written to both the chore and the ledger row — so a double-click yields exactly one row. `reopen` **deletes** the chore's ledger row (un-credit), keeping the invariant "≤1 live row per chore" without a `UNIQUE(chore_id)` (which would block reopen→recomplete). FKs: `household_id` CASCADE; `chore_id` SET NULL (deleting a completed chore keeps its points history); `credited_user_id` SET NULL (a deleted account orphans the row rather than losing or mis-crediting the points). Existing completions are **backfilled** idempotently (`NOT EXISTS`) by `schema.sql` so the board isn't empty on ship day; backfilled points are pre-this-week, so they land in all-time only.
+
+### Weekly + all-time leaderboard
+
+`leaderboardForHousehold(hid, weekStartUtc)` returns per-member `total_points` + `week_points` in one query, driven off `household_members` (current members at 0; departed drop off but their ledger history persists), ranked `week_points DESC, MIN(joined_at) ASC`. The week boundary is **Monday 00:00 in the household tz**, computed in PHP and converted to a **UTC** string so it compares correctly against the ledger's UTC `completed_at` on both PG (TIMESTAMPTZ) and SQLite (TEXT). The board (on /chores + home) shows "N this wk · M all-time".
+
+### Pause / resume
+
+`chore_schedule_pauses` (presence of a row = paused; real FK CASCADE). `generateForHousehold` skips paused schedule ids **before** calling `generateForSchedule` — never inside it, which unconditionally advances the watermark; skipping there would drift `generated_through` forward while paused and lose occurrences. Resume rewinds `generated_through` to now (forward-only — a long pause doesn't spawn a backlog). Already-generated occurrences of a paused schedule are kept (pause ≠ delete).
+
+### Per-chore participant pools
+
+`chore_schedule_participants` (composite PK; both FKs CASCADE). Rotation cycles `listMembers ∩ pool` in join order when the pool has rows, else all members (v0.4.1 behaviour). A pool whose members have all left the household → the occurrence is **unassigned** (NULL), never a silent fall-back to people the user didn't pick. The generator computes the candidate list once per schedule (no N+1); the schedule form has a member-checkbox picker under "Rotate" (leave all unchecked = everyone); fixed mode clears the pool.
+
+## Future work (post-v0.4.2)
+
+- Penalty (negative) points; badges / streaks.
 - Notifications / reminders (the household already gets these via the v0.3.2 iCal feed).

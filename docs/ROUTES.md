@@ -98,5 +98,9 @@ All routes are member-gated (`requireSession` + `requireMember`). Any member may
 | GET | /chores/schedules/{id} | Edit form (repopulates the preset via `toForm`). |
 | POST | /chores/schedules/{id} | Update + refresh upcoming (delete future-open occurrences, rewind watermark); 303 → /chores. |
 | POST | /chores/schedules/{id}/delete | Delete (confirm dialog): drop open generated, detach completed; 303 → /chores. |
+| POST | /chores/schedules/{id}/pause | Pause: stop generating new occurrences (existing ones kept); 303 → /chores. (v0.4.2) |
+| POST | /chores/schedules/{id}/resume | Resume: rewinds the watermark to now (forward-only); 303 → /chores. (v0.4.2) |
+
+The create/edit form (v0.4.2) also accepts `participants[]` — a rotation pool subset (current members only; empty = rotate across everyone).
 
 `ChoreSchedulesController` is registered **before** `ChoresController` so the sequential router doesn't let `/chores/{id}` capture the static `/chores/schedules` paths. Occurrences are materialised lazily on view (in `/chores` and `/`) by `ChoreScheduleGenerator`, bounded to a 14-day rolling horizon and idempotent via `UNIQUE(schedule_id, occurrence_date)`.

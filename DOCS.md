@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.4.1 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.4.2 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -51,9 +51,9 @@ mishka/
 │   │   ├── RangeExpander.php                    v0.3.1; recurr-driven expansion + override de-dup
 │   │   └── RruleTranslator.php                  v0.3.1; preset form ↔ RRULE round-trip
 │   ├── Chores/                                   v0.4.0+
-│   │   ├── ChoreRepository.php                   chores CRUD + markDone/reopen + live points tally (+ createGenerated v0.4.1)
-│   │   ├── ChoreScheduleGenerator.php            v0.4.1; clamped rolling-horizon generation + pure-fn rotation
-│   │   └── ChoreScheduleRepository.php           v0.4.1; recurring-chore templates
+│   │   ├── ChoreRepository.php                   chores CRUD + markDone/reopen (ledger-coupled v0.4.2) + leaderboard + createGenerated
+│   │   ├── ChoreScheduleGenerator.php            v0.4.1; clamped horizon + pure-fn rotation; skips paused + pool-aware (v0.4.2)
+│   │   └── ChoreScheduleRepository.php           v0.4.1 templates; + pause/resume + participant-pool methods (v0.4.2)
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
 │   │   ├── AuthController.php
@@ -110,7 +110,7 @@ mishka/
     ├── Chores/{ChoreRepositoryTest,ChoreScheduleRepositoryTest,ChoreScheduleGeneratorTest}.php
     ├── Controllers/{Auth,Calendar,Chores,ChoreSchedules,Home,Household}ControllerTest.php
     ├── Household/HouseholdRepositoryTest.php
-    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke,ChoreRepositoryPgSmoke,ChoreScheduleRepositoryPgSmoke}Test.php
+    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke,ChoreRepositoryPgSmoke,ChoreScheduleRepositoryPgSmoke,ChorePointsLedgerPgSmoke}Test.php
     └── View/NavContextTest.php
 ```
 
@@ -150,6 +150,9 @@ mishka/
 28. **Rotation cursor is a durable id, not an index** (v0.4.1). `last_assigned_user_id` + a pure-function next-assignee survive member renumbering and concurrent lazy generation; the cursor advances only alongside a successful insert. `assignment_mode='fixed'` pins instead of rotating.
 29. **`ChoreSchedulesController` scanned before `ChoresController`** (v0.4.1). The router matches sequentially, so the static `/chores/schedules` routes must precede `/chores/{id}`.
 30. **Schedule edit refreshes upcoming; delete is app-coordinated** (v0.4.1). Edit deletes future-open occurrences + rewinds the watermark; delete drops open + detaches completed (`schedule_id` → NULL) because `chores.schedule_id` has no FK cascade.
+31. **Durable points ledger replaces the live tally** (v0.4.2). `markDone` writes a `chore_points_ledger` row iff the guarded UPDATE transitioned the chore (`run()===1`), one UTC timestamp to both rows; `reopen` deletes it; no `UNIQUE(chore_id)` (reopen→recomplete). Editing/deleting a completed chore no longer mutates history (chore_id/credited_user_id SET NULL). Idempotent `NOT EXISTS` backfill in `schema.sql`.
+32. **Weekly leaderboard windowed in PHP, compared in UTC** (v0.4.2). Monday 00:00 household tz → UTC string bound vs the ledger's UTC `completed_at`, so PG (TIMESTAMPTZ) and SQLite (TEXT) agree. Ranked `week_points DESC, MIN(joined_at)`.
+33. **Pause via flag-table; participant pools via subset-table** (v0.4.2). `chore_schedules` can't gain columns (no ALTER), so pause = presence in `chore_schedule_pauses` (skipped in `generateForHousehold`, never inside `generateForSchedule`, so the watermark can't drift); a pool = rows in `chore_schedule_participants` (rotation cycles `listMembers ∩ pool`, empty intersection → unassigned). Both new tables carry real FKs.
 
 ---
 
@@ -199,7 +202,7 @@ CI runs two jobs: `test` (SQLite in-memory + PHPStan) and `pg-smoke` (postgres:1
 
 ## Future work
 
-- **v0.4.2+ chores:** Durable points ledger (immutable history), leaderboards, pause/deactivate a schedule, per-chore participant pools. The v0.4.x tally is a live aggregate.
+- **Chores polish (later):** penalty/negative points, badges/streaks. (Ledger, leaderboard, pause, and participant pools shipped in v0.4.2.)
 - **Household lifecycle gaps:** leave/transfer/delete household, regenerate invite code, invite via email, household timezone editor.
 - **Email verification, password change/reset.**
 - **Profile editing.**

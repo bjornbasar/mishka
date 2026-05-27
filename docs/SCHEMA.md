@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_chores_assigned_to   ON chores(assigned_to) WHERE
 
 **`completed_at` is the sole done-indicator** (NULL = open). `completed_by` records who clicked Done.
 
-**Points = live aggregate, no ledger.** `pointsTallyForHousehold` sums completed chores by `COALESCE(completed_by, assigned_to)` — the doer — driven off `household_members` so only current members appear. Documented live-tally limitations: editing the points/assignee on an already-completed chore, deleting a completed chore, or removing a member adjusts/drops the tally. A durable ledger is the v0.4.2+ extension path. `ORDER BY MIN(joined_at)` keeps the grouped query valid under PostgreSQL's strict GROUP BY rule (SQLite is permissive).
+**Points** credit the doer (`COALESCE(completed_by, assigned_to)`), driven off `household_members` so only current members appear on the board. v0.4.0 computed this as a live aggregate over `chores`; **v0.4.2 moved it to the durable `chore_points_ledger`** (below) — editing/deleting a completed chore no longer mutates history. `ORDER BY MIN(joined_at)` keeps the grouped query valid under PostgreSQL's strict GROUP BY rule (SQLite is permissive).
 
 **`schedule_id` + `occurrence_date` ship inert for v0.4.1** (a generated recurring instance is a `chores` row back-linking its `chore_schedules` template + the occurrence it fills). `schedule_id` is a **bare `INTEGER` with no DB FK**: its target table ships in v0.4.1 and the no-ALTER convention forbids adding the constraint after the fact, so referential integrity is app-enforced (the repo only ever writes a `schedule_id` it just created). This is a deliberate, documented integrity downgrade vs `events.series_event_id` (which could be a real FK because it self-references an existing table).
 
@@ -226,3 +226,37 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_chores_schedule_occurrence
 **`last_assigned_user_id` is the rotation cursor — a durable user id, NOT an index** — so the next assignee is a pure function of `(last_assigned_user_id, current members in join order)` that survives member removal/join. `assignment_mode='fixed'` pins to `fixed_user_id` instead. Both user pointers are `ON DELETE SET NULL` (self-heal when an account is deleted).
 
 **FK matrix**: `household_id` CASCADE; `created_by` RESTRICT (matches chores/events); the two user pointers SET NULL. `chores.schedule_id` remains a bare INTEGER (no FK), so deleting a schedule does NOT cascade — `ChoreSchedulesController` coordinates it (drop open generated, detach completed).
+
+## v0.4.2 — points ledger + pause + participant pools
+
+```sql
+CREATE TABLE IF NOT EXISTS chore_points_ledger (
+    id               SERIAL PRIMARY KEY,
+    household_id     INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    chore_id         INTEGER NULL REFERENCES chores(id) ON DELETE SET NULL,
+    credited_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    points           INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),   -- snapshot at completion
+    completed_at     TIMESTAMPTZ NOT NULL,                             -- UTC instant
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chore_points_ledger_household_completed ON chore_points_ledger(household_id, completed_at);
+CREATE INDEX IF NOT EXISTS idx_chore_points_ledger_credited ON chore_points_ledger(credited_user_id);
+
+CREATE TABLE IF NOT EXISTS chore_schedule_pauses (
+    schedule_id INTEGER PRIMARY KEY REFERENCES chore_schedules(id) ON DELETE CASCADE,
+    paused_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chore_schedule_participants (
+    schedule_id INTEGER NOT NULL REFERENCES chore_schedules(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (schedule_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_chore_schedule_participants_schedule ON chore_schedule_participants(schedule_id);
+```
+
+**`chore_points_ledger`** — append-only points history. **No `UNIQUE(chore_id)`**: reopen deletes the chore's row, so a chore can be completed → reopened → re-completed (a fresh row each time); the invariant "≤1 *live* row per chore" is maintained by delete-on-reopen, not a constraint. `markDone` writes a row only on the real open→done transition; `chore_id`/`credited_user_id` SET NULL preserve history when a chore or account is deleted; `household_id` CASCADE. `completed_at` is a UTC instant so the Monday-in-household-tz weekly boundary (computed in PHP, converted to UTC) compares correctly on both PG and SQLite. An idempotent `INSERT…SELECT … WHERE NOT EXISTS` in `schema.sql` backfills pre-v0.4.2 completions.
+
+**`chore_schedule_pauses`** — presence of a row = the schedule is paused; the generator skips it. Real FK CASCADE (new table) cleans up on schedule delete.
+
+**`chore_schedule_participants`** — the rotation pool subset; presence of rows restricts rotation to `listMembers ∩ pool` (join order), else all members. Composite PK dedups; both FKs CASCADE.
