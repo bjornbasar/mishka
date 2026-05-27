@@ -88,3 +88,15 @@ The public feed route shape-checks the token against `/^[0-9a-f]{64}$/` before h
 | POST | /chores/{id}/reopen | Reopen (clears completion, un-credits); 303 → /chores. |
 
 All routes are member-gated (`requireSession` + `requireMember`). Any member may act on any chore. `points` is shape-validated (blank → 0; non-numeric / negative / >1000 → 422); a non-member `assigned_to` is silently coerced to NULL. The home page (`/`) also surfaces the points board + an open/overdue count.
+
+## Recurring chores (v0.4.1)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /chores/schedules/new | Recurring-chore form (recurrence fieldset + due time + rotate/fixed). |
+| POST | /chores/schedules | Create; rrule via RruleTranslator; **preset 'none' → 422**; fixed mode requires a current member; 303 → /chores. |
+| GET | /chores/schedules/{id} | Edit form (repopulates the preset via `toForm`). |
+| POST | /chores/schedules/{id} | Update + refresh upcoming (delete future-open occurrences, rewind watermark); 303 → /chores. |
+| POST | /chores/schedules/{id}/delete | Delete (confirm dialog): drop open generated, detach completed; 303 → /chores. |
+
+`ChoreSchedulesController` is registered **before** `ChoresController` so the sequential router doesn't let `/chores/{id}` capture the static `/chores/schedules` paths. Occurrences are materialised lazily on view (in `/chores` and `/`) by `ChoreScheduleGenerator`, bounded to a 14-day rolling horizon and idempotent via `UNIQUE(schedule_id, occurrence_date)`.

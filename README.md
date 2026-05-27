@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.4.0** — chores. A per-household task list with assignment, kid-friendly points, and an in-app overdue badge. Mark chores done to credit the doer; the points board shows on the chores page and the home landing.
+**v0.4.1** — recurring chores + round-robin. Set a chore to repeat (daily/weekly/monthly/yearly) and either rotate it across the household or pin it to one person; occurrences materialise automatically on a rolling horizon, complete with points and overdue badges.
 
 ## Quick start
 
@@ -32,21 +32,20 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.4.0
+## What works in v0.4.1
 
-Carried forward from v0.1–v0.3.2: registration + login (timing-safe), logout, CSRF (multi-tab friendly), households (N:M membership, 8-char invite codes, owner-managed), stale-session self-heal, household calendar (month grid + agenda + optimistic-concurrency edits, RRULE recurrence, single-occurrence cancel/override, cascade dialogs), per-user signed iCal feed.
+Carried forward from v0.1–v0.4.0: registration + login, households (N:M membership + invite codes), the full household calendar (month grid, agenda, RRULE recurrence, single-occurrence editing, cascade dialogs), per-user signed iCal feed, one-off chores (assign, done/reopen, kid-friendly points + board, overdue badge, Done section).
 
-**New in v0.4.0:**
-- **Per-household chore list** — create / edit / delete chores with an optional due date and an optional assignee (any household member). Any member can act on any chore (the calendar's trust model); delete asks for confirmation.
-- **Done / reopen** — marking a chore done is idempotent and credits the doer; reopen un-credits.
-- **Kid-friendly points** — each chore carries a point value; a per-member all-time tally shows on the chores page and the home landing. (Simple live tally — see [docs/CHORES.md](docs/CHORES.md) for the documented limitations and the v0.4.2+ ledger path.)
-- **Overdue badge** — chores past their due date (computed in the household's timezone; no-due chores never go overdue) are flagged in-app.
-- **Done section** — completed chores collapse into a "Done" list (most-recently-done first), keeping the active list clean.
+**New in v0.4.1:**
+- **Recurring chores** — set a chore to repeat (daily / weekly / monthly / yearly, with INTERVAL + day-of-week), reusing the calendar's RRULE engine. Occurrences materialise automatically on a 14-day rolling horizon when you open the chores or home page (no cron); a far-past start "catches up" over a few views rather than flooding the list.
+- **Round-robin or fixed assignment** — a recurring chore either rotates its assignee across all household members (in join order) or is pinned to one person. The rotation survives members joining/leaving.
+- **Refresh-on-edit** — editing a recurring chore regenerates its upcoming not-yet-done occurrences; completed ones stay as history. Deleting it drops the upcoming ones and keeps the completed history (and its points).
+- **Skip / reassign one** — a generated occurrence is an ordinary chore: delete to skip (it won't come back), or edit it to reassign just that one.
 
 ## Roadmap
 
-- **v0.4.1** — Recurring chores (RRULE, reusing the calendar's translator) + round-robin assignment across all household members.
-- Later: durable points ledger / leaderboards, leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds, subscribe-to-external-calendar.
+- **v0.4.2+** — Durable points ledger / leaderboards; pause a recurring chore; per-chore participant pools.
+- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds, subscribe-to-external-calendar.
 
 ## Docs
 

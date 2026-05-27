@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.4.0 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.4.1 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -9,7 +9,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 - **[docs/SCHEMA.md](docs/SCHEMA.md)** — full database schema, every table, design notes per release
 - **[docs/ROUTES.md](docs/ROUTES.md)** — full route table grouped by feature
 - **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, recurrence, single-occurrence editing, iCal feed)
-- **[docs/CHORES.md](docs/CHORES.md)** — v0.4 chores design (overdue/time model, live points tally + credit rule, assignment integrity, inert columns for v0.4.1)
+- **[docs/CHORES.md](docs/CHORES.md)** — v0.4 chores design (overdue/time model, live points tally + credit rule, recurring-chore generation + round-robin rotation)
 
 ---
 
@@ -51,12 +51,15 @@ mishka/
 │   │   ├── RangeExpander.php                    v0.3.1; recurr-driven expansion + override de-dup
 │   │   └── RruleTranslator.php                  v0.3.1; preset form ↔ RRULE round-trip
 │   ├── Chores/                                   v0.4.0+
-│   │   └── ChoreRepository.php                   chores CRUD + markDone/reopen + live points tally
+│   │   ├── ChoreRepository.php                   chores CRUD + markDone/reopen + live points tally (+ createGenerated v0.4.1)
+│   │   ├── ChoreScheduleGenerator.php            v0.4.1; clamped rolling-horizon generation + pure-fn rotation
+│   │   └── ChoreScheduleRepository.php           v0.4.1; recurring-chore templates
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
 │   │   ├── AuthController.php
 │   │   ├── CalendarController.php               v0.3.0+ (single-occurrence routes v0.3.1)
-│   │   ├── ChoresController.php                  v0.4.0; chores CRUD + done/reopen + points board
+│   │   ├── ChoresController.php                  v0.4.0; chores CRUD + done/reopen + points board (+ lazy-gen hook v0.4.1)
+│   │   ├── ChoreSchedulesController.php          v0.4.1; recurring-chore CRUD (scanned before ChoresController)
 │   │   ├── HomeController.php                    v0.4.0: points board + open/overdue counts
 │   │   ├── HouseholdController.php
 │   │   └── IcalFeedController.php               v0.3.2
@@ -89,7 +92,8 @@ mishka/
 │   │   └── occurrence_edit.twig                 v0.3.1; single-occurrence override form
 │   ├── chores/                                  v0.4.0
 │   │   ├── chore_form.twig                       shared create/edit; member dropdown + confirm-delete
-│   │   └── index.twig                            points board + open list + collapsible Done section
+│   │   ├── index.twig                            points board + open list + Done section + Recurring section (v0.4.1)
+│   │   └── schedule_form.twig                    v0.4.1; recurring-chore create/edit (recurrence fieldset + rotate/fixed)
 │   ├── feed/                                    v0.3.2
 │   │   ├── generated.twig                       raw token shown ONCE + referrer-no-referrer meta
 │   │   └── settings.twig                        active-tokens roster + Generate + Revoke
@@ -103,10 +107,10 @@ mishka/
     ├── Account/UserPreferenceRepositoryTest.php
     ├── Auth/{HouseholdAuthorizerTest,MishkaUserRepositoryTest}.php
     ├── Calendar/{EventRepositoryTest,MonthGridBuilderTest}.php
-    ├── Chores/ChoreRepositoryTest.php
-    ├── Controllers/{Auth,Calendar,Chores,Home,Household}ControllerTest.php
+    ├── Chores/{ChoreRepositoryTest,ChoreScheduleRepositoryTest,ChoreScheduleGeneratorTest}.php
+    ├── Controllers/{Auth,Calendar,Chores,ChoreSchedules,Home,Household}ControllerTest.php
     ├── Household/HouseholdRepositoryTest.php
-    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke,ChoreRepositoryPgSmoke}Test.php
+    ├── Smoke/{HouseholdRepositoryPgSmoke,EventRepositoryPgSmoke,ChoreRepositoryPgSmoke,ChoreScheduleRepositoryPgSmoke}Test.php
     └── View/NavContextTest.php
 ```
 
@@ -142,6 +146,10 @@ mishka/
 24. **Live points tally, no ledger** (v0.4.0). `pointsTallyForHousehold` sums completed chores by `COALESCE(completed_by, assigned_to)` — the doer — driven off current `household_members`. `ORDER BY MIN(joined_at)` so PostgreSQL's GROUP BY rule holds. Documented limitation: editing/deleting a completed chore or removing a member shifts the tally; a durable ledger is the v0.4.2+ path.
 25. **Chores inert columns ship without a DB FK** (v0.4.0). `chores.schedule_id` is a bare `INTEGER` (no `REFERENCES`) because its v0.4.1 target table doesn't exist yet and the no-ALTER convention can't add the constraint later — integrity is app-enforced. No defensive `schedule_id IS NULL` list filter (templates live in a separate table, so v0.4.1 instances are first-class list rows, unlike the calendar's double-render risk).
 26. **Overdue computed in PHP against the chore's own timezone** (v0.4.0), never SQL `NOW()`. NULL due = never overdue. Same wall-clock + IANA model as events; the predicate is duplicated in `ChoresController` and `HomeController` (no shared base).
+27. **Recurring chores = template + generated instances** (v0.4.1). `chore_schedules` is the template; occurrences are generated as ordinary `chores` rows (Tody-style) so completion/points/overdue reuse v0.4.0. Generated lazily on view, bounded to a 14-day rolling horizon via a `generated_through` watermark + a 60-row cap — because recurr always expands from the anchor, an unclamped limit would either silently generate zero rows or explode.
+28. **Rotation cursor is a durable id, not an index** (v0.4.1). `last_assigned_user_id` + a pure-function next-assignee survive member renumbering and concurrent lazy generation; the cursor advances only alongside a successful insert. `assignment_mode='fixed'` pins instead of rotating.
+29. **`ChoreSchedulesController` scanned before `ChoresController`** (v0.4.1). The router matches sequentially, so the static `/chores/schedules` routes must precede `/chores/{id}`.
+30. **Schedule edit refreshes upcoming; delete is app-coordinated** (v0.4.1). Edit deletes future-open occurrences + rewinds the watermark; delete drops open + detaches completed (`schedule_id` → NULL) because `chores.schedule_id` has no FK cascade.
 
 ---
 
@@ -191,8 +199,7 @@ CI runs two jobs: `test` (SQLite in-memory + PHPStan) and `pg-smoke` (postgres:1
 
 ## Future work
 
-- **v0.4.1 chores:** Recurring chores (`chore_schedules` + RRULE, reusing v0.3.1's translator) + round-robin assignment across all members, with skip/reassign of a single occurrence. See `docs/CHORES.md`.
-- **v0.4.2+ chores:** Durable points ledger (immutable history), leaderboards. The v0.4.0 tally is a live aggregate.
+- **v0.4.2+ chores:** Durable points ledger (immutable history), leaderboards, pause/deactivate a schedule, per-chore participant pools. The v0.4.x tally is a live aggregate.
 - **Household lifecycle gaps:** leave/transfer/delete household, regenerate invite code, invite via email, household timezone editor.
 - **Email verification, password change/reset.**
 - **Profile editing.**

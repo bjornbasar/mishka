@@ -64,10 +64,35 @@ POST create/update honour only `[title, description, points, due_at_local, assig
 
 No optimistic-concurrency token (`_expected_updated_at`) in v0.4.0 — unlike event edits. A chore is a small record with no cascade; the done-toggle is idempotent; last-writer-wins on a title/points edit is acceptable for a family hub.
 
-## Future work (post-v0.4.0)
+## v0.4.1 — recurring chores + round-robin
 
-- **v0.4.1** — recurring chores (`chore_schedules` + RRULE, reusing `App\Calendar\RruleTranslator`) + round-robin rotation across all members in join order, with skip/reassign of a single occurrence. Generation is lazy-on-view (no cron), bounded by a horizon, idempotent via a `UNIQUE(schedule_id, occurrence_date)` partial index.
+A recurring chore is a **template** (`chore_schedules`); concrete occurrences are **generated as ordinary `chores` rows** (Tody-style), so completion / points / overdue all reuse the v0.4.0 machinery. RRULE construction reuses `App\Calendar\RruleTranslator` (injected — the anchor date is passed as the rule's "start" so weekly/monthly phase correctly).
+
+### Generation (ChoreScheduleGenerator) — lazy, bounded, idempotent
+
+Occurrences materialise **lazily on view** (no cron) in both `ChoresController::index` and `HomeController` — best-effort (wrapped so a hiccup never 500s the page) and idempotent.
+
+The critical subtlety: **`recurr` always iterates from the schedule's anchor (DTSTART)** — there's no "expand from date X". So the generator expands from the anchor with a `virtualLimit` sized to *reach* the horizon, but **clamps the materialised window** to `(genFrom, genTo]` where `genFrom = generated_through ?? max(anchor, now − 14d)` and `genTo = now + 14d`, with a hard `MAX_GENERATE_PER_RUN = 60` circuit-breaker. A `chore_schedules.generated_through` watermark records progress so re-views are near-free and a far-past anchor "catches up" over a few views instead of generating thousands of rows in one batch. Without the clamp, a small limit would generate **zero** rows (all ancient occurrences clipped) and a large one would explode — the round-2 skeptic's B1.
+
+Each occurrence's `occurrence_date` (the UNIQUE key) and `due_at_local` are formatted with a single pinned `Y-m-d H:i:00` so the `UNIQUE(schedule_id, occurrence_date)` index dedupes deterministically; concurrent page loads that race to insert the same occurrence swallow the unique violation. Occurrences are expanded in the schedule timezone and formatted as wall-clock, so a "daily 9am" schedule stays 9am local across DST.
+
+### Round-robin (rotate) vs fixed
+
+`assignment_mode = 'fixed'` pins every occurrence to `fixed_user_id` (or NULL if that member has left). `assignment_mode = 'rotate'` cycles assignees across current members in join order. The cursor is **`last_assigned_user_id`** — a *durable user id*, not an index — and the next assignee is a **pure function** of `(last_assigned_user_id, current members in join order)`: the member after `last` if still present, else the head of the roster. This survives member removal/join (no index renumbering) and concurrent generation, because the cursor is advanced **only inside the same step as a successful insert**, generating occurrences oldest-first. A 3-member roster yields A, B, C, A, B…
+
+### Edit / delete semantics
+
+- **Edit refreshes upcoming**: updating a schedule deletes its not-yet-done future occurrences and rewinds `generated_through` to now, so the next view regenerates them from the new rule. Completed occurrences are immutable history. A manual per-occurrence tweak to an upcoming instance is reset (accepted trade-off).
+- **Delete**: `chores.schedule_id` has **no DB FK**, so deleting a schedule is app-coordinated — open generated instances are dropped, completed ones are **detached** (`schedule_id` set NULL) so their points history survives and a future reused schedule id can't collide on the UNIQUE index.
+
+### Skip / reassign a single occurrence
+
+No new machinery: a generated occurrence is a real chore. **Skip** = delete it (`POST /chores/{id}/delete`); the watermark means it won't regenerate. **Reassign just this one** = edit its `assigned_to` (`POST /chores/{id}`); the schedule's rotation cursor is untouched.
+
+## Future work (post-v0.4.1)
+
+- Pause/deactivate a schedule (currently delete-only).
 - Durable points ledger / immutable history / weekly leaderboards / badges / streaks.
-- Per-chore participant pools (round-robin currently cycles all members).
+- Per-chore participant pools (rotation currently cycles all members).
 - Penalty (negative) points.
 - Notifications / reminders (the household already gets these via the v0.3.2 iCal feed).

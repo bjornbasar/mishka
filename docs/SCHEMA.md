@@ -190,3 +190,39 @@ CREATE INDEX IF NOT EXISTS idx_chores_assigned_to   ON chores(assigned_to) WHERE
 **Points = live aggregate, no ledger.** `pointsTallyForHousehold` sums completed chores by `COALESCE(completed_by, assigned_to)` — the doer — driven off `household_members` so only current members appear. Documented live-tally limitations: editing the points/assignee on an already-completed chore, deleting a completed chore, or removing a member adjusts/drops the tally. A durable ledger is the v0.4.2+ extension path. `ORDER BY MIN(joined_at)` keeps the grouped query valid under PostgreSQL's strict GROUP BY rule (SQLite is permissive).
 
 **`schedule_id` + `occurrence_date` ship inert for v0.4.1** (a generated recurring instance is a `chores` row back-linking its `chore_schedules` template + the occurrence it fills). `schedule_id` is a **bare `INTEGER` with no DB FK**: its target table ships in v0.4.1 and the no-ALTER convention forbids adding the constraint after the fact, so referential integrity is app-enforced (the repo only ever writes a `schedule_id` it just created). This is a deliberate, documented integrity downgrade vs `events.series_event_id` (which could be a real FK because it self-references an existing table).
+
+## v0.4.1 — chore_schedules
+
+```sql
+CREATE TABLE IF NOT EXISTS chore_schedules (
+    id                    SERIAL PRIMARY KEY,
+    household_id          INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    created_by            INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    title                 VARCHAR(200) NOT NULL,
+    description           TEXT NOT NULL DEFAULT '',
+    points                INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
+    rrule                 TEXT NOT NULL,
+    anchor_at_local       TIMESTAMP NOT NULL,
+    timezone              VARCHAR(64) NOT NULL,
+    assignment_mode       VARCHAR(16) NOT NULL DEFAULT 'rotate'
+                            CHECK (assignment_mode IN ('rotate', 'fixed')),
+    fixed_user_id         INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    last_assigned_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    generated_through     TIMESTAMP NULL,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chore_schedules_household ON chore_schedules(household_id);
+
+-- Generation idempotency guard on chores (partial so v0.4.0 one-off chores never enter it):
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chores_schedule_occurrence
+    ON chores(schedule_id, occurrence_date) WHERE schedule_id IS NOT NULL;
+```
+
+**A schedule is a recurring template; occurrences are generated as `chores` rows.** `rrule` + `anchor_at_local` (carries the time-of-day) feed simshaun/recurr, expanded in `timezone` (wall-clock, DST-safe).
+
+**`generated_through`** is the high-water mark that bounds lazy generation: the materialised window is `(generated_through ?? max(anchor, now−14d), now+14d]`. recurr always starts at the anchor, so this clamp (plus a 60-row cap) is what stops a far-past anchor from generating thousands of rows.
+
+**`last_assigned_user_id` is the rotation cursor — a durable user id, NOT an index** — so the next assignee is a pure function of `(last_assigned_user_id, current members in join order)` that survives member removal/join. `assignment_mode='fixed'` pins to `fixed_user_id` instead. Both user pointers are `ON DELETE SET NULL` (self-heal when an account is deleted).
+
+**FK matrix**: `household_id` CASCADE; `created_by` RESTRICT (matches chores/events); the two user pointers SET NULL. `chores.schedule_id` remains a bare INTEGER (no FK), so deleting a schedule does NOT cascade — `ChoreSchedulesController` coordinates it (drop open generated, detach completed).
