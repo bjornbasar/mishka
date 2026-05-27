@@ -1,0 +1,125 @@
+{% extends "layout.twig" %}
+
+{% block title %}{{ mode == 'edit' ? 'Edit recurring chore' : 'New recurring chore' }} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>{{ mode == 'edit' ? 'Edit recurring chore' : 'New recurring chore' }}</h1>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST"
+          action="{{ mode == 'edit' ? '/chores/schedules/' ~ schedule.id : '/chores/schedules' }}"
+          class="auth">
+        {{ csrf_field() }}
+
+        <label>
+            Title
+            <input type="text" name="title" required maxlength="200" value="{{ schedule.title|default('') }}" autofocus>
+        </label>
+
+        <label>
+            Points <small style="color:var(--muted)">(0–1000)</small>
+            <input type="number" name="points" min="0" max="1000" value="{{ schedule.points|default(0) }}">
+        </label>
+
+        <label>
+            Starts on <small style="color:var(--muted)">(first occurrence)</small>
+            <input type="date" name="anchor_date" required value="{{ schedule.anchor_date|default('') }}">
+        </label>
+
+        <label>
+            Due time
+            <input type="time" name="due_time" required value="{{ schedule.due_time|default('09:00') }}">
+        </label>
+
+        <fieldset class="recurrence-fieldset" style="border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.375rem; margin:0;">
+            <legend style="padding:0 0.4rem;">Repeats</legend>
+            <label style="margin-top:0;">
+                <select name="recurrence_preset">
+                    <option value="none"    {% if recurrence.preset == 'none' %}selected{% endif %}>Does not repeat</option>
+                    <option value="daily"   {% if recurrence.preset == 'daily' %}selected{% endif %}>Daily</option>
+                    <option value="weekly"  {% if recurrence.preset == 'weekly' %}selected{% endif %}>Weekly</option>
+                    <option value="monthly" {% if recurrence.preset == 'monthly' %}selected{% endif %}>Monthly</option>
+                    <option value="yearly"  {% if recurrence.preset == 'yearly' %}selected{% endif %}>Yearly</option>
+                    {% if recurrence.preset == 'custom' %}<option value="custom" selected>Custom (read-only)</option>{% endif %}
+                </select>
+            </label>
+
+            <label class="recurrence-weekly" style="display:none;">
+                Days of week
+                <span style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+                    {% for code, name in {'MO':'Mon','TU':'Tue','WE':'Wed','TH':'Thu','FR':'Fri','SA':'Sat','SU':'Sun'} %}
+                        <label style="flex-direction:row; align-items:center; gap:0.25rem; padding:0.25rem 0.5rem; border:1px solid var(--border); border-radius:0.25rem;">
+                            <input type="checkbox" name="recurrence_byday[]" value="{{ code }}"
+                                   {% if code in recurrence.byday %}checked{% endif %}>
+                            {{ name }}
+                        </label>
+                    {% endfor %}
+                </span>
+            </label>
+
+            <label class="recurrence-monthly" style="display:none;">
+                Day of month <small style="color:var(--muted);">(1–28)</small>
+                <input type="number" name="recurrence_monthly_day" min="1" max="28"
+                       value="{{ recurrence.monthly_day|default(1) }}">
+            </label>
+
+            <label class="recurrence-interval" style="display:none;">
+                Repeat every <small style="color:var(--muted);">(1 = every period)</small>
+                <input type="number" name="recurrence_interval" min="1" max="52"
+                       value="{{ recurrence.interval|default(1) }}">
+            </label>
+        </fieldset>
+
+        <fieldset style="border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.375rem; margin:0;">
+            <legend style="padding:0 0.4rem;">Assignment</legend>
+            <label style="flex-direction:row; align-items:center; gap:0.5rem; margin-top:0;">
+                <input type="radio" name="assignment_mode" value="rotate"
+                       {% if schedule.assignment_mode|default('rotate') != 'fixed' %}checked{% endif %}>
+                Rotate across all members
+            </label>
+            <label style="flex-direction:row; align-items:center; gap:0.5rem;">
+                <input type="radio" name="assignment_mode" value="fixed"
+                       {% if schedule.assignment_mode|default('rotate') == 'fixed' %}checked{% endif %}>
+                Always assign to
+            </label>
+            <label>
+                <select name="fixed_user_id">
+                    <option value="">— pick a member —</option>
+                    {% for m in members %}
+                        <option value="{{ m.user_id }}" {% if schedule.fixed_user_id|default(null) == m.user_id %}selected{% endif %}>
+                            {{ m.display_name ?: m.email }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </label>
+        </fieldset>
+
+        <label>
+            Description <small style="color:var(--muted)">(optional)</small>
+            <textarea name="description" rows="3">{{ schedule.description|default('') }}</textarea>
+        </label>
+
+        <p style="color:var(--muted); font-size:0.9em;">
+            Times are in <strong>{{ household.timezone }}</strong> (household timezone).
+        </p>
+
+        <div style="display:flex; gap:0.5rem; justify-content:flex-start;">
+            <button type="submit">{{ mode == 'edit' ? 'Save changes' : 'Create recurring chore' }}</button>
+            <a href="/chores" style="align-self:center; color:var(--muted);">Cancel</a>
+        </div>
+    </form>
+
+    {% if mode == 'edit' %}
+        <hr style="border-color:var(--border); margin:1.5rem 0 0.5rem;">
+        <form method="POST" action="/chores/schedules/{{ schedule.id }}/delete" style="margin:0;"
+              onsubmit="return confirm('Delete this recurring chore? Upcoming not-yet-done occurrences are removed; completed ones are kept.');">
+            {{ csrf_field() }}
+            <button type="submit" class="link" style="background:transparent; border:0; color:var(--error); cursor:pointer; padding:0; font:inherit;">Delete recurring chore</button>
+        </form>
+    {% endif %}
+{% endblock %}

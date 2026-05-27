@@ -194,6 +194,57 @@ final class ChoreRepository
         $this->db->run('DELETE FROM chores WHERE id = :id', ['id' => $choreId]);
     }
 
+    /**
+     * Remove not-yet-done generated occurrences strictly after `$nowSql` for a
+     * schedule (v0.4.1 "refresh upcoming on edit"). Completed instances are left
+     * as immutable history.
+     */
+    public function deleteFutureOpenForSchedule(int $scheduleId, string $nowSql): void
+    {
+        $this->db->run(
+            'DELETE FROM chores
+              WHERE schedule_id = :s AND completed_at IS NULL AND occurrence_date > :now',
+            ['s' => $scheduleId, 'now' => $nowSql],
+        );
+    }
+
+    /**
+     * Schedule-delete chores-side cleanup (v0.4.1). No DB FK on schedule_id, so the
+     * app coordinates: drop open generated instances, and sever completed ones from
+     * the dying template (NULL schedule_id) so their points history survives and a
+     * future reused schedule id can't collide on the UNIQUE(schedule_id, occurrence_date).
+     * Atomic via the nested-transaction guard.
+     */
+    public function detachAndDropForSchedule(int $scheduleId): void
+    {
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            $this->db->run(
+                'DELETE FROM chores WHERE schedule_id = :s AND completed_at IS NULL',
+                ['s' => $scheduleId],
+            );
+            $this->db->run(
+                'UPDATE chores SET schedule_id = NULL WHERE schedule_id = :s AND completed_at IS NOT NULL',
+                ['s' => $scheduleId],
+            );
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     /** Idempotent: only sets completion fields when the chore is currently open. */
     public function markDone(int $choreId, int $byUserId): void
     {

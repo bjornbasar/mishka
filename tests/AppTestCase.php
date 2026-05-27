@@ -16,9 +16,12 @@ use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
 use App\Chores\ChoreRepository;
+use App\Chores\ChoreScheduleGenerator;
+use App\Chores\ChoreScheduleRepository;
 use App\Controllers\AuthController;
 use App\Controllers\CalendarController;
 use App\Controllers\ChoresController;
+use App\Controllers\ChoreSchedulesController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
@@ -56,6 +59,7 @@ abstract class AppTestCase extends TestCase
     protected EventRepository $eventRepo;
     protected IcalFeedTokenRepository $tokenRepo;
     protected ChoreRepository $choreRepo;
+    protected ChoreScheduleRepository $scheduleRepo;
     protected PasswordHasher $hasher;
 
     protected function setUp(): void
@@ -91,6 +95,8 @@ abstract class AppTestCase extends TestCase
         $this->tokenRepo = new IcalFeedTokenRepository($this->db);
         $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo);
         $this->choreRepo = new ChoreRepository($this->db);
+        $this->scheduleRepo = new ChoreScheduleRepository($this->db);
+        $choreScheduleGenerator = new ChoreScheduleGenerator($this->scheduleRepo, $this->choreRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
         $rbac = new Rbac($this->userRepo);
         $authz = new HouseholdAuthorizer($this->householdRepo);
@@ -116,6 +122,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(IcalFeedTokenRepository::class, $this->tokenRepo);
         $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
         $app->container()->set(ChoreRepository::class, $this->choreRepo);
+        $app->container()->set(ChoreScheduleRepository::class, $this->scheduleRepo);
+        $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
@@ -132,6 +140,10 @@ abstract class AppTestCase extends TestCase
             HouseholdController::class,
             CalendarController::class,
             IcalFeedController::class,
+            // ChoreSchedulesController MUST precede ChoresController: the router
+            // matches sequentially and ChoresController's `/chores/{id}` would
+            // otherwise greedily capture the static `/chores/schedules` paths.
+            ChoreSchedulesController::class,
             ChoresController::class,
         ]);
 
