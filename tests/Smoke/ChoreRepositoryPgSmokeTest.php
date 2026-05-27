@@ -76,9 +76,10 @@ final class ChoreRepositoryPgSmokeTest extends TestCase
         self::assertLessThan(60, abs(time() - strtotime((string) $created)), 'created_at should be NOW()-ish');
     }
 
-    public function test_points_tally_runs_under_pg_group_by_rule(): void
+    public function test_leaderboard_runs_under_pg_group_by_rule(): void
     {
         // The SQLite suite can't catch a non-grouped ORDER BY column; PG does.
+        // (The ledger-backed leaderboard orders by an aggregate alias + MIN(joined_at).)
         $alice = $this->insertUser('alice@example.com');
         $hid = $this->households->createForOwner('Tally', $alice);
         $id = $this->chores->create([
@@ -88,10 +89,11 @@ final class ChoreRepositoryPgSmokeTest extends TestCase
         ]);
         $this->chores->markDone($id, $alice);
 
-        $tally = $this->chores->pointsTallyForHousehold($hid);
+        $board = $this->chores->leaderboardForHousehold($hid, '2000-01-01 00:00:00');
 
-        self::assertNotEmpty($tally);
-        self::assertSame(10, $tally[0]['total_points']);
+        self::assertNotEmpty($board);
+        self::assertSame(10, $board[0]['total_points']);
+        self::assertSame(10, $board[0]['week_points']);  // weekStart in the past → counts as this week
     }
 
     public function test_household_delete_cascades_to_chores(): void

@@ -7,12 +7,16 @@
 
         {% if chore_tally is defined and chore_tally|length > 0 %}
             <section class="points-board" style="background:var(--card); border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.5rem; margin:1rem 0;">
-                <h2 style="margin:0 0 0.5rem; font-size:1.1rem;">Points</h2>
-                <ul style="list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0.5rem 1.5rem;">
+                <h2 style="margin:0 0 0.5rem; font-size:1.1rem;">Leaderboard <small style="color:var(--muted); font-weight:normal;">· this week</small></h2>
+                <ol style="margin:0; padding-left:1.25rem;">
                     {% for member in chore_tally %}
-                        <li><strong>{{ member.display_name ?: member.email }}</strong> {{ member.total_points }} pt</li>
+                        <li style="margin:0.15rem 0;">
+                            <strong>{{ member.display_name ?: member.email }}</strong>
+                            {{ member.week_points }} this wk
+                            <small style="color:var(--muted);">· {{ member.total_points }} all-time</small>
+                        </li>
                     {% endfor %}
-                </ul>
+                </ol>
                 <p style="margin:0.75rem 0 0;">
                     <a href="/chores">Chores</a> —
                     {{ chore_open_count }} open{% if chore_overdue_count > 0 %}, <span style="color:var(--error);">{{ chore_overdue_count }} overdue</span>{% endif %}.

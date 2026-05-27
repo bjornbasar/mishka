@@ -232,7 +232,7 @@ final class ChoreRepositoryTest extends TestCase
         $this->repo->markDone($c1, $alice);
         $this->repo->markDone($c2, $alice);
 
-        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
+        $tally = $this->indexTally($this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00'));
 
         self::assertSame(15, $tally[$alice]);
         self::assertSame(0, $tally[$bob]);  // member with no completed chores still listed at 0
@@ -246,10 +246,10 @@ final class ChoreRepositoryTest extends TestCase
         $id = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 10, 'assigned_to' => $alice]));
         $this->repo->markDone($id, $alice);
 
-        self::assertSame(10, $this->indexTally($this->repo->pointsTallyForHousehold($hid))[$alice]);
+        self::assertSame(10, $this->indexTally($this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00'))[$alice]);
 
         $this->repo->reopen($id);
-        self::assertSame(0, $this->indexTally($this->repo->pointsTallyForHousehold($hid))[$alice]);
+        self::assertSame(0, $this->indexTally($this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00'))[$alice]);
     }
 
     public function test_points_tally_credits_completer_when_assignee_removed(): void
@@ -269,29 +269,53 @@ final class ChoreRepositoryTest extends TestCase
         // Carol leaves the household.
         $this->db->run('DELETE FROM household_members WHERE household_id = :h AND user_id = :u', ['h' => $hid, 'u' => $carol]);
 
-        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
+        $tally = $this->indexTally($this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00'));
         self::assertSame(50, $tally[$bob]);
         self::assertArrayNotHasKey($carol, $tally);  // Carol no longer on the board
     }
 
-    public function test_points_tally_falls_back_to_assignee_when_completer_account_deleted(): void
+    public function test_completer_account_delete_orphans_the_ledger_points(): void
     {
-        // completed_by is ON DELETE SET NULL. If the completer's ACCOUNT is
-        // deleted, completed_by → NULL and credit falls back to assigned_to.
+        // The ledger credits the DOER, frozen at completion. If the doer's ACCOUNT
+        // is later deleted, the ledger row's credited_user_id → NULL (SET NULL):
+        // the points become unattributed history and drop off everyone's board.
+        // (Unlike the old live tally, there is no fall-back to the assignee — the
+        // person who actually did it is gone.)
         $alice = $this->insertUser('alice@example.com', 'Alice');
         $temp = $this->insertUser('temp@example.com', 'Temp');
         $hid = $this->insertHousehold('Den');
         $this->addMember($hid, $alice, 'owner');
 
         $id = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 30, 'assigned_to' => $alice]));
-        $this->repo->markDone($id, $temp);
+        $this->repo->markDone($id, $temp);  // temp is the doer
 
-        // Temp's account is deleted; SET NULL nulls completed_by.
         $this->db->run('DELETE FROM household_members WHERE user_id = :u', ['u' => $temp]);
         $this->db->run('DELETE FROM users WHERE id = :u', ['u' => $temp]);
 
-        $tally = $this->indexTally($this->repo->pointsTallyForHousehold($hid));
-        self::assertSame(30, $tally[$alice]);  // fell back to assigned_to
+        // Alice (the assignee) is NOT credited; the row survives but unattributed.
+        $tally = $this->indexTally($this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00'));
+        self::assertSame(0, $tally[$alice]);
+        $orphan = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chore_points_ledger WHERE household_id = :h AND credited_user_id IS NULL AND points = 30',
+            ['h' => $hid],
+        );
+        self::assertSame(1, $orphan);
+    }
+
+    public function test_leaderboard_week_points_respects_the_monday_boundary(): void
+    {
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+
+        // Two ledger rows: one last week, one this week (UTC instants).
+        $weekStart = '2026-06-08 00:00:00';  // a Monday (UTC)
+        $this->insertLedgerRow($hid, $alice, 10, '2026-06-05 09:00:00');  // before → all-time only
+        $this->insertLedgerRow($hid, $alice, 7, '2026-06-09 09:00:00');   // on/after → this week too
+
+        $row = $this->repo->leaderboardForHousehold($hid, $weekStart)[0];
+        self::assertSame(17, $row['total_points']);
+        self::assertSame(7, $row['week_points']);
     }
 
     public function test_household_delete_cascades_to_chores(): void
@@ -479,7 +503,7 @@ final class ChoreRepositoryTest extends TestCase
     }
 
     /**
-     * @param list<array{user_id: int, display_name: string, email: string, total_points: int}> $tally
+     * @param list<array{user_id: int, display_name: string, email: string, total_points: int, week_points?: int}> $tally
      * @return array<int, int>
      */
     private function indexTally(array $tally): array
@@ -489,5 +513,14 @@ final class ChoreRepositoryTest extends TestCase
             $out[$row['user_id']] = $row['total_points'];
         }
         return $out;
+    }
+
+    private function insertLedgerRow(int $hid, int $userId, int $points, string $completedAtUtc): void
+    {
+        $this->db->run(
+            'INSERT INTO chore_points_ledger (household_id, chore_id, credited_user_id, points, completed_at)
+             VALUES (:h, NULL, :u, :p, :t)',
+            ['h' => $hid, 'u' => $userId, 'p' => $points, 't' => $completedAtUtc],
+        );
     }
 }

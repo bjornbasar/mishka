@@ -90,7 +90,7 @@ final class ChoresController
             ->withBody($this->view->render('chores/index.twig', [
                 'open_chores' => $open,
                 'done_chores' => $done,
-                'tally' => $this->chores->pointsTallyForHousehold($hid),
+                'tally' => $this->chores->leaderboardForHousehold($hid, $this->weekStartUtc($household)),
                 'schedules' => $this->scheduleViewRows($hid, $memberNames),
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
@@ -407,6 +407,21 @@ final class ChoresController
         $tz = new \DateTimeZone((string) $chore['timezone']);
         $due = new \DateTimeImmutable((string) $chore['due_at_local'], $tz);
         return $due < new \DateTimeImmutable('now', $tz);
+    }
+
+    /**
+     * Monday 00:00 in the household timezone, expressed as a UTC 'Y-m-d H:i:s'
+     * string so it compares apples-to-apples with the ledger's UTC completed_at.
+     *
+     * @param array<string, mixed>|null $household
+     */
+    private function weekStartUtc(?array $household): string
+    {
+        $tz = new \DateTimeZone((string) ($household['timezone'] ?? 'Pacific/Auckland'));
+        return (new \DateTimeImmutable('now', $tz))
+            ->modify('monday this week')->setTime(0, 0, 0)
+            ->setTimezone(new \DateTimeZone('UTC'))
+            ->format('Y-m-d H:i:s');
     }
 
     /**

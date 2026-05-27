@@ -340,29 +340,35 @@ final class ChoreRepository
     }
 
     /**
-     * Per-member all-time points: SUM of completed chores credited to the doer
-     * (COALESCE(completed_by, assigned_to)). Driven off household_members so
-     * every current member appears (0 if none earned) and a departed member
-     * silently drops off. ORDER BY MIN(joined_at) so PostgreSQL's GROUP BY rule
-     * is satisfied (SQLite is permissive; PG rejects a bare non-grouped column).
+     * Ranked leaderboard from the durable points ledger: per-member all-time +
+     * this-week totals, ordered by this-week points DESC (tie-break join order).
      *
-     * @return list<array{user_id: int, display_name: string, email: string, total_points: int}>
+     * Driven off household_members so every CURRENT member appears (0 if none
+     * earned) and a departed member drops off the board — their ledger history
+     * persists in the table, it's just not shown. `week_points` sums only ledger
+     * rows on/after $weekStartUtcSql (Monday 00:00 household tz, expressed UTC by
+     * the caller, so the comparison agrees on PG TIMESTAMPTZ and SQLite TEXT).
+     * ORDER BY the aggregate alias + MIN(joined_at) keeps PostgreSQL's strict
+     * GROUP BY satisfied.
+     *
+     * @return list<array{user_id: int, display_name: string, email: string,
+     *                    total_points: int, week_points: int}>
      */
-    public function pointsTallyForHousehold(int $householdId): array
+    public function leaderboardForHousehold(int $householdId, string $weekStartUtcSql): array
     {
         $rows = $this->db->fetchAll(
             'SELECT u.id AS user_id, u.display_name, u.email,
-                    COALESCE(SUM(c.points), 0) AS total_points
+                    COALESCE(SUM(l.points), 0) AS total_points,
+                    COALESCE(SUM(CASE WHEN l.completed_at >= :week_start THEN l.points ELSE 0 END), 0) AS week_points
              FROM household_members m
              JOIN users u ON u.id = m.user_id
-             LEFT JOIN chores c
-                    ON c.household_id = m.household_id
-                   AND c.completed_at IS NOT NULL
-                   AND COALESCE(c.completed_by, c.assigned_to) = u.id
+             LEFT JOIN chore_points_ledger l
+                    ON l.household_id = m.household_id
+                   AND l.credited_user_id = u.id
              WHERE m.household_id = :hid AND u.id > 0
              GROUP BY u.id, u.display_name, u.email
-             ORDER BY MIN(m.joined_at) ASC',
-            ['hid' => $householdId],
+             ORDER BY week_points DESC, MIN(m.joined_at) ASC',
+            ['hid' => $householdId, 'week_start' => $weekStartUtcSql],
         );
 
         return array_map(
@@ -371,6 +377,7 @@ final class ChoreRepository
                 'display_name' => (string) $r['display_name'],
                 'email' => (string) $r['email'],
                 'total_points' => (int) $r['total_points'],
+                'week_points' => (int) $r['week_points'],
             ],
             $rows,
         );

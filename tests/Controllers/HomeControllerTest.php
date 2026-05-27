@@ -66,7 +66,7 @@ final class HomeControllerTest extends AppTestCase
         $response = $this->request('GET', '/');
 
         self::assertSame(200, $response->status());
-        self::assertStringContainsString('Points', $response->body());
+        self::assertStringContainsString('Leaderboard', $response->body());
         self::assertStringContainsString('10', $response->body());          // earned points
         self::assertStringContainsString('1 open', $response->body());      // one open chore
         self::assertStringContainsString('/chores', $response->body());

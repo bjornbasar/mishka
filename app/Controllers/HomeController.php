@@ -79,7 +79,10 @@ final class HomeController
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('home.twig', [
-                'chore_tally' => $this->chores->pointsTallyForHousehold($hid),
+                'chore_tally' => $this->chores->leaderboardForHousehold(
+                    $hid,
+                    $this->weekStartUtc((string) $ctx['active_household']['timezone']),
+                ),
                 'chore_open_count' => $openCount,
                 'chore_overdue_count' => $overdueCount,
             ] + $ctx));
@@ -93,5 +96,15 @@ final class HomeController
         }
         $tz = new \DateTimeZone((string) $chore['timezone']);
         return new \DateTimeImmutable((string) $chore['due_at_local'], $tz) < new \DateTimeImmutable('now', $tz);
+    }
+
+    /** Monday 00:00 household tz, as a UTC string (matches the ledger's UTC completed_at). */
+    private function weekStartUtc(string $timezone): string
+    {
+        $tz = new \DateTimeZone($timezone);
+        return (new \DateTimeImmutable('now', $tz))
+            ->modify('monday this week')->setTime(0, 0, 0)
+            ->setTimezone(new \DateTimeZone('UTC'))
+            ->format('Y-m-d H:i:s');
     }
 }
