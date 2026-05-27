@@ -107,9 +107,12 @@ final class ChoresController
         $paused = array_flip($this->schedules->listPausedIds($hid));
         $out = [];
         foreach ($this->schedules->listForHousehold($hid) as $s) {
-            $assignment = $s['assignment_mode'] === 'fixed'
-                ? ($memberNames[$s['fixed_user_id']] ?? 'Unassigned')
-                : 'Rotates';
+            if ($s['assignment_mode'] === 'fixed') {
+                $assignment = $memberNames[$s['fixed_user_id']] ?? 'Unassigned';
+            } else {
+                $poolCount = count($this->schedules->listParticipantIds((int) $s['id']));
+                $assignment = $poolCount > 0 ? "Rotates · {$poolCount} people" : 'Rotates';
+            }
             $out[] = $s + [
                 'cadence' => $this->cadenceLabel((string) $s['rrule']),
                 'assignment_label' => $assignment,

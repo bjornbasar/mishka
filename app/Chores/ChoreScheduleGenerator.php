@@ -90,6 +90,30 @@ final class ChoreScheduleGenerator
         $mode = (string) $schedule['assignment_mode'];
         $lastAssigned = $schedule['last_assigned_user_id'] === null ? null : (int) $schedule['last_assigned_user_id'];
 
+        // Compute the rotation candidate list ONCE (avoid an N+1 in the loop).
+        // Pool has rows → cycle listMembers ∩ pool in join order; no rows → all
+        // members. A pool whose members have all left the household → empty
+        // candidate list, which yields NULL (unassigned) rather than silently
+        // reassigning to people the user never picked.
+        $candidateIds = [];
+        $poolRestricted = false;
+        if ($mode === 'rotate') {
+            $memberIds = array_map(
+                static fn(array $m): int => (int) $m['user_id'],
+                $this->households->listMembers($hid),
+            );
+            $pool = $this->schedules->listParticipantIds($scheduleId);
+            if ($pool !== []) {
+                $poolRestricted = true;
+                $candidateIds = array_values(array_filter(
+                    $memberIds,
+                    static fn(int $id): bool => in_array($id, $pool, true),
+                ));
+            } else {
+                $candidateIds = $memberIds;
+            }
+        }
+
         $created = 0;
         foreach ($this->expandDates($schedule, $anchor, $genTo, $tz) as $occ) {
             if ($occ <= $genFrom) {
@@ -107,8 +131,10 @@ final class ChoreScheduleGenerator
             if ($mode === 'fixed') {
                 $fixed = $schedule['fixed_user_id'] === null ? null : (int) $schedule['fixed_user_id'];
                 $assignee = ($fixed !== null && $this->households->isMember($fixed, $hid)) ? $fixed : null;
+            } elseif ($poolRestricted && $candidateIds === []) {
+                $assignee = null;  // chosen pool members have all left the household
             } else {
-                $assignee = $this->nextRotation($lastAssigned, $hid);
+                $assignee = $this->nextRotation($lastAssigned, $candidateIds);
             }
 
             try {
@@ -143,16 +169,14 @@ final class ChoreScheduleGenerator
     }
 
     /**
-     * Next assignee = pure function of (last, current members in join order).
-     * If `last` is still a current member, the one after them; otherwise the head
-     * of the current roster (first-ever generation, or last assignee departed).
+     * Next assignee = pure function of (last, candidate ids in join order).
+     * If `last` is still a candidate, the one after them; otherwise the head of
+     * the list (first-ever generation, or last assignee no longer a candidate).
+     *
+     * @param list<int> $ids
      */
-    private function nextRotation(?int $last, int $householdId): ?int
+    private function nextRotation(?int $last, array $ids): ?int
     {
-        $ids = array_map(
-            static fn(array $m): int => $m['user_id'],
-            $this->households->listMembers($householdId),
-        );
         if ($ids === []) {
             return null;
         }

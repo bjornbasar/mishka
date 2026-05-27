@@ -87,7 +87,7 @@ final class ChoreSchedulesController
         $anchor = $this->anchorSql($input['anchor_date'], $input['due_time']);
         $rrule = $this->rrules->fromForm($recurrence, new \DateTimeImmutable($anchor, new \DateTimeZone($tz)));
 
-        $this->schedules->create([
+        $sid = $this->schedules->create([
             'household_id' => $hid,
             'created_by' => $userId,
             'title' => $input['title'],
@@ -99,6 +99,12 @@ final class ChoreSchedulesController
             'assignment_mode' => $input['assignment_mode'],
             'fixed_user_id' => $input['assignment_mode'] === 'fixed' ? (int) $input['fixed_user_id'] : null,
         ]);
+
+        // Pool only applies to rotate mode; fixed mode clears any pool.
+        $this->schedules->setParticipants(
+            $sid,
+            $input['assignment_mode'] === 'rotate' ? $this->extractParticipants($request, $hid) : [],
+        );
 
         return (new Response())->redirect('/chores', 303);
     }
@@ -122,6 +128,7 @@ final class ChoreSchedulesController
             'due_time' => $anchor->format('H:i'),
             'assignment_mode' => $schedule['assignment_mode'],
             'fixed_user_id' => $schedule['fixed_user_id'],
+            'participant_ids' => $this->schedules->listParticipantIds((int) $schedule['id']),
         ], $this->rrules->toForm($schedule['rrule']), $hid);
     }
 
@@ -157,8 +164,14 @@ final class ChoreSchedulesController
             'fixed_user_id' => $input['assignment_mode'] === 'fixed' ? (int) $input['fixed_user_id'] : null,
         ]);
 
+        $this->schedules->setParticipants(
+            $sid,
+            $input['assignment_mode'] === 'rotate' ? $this->extractParticipants($request, $hid) : [],
+        );
+
         // Refresh upcoming: drop not-yet-done future occurrences + rewind the
-        // watermark to now so the next view regenerates them from the new rule.
+        // watermark to now so the next view regenerates them from the new rule
+        // (and the new pool).
         $nowSql = (new \DateTimeImmutable('now', new \DateTimeZone($tz)))->format('Y-m-d H:i:00');
         $this->chores->deleteFutureOpenForSchedule($sid, $nowSql);
         $this->schedules->setGeneratedThrough($sid, $nowSql);
@@ -263,9 +276,35 @@ final class ChoreSchedulesController
                 'errors' => $errors,
                 'schedule' => $schedule,
                 'recurrence' => $recurrence,
+                'participant_ids' => $schedule['participant_ids'] ?? [],
                 'members' => $this->households->listMembers($hid),
                 'household' => $this->households->findById($hid),
             ] + $this->nav->forCurrentUser()));
+    }
+
+    /**
+     * Parse the participants[] pool, keeping only current members of the household.
+     *
+     * @return list<int>
+     */
+    private function extractParticipants(Request $request, int $hid): array
+    {
+        $body = $request->body();
+        $bodyArr = is_array($body) ? $body : [];
+        $candidate = $bodyArr['participants'] ?? null;
+
+        $ids = [];
+        if (is_array($candidate)) {
+            foreach ($candidate as $v) {
+                if (is_scalar($v) && preg_match('/^\d+$/', (string) $v) === 1) {
+                    $ids[] = (int) $v;
+                }
+            }
+        }
+        return array_values(array_filter(
+            array_unique($ids),
+            fn(int $id): bool => $this->households->isMember($id, $hid),
+        ));
     }
 
     /**

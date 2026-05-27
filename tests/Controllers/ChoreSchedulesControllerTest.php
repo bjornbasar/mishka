@@ -224,6 +224,89 @@ final class ChoreSchedulesControllerTest extends AppTestCase
         self::assertSame(404, $response->status());
     }
 
+    public function test_create_rotate_persists_participant_pool(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+
+        $this->request('POST', '/chores/schedules', [
+            'title' => 'Bins',
+            'points' => '5',
+            'anchor_date' => '2026-06-02',
+            'due_time' => '18:00',
+            'recurrence_preset' => 'weekly',
+            'recurrence_byday' => ['TU'],
+            'assignment_mode' => 'rotate',
+            'participants' => [(string) $uid, (string) $bob],
+        ]);
+
+        $sid = (int) $this->db->fetchScalar(
+            'SELECT id FROM chore_schedules WHERE household_id = :h AND title = :t',
+            ['h' => $hid, 't' => 'Bins'],
+        );
+        self::assertEqualsCanonicalizing([$uid, $bob], $this->scheduleRepo->listParticipantIds($sid));
+    }
+
+    public function test_create_fixed_mode_clears_any_pool(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+
+        $this->request('POST', '/chores/schedules', [
+            'title' => 'Rent',
+            'points' => '0',
+            'anchor_date' => '2026-06-01',
+            'due_time' => '09:00',
+            'recurrence_preset' => 'monthly',
+            'recurrence_monthly_day' => '1',
+            'assignment_mode' => 'fixed',
+            'fixed_user_id' => (string) $uid,
+            'participants' => [(string) $uid],  // ignored in fixed mode
+        ]);
+
+        $sid = (int) $this->db->fetchScalar(
+            'SELECT id FROM chore_schedules WHERE household_id = :h AND title = :t',
+            ['h' => $hid, 't' => 'Rent'],
+        );
+        self::assertSame([], $this->scheduleRepo->listParticipantIds($sid));
+    }
+
+    public function test_create_drops_non_member_participant(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $stranger = $this->createUserWithHash('stranger3@example.com', self::testPassword());
+
+        $this->request('POST', '/chores/schedules', [
+            'title' => 'Bins',
+            'points' => '0',
+            'anchor_date' => '2026-06-02',
+            'due_time' => '18:00',
+            'recurrence_preset' => 'daily',
+            'assignment_mode' => 'rotate',
+            'participants' => [(string) $uid, (string) $stranger],
+        ]);
+
+        $sid = (int) $this->db->fetchScalar(
+            'SELECT id FROM chore_schedules WHERE household_id = :h AND title = :t',
+            ['h' => $hid, 't' => 'Bins'],
+        );
+        self::assertSame([$uid], $this->scheduleRepo->listParticipantIds($sid));  // stranger dropped
+    }
+
+    public function test_edit_form_repopulates_participant_checkboxes(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob2@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+        $sid = $this->makeSchedule($hid, $uid, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-01 09:00:00']);
+        $this->scheduleRepo->setParticipants($sid, [$bob]);
+
+        $body = $this->request('GET', "/chores/schedules/{$sid}")->body();
+
+        // Bob's participant checkbox is checked; the value + checked attr are present.
+        self::assertMatchesRegularExpression('/name="participants\[\]" value="' . $bob . '"\s+checked/', $body);
+    }
+
     // --- helpers ---
 
     /** @return array{0: int, 1: int} */

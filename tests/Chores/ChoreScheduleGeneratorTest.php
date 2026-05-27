@@ -285,6 +285,84 @@ final class ChoreScheduleGeneratorTest extends TestCase
         self::assertNull($this->schedules->findById($paused)['generated_through']);
     }
 
+    public function test_pool_rotation_cycles_only_the_subset(): void
+    {
+        $a = $this->insertUser('a@example.com', 'A');
+        $b = $this->insertUser('b@example.com', 'B');
+        $c = $this->insertUser('c@example.com', 'C');
+        $hid = $this->households->createForOwner('Den', $a, $this->tz);
+        $this->households->addMember($hid, $b);
+        $this->households->addMember($hid, $c);
+        $tz = new \DateTimeZone($this->tz);
+        $sid = $this->makeSchedule($hid, $a, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+        // Pool = [A, C] (exclude B).
+        $this->schedules->setParticipants($sid, [$a, $c]);
+
+        $this->gen->generateForSchedule($this->schedules->findById($sid), new \DateTimeImmutable('2026-06-13 08:00:00', $tz));
+
+        $assignees = $this->generatedAssigneesInOrder($sid);
+        self::assertNotContains($b, $assignees);
+        // Cycles A, C, A, ...
+        self::assertSame([$a, $c, $a], array_slice($assignees, 0, 3));
+    }
+
+    public function test_pool_member_leaving_drops_out_of_rotation(): void
+    {
+        $a = $this->insertUser('a@example.com', 'A');
+        $b = $this->insertUser('b@example.com', 'B');
+        $hid = $this->households->createForOwner('Den', $a, $this->tz);
+        $this->households->addMember($hid, $b);
+        $tz = new \DateTimeZone($this->tz);
+        $sid = $this->makeSchedule($hid, $a, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+        $this->schedules->setParticipants($sid, [$a, $b]);
+        // B leaves the household (membership only).
+        $this->db->run('DELETE FROM household_members WHERE household_id = :h AND user_id = :u', ['h' => $hid, 'u' => $b]);
+
+        $this->gen->generateForSchedule($this->schedules->findById($sid), new \DateTimeImmutable('2026-06-13 08:00:00', $tz));
+
+        $assignees = $this->generatedAssigneesInOrder($sid);
+        self::assertNotContains($b, $assignees);
+        self::assertContains($a, $assignees);
+    }
+
+    public function test_empty_pool_intersection_assigns_null(): void
+    {
+        // Pool members all leave → the intersection is empty → unassigned (NOT a
+        // silent fall-back to all members the user never picked).
+        $owner = $this->insertUser('owner@example.com', 'Owner');
+        $b = $this->insertUser('b@example.com', 'B');
+        $hid = $this->households->createForOwner('Den', $owner, $this->tz);
+        $this->households->addMember($hid, $b);
+        $tz = new \DateTimeZone($this->tz);
+        $sid = $this->makeSchedule($hid, $owner, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+        $this->schedules->setParticipants($sid, [$b]);  // pool = just B
+        $this->db->run('DELETE FROM household_members WHERE household_id = :h AND user_id = :u', ['h' => $hid, 'u' => $b]);
+
+        $this->gen->generateForSchedule($this->schedules->findById($sid), new \DateTimeImmutable('2026-06-13 08:00:00', $tz));
+
+        $rows = $this->generatedRows($sid);
+        self::assertNotEmpty($rows);
+        foreach ($rows as $row) {
+            self::assertNull($row['assigned_to']);  // owner (not in pool) is NOT assigned
+        }
+    }
+
+    public function test_no_pool_rows_rotates_across_all_members(): void
+    {
+        // Regression: a schedule with no participant rows keeps v0.4.1 behaviour.
+        $a = $this->insertUser('a@example.com', 'A');
+        $b = $this->insertUser('b@example.com', 'B');
+        $hid = $this->households->createForOwner('Den', $a, $this->tz);
+        $this->households->addMember($hid, $b);
+        $tz = new \DateTimeZone($this->tz);
+        $sid = $this->makeSchedule($hid, $a, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+
+        $this->gen->generateForSchedule($this->schedules->findById($sid), new \DateTimeImmutable('2026-06-13 08:00:00', $tz));
+
+        $assignees = $this->generatedAssigneesInOrder($sid);
+        self::assertSame([$a, $b, $a], array_slice($assignees, 0, 3));
+    }
+
     // --- helpers ---
 
     private function insertUser(string $email, string $name = 'Test'): int

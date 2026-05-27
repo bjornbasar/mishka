@@ -80,8 +80,20 @@
             <label style="flex-direction:row; align-items:center; gap:0.5rem; margin-top:0;">
                 <input type="radio" name="assignment_mode" value="rotate"
                        {% if schedule.assignment_mode|default('rotate') != 'fixed' %}checked{% endif %}>
-                Rotate across all members
+                Rotate
             </label>
+            <fieldset style="border:0; margin:0; padding:0 0 0 1.5rem;">
+                <small style="color:var(--muted);">Across these members (leave all unchecked to rotate across everyone):</small>
+                <span style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.25rem;">
+                    {% for m in members %}
+                        <label style="flex-direction:row; align-items:center; gap:0.25rem; padding:0.25rem 0.5rem; border:1px solid var(--border); border-radius:0.25rem;">
+                            <input type="checkbox" name="participants[]" value="{{ m.user_id }}"
+                                   {% if m.user_id in participant_ids|default([]) %}checked{% endif %}>
+                            {{ m.display_name ?: m.email }}
+                        </label>
+                    {% endfor %}
+                </span>
+            </fieldset>
             <label style="flex-direction:row; align-items:center; gap:0.5rem;">
                 <input type="radio" name="assignment_mode" value="fixed"
                        {% if schedule.assignment_mode|default('rotate') == 'fixed' %}checked{% endif %}>
