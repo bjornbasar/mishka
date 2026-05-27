@@ -6,6 +6,8 @@ namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
 use App\Chores\ChoreRepository;
+use App\Chores\ChoreScheduleGenerator;
+use App\Chores\ChoreScheduleRepository;
 use App\Household\HouseholdRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
@@ -39,6 +41,8 @@ final class ChoresController
         private readonly HouseholdAuthorizer $auth,
         private readonly NavContext $nav,
         private readonly TwigAdapter $view,
+        private readonly ChoreScheduleRepository $schedules,
+        private readonly ChoreScheduleGenerator $generator,
     ) {}
 
     #[Route('/chores', methods: ['GET'], name: 'chores.list')]
@@ -51,6 +55,14 @@ final class ChoresController
         $userId = (int) Session::get('user_id');
         $hid = (int) Session::get('active_household_id');
         $this->auth->requireMember($userId, $hid);
+
+        // Lazily materialise recurring-chore occurrences before listing. Bounded +
+        // idempotent; wrapped so a generation hiccup never 500s the page.
+        try {
+            $this->generator->generateForHousehold($hid);
+        } catch (\Throwable) {
+            // best-effort; render whatever already exists
+        }
 
         $household = $this->households->findById($hid);
         $members = $this->households->listMembers($hid);
@@ -79,8 +91,41 @@ final class ChoresController
                 'open_chores' => $open,
                 'done_chores' => $done,
                 'tally' => $this->chores->pointsTallyForHousehold($hid),
+                'schedules' => $this->scheduleViewRows($hid, $memberNames),
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
+    }
+
+    /**
+     * Recurring-chore templates enriched with a human cadence + assignment label.
+     *
+     * @param array<int, string> $memberNames
+     * @return list<array<string, mixed>>
+     */
+    private function scheduleViewRows(int $hid, array $memberNames): array
+    {
+        $out = [];
+        foreach ($this->schedules->listForHousehold($hid) as $s) {
+            $assignment = $s['assignment_mode'] === 'fixed'
+                ? ($memberNames[$s['fixed_user_id']] ?? 'Unassigned')
+                : 'Rotates';
+            $out[] = $s + [
+                'cadence' => $this->cadenceLabel((string) $s['rrule']),
+                'assignment_label' => $assignment,
+            ];
+        }
+        return $out;
+    }
+
+    private function cadenceLabel(string $rrule): string
+    {
+        return match (true) {
+            str_contains($rrule, 'FREQ=DAILY') => 'Daily',
+            str_contains($rrule, 'FREQ=WEEKLY') => 'Weekly',
+            str_contains($rrule, 'FREQ=MONTHLY') => 'Monthly',
+            str_contains($rrule, 'FREQ=YEARLY') => 'Yearly',
+            default => 'Recurring',
+        };
     }
 
     #[Route('/chores/new', methods: ['GET'])]

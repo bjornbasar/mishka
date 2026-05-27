@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Chores\ChoreRepository;
+use App\Chores\ChoreScheduleGenerator;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Http\Request;
@@ -31,6 +32,7 @@ final class HomeController
         private readonly TwigAdapter $view,
         private readonly NavContext $nav,
         private readonly ChoreRepository $chores,
+        private readonly ChoreScheduleGenerator $generator,
     ) {}
 
     #[Route('/', name: 'home')]
@@ -53,6 +55,14 @@ final class HomeController
         }
 
         $hid = (int) $ctx['active_household']['id'];
+        // Materialise due recurring occurrences so the home counts stay fresh.
+        // Bounded + idempotent (watermark makes this a near no-op on re-view);
+        // best-effort so it never 500s the landing page.
+        try {
+            $this->generator->generateForHousehold($hid);
+        } catch (\Throwable) {
+            // ignore; render whatever exists
+        }
         $chores = $this->chores->listForHousehold($hid);
         $openCount = 0;
         $overdueCount = 0;

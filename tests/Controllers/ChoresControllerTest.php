@@ -287,6 +287,72 @@ final class ChoresControllerTest extends AppTestCase
         self::assertContains($response->status(), [302, 403]);
     }
 
+    public function test_get_chores_materialises_active_schedule_occurrences(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        // A daily schedule anchored today; visiting /chores should generate occurrences.
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $anchor = (new \DateTimeImmutable('now', $tz))->format('Y-m-d') . ' 09:00:00';
+        $this->scheduleRepo->create([
+            'household_id' => $hid, 'created_by' => $uid, 'title' => 'Daily standup',
+            'description' => '', 'points' => 1, 'rrule' => 'FREQ=DAILY',
+            'anchor_at_local' => $anchor, 'timezone' => 'Pacific/Auckland',
+            'assignment_mode' => 'rotate', 'fixed_user_id' => null,
+        ]);
+
+        $before = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM chores WHERE household_id = :h', ['h' => $hid]);
+        $this->request('GET', '/chores');
+        $after = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM chores WHERE household_id = :h', ['h' => $hid]);
+
+        self::assertGreaterThan($before, $after, 'visiting /chores materialises occurrences');
+    }
+
+    public function test_get_chores_generation_is_idempotent_across_views(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $anchor = (new \DateTimeImmutable('now', $tz))->format('Y-m-d') . ' 09:00:00';
+        $this->scheduleRepo->create([
+            'household_id' => $hid, 'created_by' => $uid, 'title' => 'Daily standup',
+            'description' => '', 'points' => 1, 'rrule' => 'FREQ=DAILY',
+            'anchor_at_local' => $anchor, 'timezone' => 'Pacific/Auckland',
+            'assignment_mode' => 'rotate', 'fixed_user_id' => null,
+        ]);
+
+        $this->request('GET', '/chores');
+        $afterFirst = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM chores WHERE household_id = :h', ['h' => $hid]);
+        $this->request('GET', '/chores');
+        $afterSecond = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM chores WHERE household_id = :h', ['h' => $hid]);
+
+        self::assertSame($afterFirst, $afterSecond, 'a second visit creates no duplicate occurrences');
+    }
+
+    public function test_deleting_a_generated_occurrence_does_not_regenerate_it(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $anchor = (new \DateTimeImmutable('now', $tz))->format('Y-m-d') . ' 09:00:00';
+        $this->scheduleRepo->create([
+            'household_id' => $hid, 'created_by' => $uid, 'title' => 'Daily standup',
+            'description' => '', 'points' => 1, 'rrule' => 'FREQ=DAILY',
+            'anchor_at_local' => $anchor, 'timezone' => 'Pacific/Auckland',
+            'assignment_mode' => 'rotate', 'fixed_user_id' => null,
+        ]);
+
+        $this->request('GET', '/chores');
+        $generated = (int) $this->db->fetchScalar('SELECT id FROM chores WHERE household_id = :h ORDER BY id ASC LIMIT 1', ['h' => $hid]);
+        $this->request('POST', "/chores/{$generated}/delete");
+
+        // Re-visiting must NOT recreate the deleted occurrence (watermark holds).
+        $this->request('GET', '/chores');
+        self::assertNull($this->choreRepo->findById($generated));
+        $stillGone = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chores WHERE id = :id',
+            ['id' => $generated],
+        );
+        self::assertSame(0, $stillGone);
+    }
+
     /** @return array{0: int, 1: int} */
     private function signInAsHouseholdOwner(): array
     {
