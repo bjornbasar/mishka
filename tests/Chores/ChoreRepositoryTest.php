@@ -333,7 +333,108 @@ final class ChoreRepositoryTest extends TestCase
         self::assertNull($this->repo->findById($id));
     }
 
+    // --- v0.4.2 points ledger ---
+
+    public function test_mark_done_writes_one_ledger_row_crediting_the_doer(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['points' => 10, 'assigned_to' => $uid]));
+
+        $transitioned = $this->repo->markDone($id, $uid);
+
+        self::assertTrue($transitioned);
+        $rows = $this->ledgerRows($id);
+        self::assertCount(1, $rows);
+        self::assertSame($uid, (int) $rows[0]['credited_user_id']);
+        self::assertSame(10, (int) $rows[0]['points']);
+        self::assertSame($hid, (int) $rows[0]['household_id']);
+    }
+
+    public function test_double_complete_writes_exactly_one_ledger_row(): void
+    {
+        $first = $this->insertUser('a@example.com');
+        $second = $this->insertUser('b@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $first, ['points' => 10]));
+
+        self::assertTrue($this->repo->markDone($id, $first));
+        self::assertFalse($this->repo->markDone($id, $second));  // no-op, already done
+
+        $rows = $this->ledgerRows($id);
+        self::assertCount(1, $rows);
+        self::assertSame($first, (int) $rows[0]['credited_user_id']);  // first doer keeps the credit
+    }
+
+    public function test_reopen_removes_the_ledger_row(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['points' => 10]));
+        $this->repo->markDone($id, $uid);
+
+        $this->repo->reopen($id);
+
+        self::assertCount(0, $this->ledgerRows($id));
+    }
+
+    public function test_reopen_then_recomplete_leaves_one_row_at_current_points(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['points' => 10]));
+        $this->repo->markDone($id, $uid);
+        $this->repo->reopen($id);
+        // Points edited while open, then re-completed.
+        $this->repo->update($id, ['points' => 25]);
+        $this->repo->markDone($id, $uid);
+
+        $rows = $this->ledgerRows($id);
+        self::assertCount(1, $rows);
+        self::assertSame(25, (int) $rows[0]['points']);  // credits the points at re-completion
+    }
+
+    public function test_editing_points_on_a_completed_chore_leaves_the_ledger_frozen(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['points' => 10]));
+        $this->repo->markDone($id, $uid);
+
+        $this->repo->update($id, ['points' => 999]);  // edit AFTER completion
+
+        $rows = $this->ledgerRows($id);
+        self::assertCount(1, $rows);
+        self::assertSame(10, (int) $rows[0]['points']);  // frozen at completion
+    }
+
+    public function test_deleting_a_completed_chore_keeps_the_ledger_row(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalChoreData($hid, $uid, ['points' => 10]));
+        $this->repo->markDone($id, $uid);
+
+        $this->repo->delete($id);
+
+        // chore_id SET NULL, but the points-history row survives.
+        $surviving = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chore_points_ledger WHERE household_id = :h AND credited_user_id = :u AND points = 10',
+            ['h' => $hid, 'u' => $uid],
+        );
+        self::assertSame(1, $surviving);
+    }
+
     // --- helpers ---
+
+    /** @return list<array<string, mixed>> */
+    private function ledgerRows(int $choreId): array
+    {
+        return $this->db->fetchAll(
+            'SELECT * FROM chore_points_ledger WHERE chore_id = :id',
+            ['id' => $choreId],
+        );
+    }
 
     private function insertUser(string $email, string $name = 'Test'): int
     {

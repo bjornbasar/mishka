@@ -245,25 +245,98 @@ final class ChoreRepository
         }
     }
 
-    /** Idempotent: only sets completion fields when the chore is currently open. */
-    public function markDone(int $choreId, int $byUserId): void
+    /**
+     * Mark a chore done + write its points-ledger row, atomically. Idempotent:
+     * the `WHERE completed_at IS NULL` guard means a double-complete transitions
+     * exactly once (run() === 1) so exactly one ledger row is written. The doer
+     * (`$byUserId`, also stored as completed_by) is credited the chore's points
+     * captured AT completion; one UTC timestamp is written to both rows.
+     *
+     * @return bool whether this call actually transitioned the chore (vs no-op)
+     */
+    public function markDone(int $choreId, int $byUserId): bool
     {
-        $this->db->run(
-            'UPDATE chores
-                SET completed_at = CURRENT_TIMESTAMP, completed_by = :uid, updated_at = CURRENT_TIMESTAMP
-              WHERE id = :id AND completed_at IS NULL',
-            ['uid' => $byUserId, 'id' => $choreId],
-        );
+        $ts = gmdate('Y-m-d H:i:s');
+
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            $affected = $this->db->run(
+                'UPDATE chores
+                    SET completed_at = :ts, completed_by = :uid, updated_at = :ts
+                  WHERE id = :id AND completed_at IS NULL',
+                ['ts' => $ts, 'uid' => $byUserId, 'id' => $choreId],
+            );
+            $transitioned = $affected === 1;
+
+            if ($transitioned) {
+                $chore = $this->db->fetchOne(
+                    'SELECT household_id, points FROM chores WHERE id = :id',
+                    ['id' => $choreId],
+                );
+                $this->db->run(
+                    'INSERT INTO chore_points_ledger
+                       (household_id, chore_id, credited_user_id, points, completed_at)
+                     VALUES (:hid, :cid, :uid, :pts, :ts)',
+                    [
+                        'hid' => (int) $chore['household_id'],
+                        'cid' => $choreId,
+                        'uid' => $byUserId,
+                        'pts' => (int) $chore['points'],
+                        'ts' => $ts,
+                    ],
+                );
+            }
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+            return $transitioned;
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
+    /**
+     * Reopen a chore + remove its ledger row (un-credit), atomically. Deleting the
+     * row keeps the invariant "≤1 live ledger row per chore" so a later re-complete
+     * inserts a fresh row without a UNIQUE constraint blocking it.
+     */
     public function reopen(int $choreId): void
     {
-        $this->db->run(
-            'UPDATE chores
-                SET completed_at = NULL, completed_by = NULL, updated_at = CURRENT_TIMESTAMP
-              WHERE id = :id',
-            ['id' => $choreId],
-        );
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            $this->db->run('DELETE FROM chore_points_ledger WHERE chore_id = :id', ['id' => $choreId]);
+            $this->db->run(
+                'UPDATE chores
+                    SET completed_at = NULL, completed_by = NULL, updated_at = CURRENT_TIMESTAMP
+                  WHERE id = :id',
+                ['id' => $choreId],
+            );
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /**
