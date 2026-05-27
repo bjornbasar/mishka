@@ -307,3 +307,79 @@ CREATE INDEX IF NOT EXISTS idx_chore_schedules_household
 -- (schedule_id NULL) never enter it.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_chores_schedule_occurrence
     ON chores(schedule_id, occurrence_date) WHERE schedule_id IS NOT NULL;
+
+-- ============================================================
+-- v0.4.2: chore_points_ledger — append-only points history
+-- ============================================================
+--
+-- Replaces the v0.4.0 live-aggregate points tally. A row is written when a chore
+-- is completed (ChoreRepository::markDone, only on the real open→done transition)
+-- crediting the doer with the chore's points captured AT completion. Editing the
+-- chore's points/assignee afterward never touches this row (immutable history);
+-- deleting the chore SET-NULLs chore_id but keeps the row (points survive). reopen
+-- DELETEs the chore's row (un-credit). There is deliberately NO UNIQUE(chore_id):
+-- a chore can be completed → reopened → re-completed, and delete-on-reopen keeps
+-- at most one live row per chore without a constraint that would block re-credit.
+--
+-- completed_at is stored as a UTC instant; the weekly-leaderboard boundary
+-- (Monday 00:00 household tz) is computed in PHP and converted to UTC for an
+-- apples-to-apples comparison on both PG (TIMESTAMPTZ) and SQLite (TEXT).
+
+CREATE TABLE IF NOT EXISTS chore_points_ledger (
+    id               SERIAL PRIMARY KEY,
+    household_id     INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    chore_id         INTEGER NULL REFERENCES chores(id) ON DELETE SET NULL,
+    credited_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    points           INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),  -- snapshot at completion
+    completed_at     TIMESTAMPTZ NOT NULL,                            -- UTC instant
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_chore_points_ledger_household_completed
+    ON chore_points_ledger(household_id, completed_at);
+CREATE INDEX IF NOT EXISTS idx_chore_points_ledger_credited
+    ON chore_points_ledger(credited_user_id);
+
+-- One-time, idempotent backfill of completions that predate the ledger so the
+-- leaderboard doesn't read zero on ship day. Runs on every `karhu migrate` and
+-- in the SQLite test load (against an empty chores table = harmless no-op). The
+-- NOT EXISTS guard (not a UNIQUE constraint — see above) makes re-runs safe.
+INSERT INTO chore_points_ledger (household_id, chore_id, credited_user_id, points, completed_at)
+SELECT c.household_id, c.id, COALESCE(c.completed_by, c.assigned_to), c.points, c.completed_at
+FROM chores c
+WHERE c.completed_at IS NOT NULL
+  AND COALESCE(c.completed_by, c.assigned_to) IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM chore_points_ledger l WHERE l.chore_id = c.id);
+
+-- ============================================================
+-- v0.4.2: chore_schedule_pauses — presence of a row = the schedule is paused
+-- ============================================================
+--
+-- chore_schedules can't gain an `active` column (additive-only, no ALTER), so a
+-- flag table represents pause state. New table → a real FK to chore_schedules is
+-- legal (free cleanup on schedule delete). The generator skips paused schedules;
+-- pause = INSERT, resume = DELETE (resume also rewinds the schedule's
+-- generated_through to now so a long pause doesn't spawn a backlog).
+
+CREATE TABLE IF NOT EXISTS chore_schedule_pauses (
+    schedule_id INTEGER PRIMARY KEY REFERENCES chore_schedules(id) ON DELETE CASCADE,
+    paused_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- v0.4.2: chore_schedule_participants — rotation pool subset
+-- ============================================================
+--
+-- Presence of rows for a schedule = rotation cycles that subset (in member join
+-- order) instead of all members. No rows = rotate across all members (v0.4.1
+-- behaviour). Composite PK dedups; both FKs CASCADE (a removed account or deleted
+-- schedule drops its pool rows).
+
+CREATE TABLE IF NOT EXISTS chore_schedule_participants (
+    schedule_id INTEGER NOT NULL REFERENCES chore_schedules(id) ON DELETE CASCADE,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (schedule_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chore_schedule_participants_schedule
+    ON chore_schedule_participants(schedule_id);
