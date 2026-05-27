@@ -83,12 +83,17 @@
             <ul class="chore-list" style="list-style:none; margin:0.5rem 0 0; padding:0;">
                 {% for s in schedules %}
                     <li class="chore-item" style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border);">
-                        <span style="flex:1;">
+                        <span style="flex:1;{% if s.is_paused %} opacity:0.6;{% endif %}">
                             <a href="/chores/schedules/{{ s.id }}" style="color:var(--fg);">{{ s.title }}</a>
+                            {% if s.is_paused %}<span style="color:var(--muted); font-size:0.8em; font-weight:bold; margin-left:0.4rem;">Paused</span>{% endif %}
                             <small style="color:var(--muted); display:block;">
                                 {{ s.cadence }} · {{ s.assignment_label }}{% if s.points > 0 %} · {{ s.points }} pt{% endif %}
                             </small>
                         </span>
+                        <form method="POST" action="/chores/schedules/{{ s.id }}/{% if s.is_paused %}resume{% else %}pause{% endif %}" style="margin:0;">
+                            {{ csrf_field() }}
+                            <button type="submit" style="background:transparent; border:1px solid var(--border); color:var(--muted); border-radius:0.25rem; cursor:pointer; padding:0.1rem 0.5rem;">{% if s.is_paused %}Resume{% else %}Pause{% endif %}</button>
+                        </form>
                         <a href="/chores/schedules/{{ s.id }}" style="color:var(--accent);">Edit</a>
                     </li>
                 {% endfor %}

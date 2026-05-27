@@ -175,6 +175,84 @@ final class ChoreScheduleRepositoryTest extends TestCase
         self::assertNull($row['last_assigned_user_id']);
     }
 
+    // --- v0.4.2 pause/resume + participant pools ---
+
+    public function test_pause_resume_round_trip_and_idempotent(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalScheduleData($hid, $uid));
+
+        self::assertFalse($this->repo->isPaused($id));
+        $this->repo->pause($id);
+        self::assertTrue($this->repo->isPaused($id));
+        $this->repo->pause($id);  // idempotent
+        self::assertTrue($this->repo->isPaused($id));
+        $this->repo->resume($id);
+        self::assertFalse($this->repo->isPaused($id));
+    }
+
+    public function test_list_paused_ids_scoped_to_household(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $other = $this->insertHousehold('Other');
+        $mine = $this->repo->create($this->minimalScheduleData($hid, $uid));
+        $theirs = $this->repo->create($this->minimalScheduleData($other, $uid));
+        $this->repo->pause($mine);
+        $this->repo->pause($theirs);
+
+        self::assertSame([$mine], $this->repo->listPausedIds($hid));
+    }
+
+    public function test_pause_cascades_on_schedule_delete(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalScheduleData($hid, $uid));
+        $this->repo->pause($id);
+
+        $this->repo->delete($id);
+
+        $count = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM chore_schedule_pauses WHERE schedule_id = :id',
+            ['id' => $id],
+        );
+        self::assertSame(0, $count);
+    }
+
+    public function test_set_participants_replace_semantics_and_clear(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $b = $this->insertUser('b@example.com');
+        $c = $this->insertUser('c@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalScheduleData($hid, $uid));
+
+        $this->repo->setParticipants($id, [$uid, $b]);
+        self::assertEqualsCanonicalizing([$uid, $b], $this->repo->listParticipantIds($id));
+
+        $this->repo->setParticipants($id, [$c]);  // replace, not append
+        self::assertSame([$c], $this->repo->listParticipantIds($id));
+
+        $this->repo->setParticipants($id, []);  // clear
+        self::assertSame([], $this->repo->listParticipantIds($id));
+    }
+
+    public function test_participants_cascade_on_user_delete(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $helper = $this->insertUser('helper@example.com');
+        $hid = $this->insertHousehold('Den');
+        $id = $this->repo->create($this->minimalScheduleData($hid, $owner));
+        $this->repo->setParticipants($id, [$owner, $helper]);
+
+        $this->db->run('DELETE FROM household_members WHERE user_id = :u', ['u' => $helper]);
+        $this->db->run('DELETE FROM users WHERE id = :u', ['u' => $helper]);
+
+        self::assertSame([$owner], $this->repo->listParticipantIds($id));
+    }
+
     // --- helpers ---
 
     private function insertUser(string $email): int

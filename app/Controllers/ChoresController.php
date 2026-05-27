@@ -104,6 +104,7 @@ final class ChoresController
      */
     private function scheduleViewRows(int $hid, array $memberNames): array
     {
+        $paused = array_flip($this->schedules->listPausedIds($hid));
         $out = [];
         foreach ($this->schedules->listForHousehold($hid) as $s) {
             $assignment = $s['assignment_mode'] === 'fixed'
@@ -112,6 +113,7 @@ final class ChoresController
             $out[] = $s + [
                 'cadence' => $this->cadenceLabel((string) $s['rrule']),
                 'assignment_label' => $assignment,
+                'is_paused' => isset($paused[(int) $s['id']]),
             ];
         }
         return $out;

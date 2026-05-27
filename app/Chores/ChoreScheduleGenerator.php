@@ -50,8 +50,16 @@ final class ChoreScheduleGenerator
     /** Generate due occurrences for every schedule in the household. Returns rows created. */
     public function generateForHousehold(int $householdId, ?\DateTimeImmutable $now = null): int
     {
+        // Paused schedules are skipped HERE (never inside generateForSchedule, which
+        // unconditionally advances the watermark — skipping there would drift it
+        // forward while paused and lose occurrences after resume).
+        $paused = array_flip($this->schedules->listPausedIds($householdId));
+
         $created = 0;
         foreach ($this->schedules->listForHousehold($householdId) as $schedule) {
+            if (isset($paused[(int) $schedule['id']])) {
+                continue;
+            }
             $created += $this->generateForSchedule($schedule, $now ?? new \DateTimeImmutable('now'));
         }
         return $created;

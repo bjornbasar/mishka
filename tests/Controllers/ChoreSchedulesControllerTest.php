@@ -196,6 +196,34 @@ final class ChoreSchedulesControllerTest extends AppTestCase
         self::assertContains($response->status(), [302, 403]);
     }
 
+    public function test_pause_then_resume_toggles_and_resume_rewinds_watermark(): void
+    {
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $sid = $this->makeSchedule($hid, $uid, ['rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-01 09:00:00']);
+        $this->scheduleRepo->setGeneratedThrough($sid, '2026-06-01 09:00:00');
+
+        $pause = $this->request('POST', "/chores/schedules/{$sid}/pause");
+        self::assertSame(303, $pause->status());
+        self::assertTrue($this->scheduleRepo->isPaused($sid));
+
+        $resume = $this->request('POST', "/chores/schedules/{$sid}/resume");
+        self::assertSame(303, $resume->status());
+        self::assertFalse($this->scheduleRepo->isPaused($sid));
+        // Resume rewinds the watermark forward (away from the old anchor) so no backlog.
+        self::assertNotSame('2026-06-01 09:00:00', $this->scheduleRepo->findById($sid)['generated_through']);
+    }
+
+    public function test_pause_on_cross_household_schedule_404s(): void
+    {
+        $this->signInAsHouseholdOwner();
+        $otherOwner = $this->createUserWithHash('other2@example.com', self::testPassword());
+        $otherHid = $this->householdRepo->createForOwner('Other Den', $otherOwner);
+        $sid = $this->makeSchedule($otherHid, $otherOwner, []);
+
+        $response = $this->request('POST', "/chores/schedules/{$sid}/pause");
+        self::assertSame(404, $response->status());
+    }
+
     // --- helpers ---
 
     /** @return array{0: int, 1: int} */

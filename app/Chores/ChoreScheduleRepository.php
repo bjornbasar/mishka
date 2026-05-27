@@ -153,6 +153,91 @@ final class ChoreScheduleRepository
         );
     }
 
+    // --- pause/resume (v0.4.2; presence of a chore_schedule_pauses row = paused) ---
+
+    /** Idempotent: pausing an already-paused schedule is a no-op. */
+    public function pause(int $scheduleId): void
+    {
+        $this->db->run(
+            'INSERT INTO chore_schedule_pauses (schedule_id) VALUES (:id) ON CONFLICT (schedule_id) DO NOTHING',
+            ['id' => $scheduleId],
+        );
+    }
+
+    public function resume(int $scheduleId): void
+    {
+        $this->db->run('DELETE FROM chore_schedule_pauses WHERE schedule_id = :id', ['id' => $scheduleId]);
+    }
+
+    public function isPaused(int $scheduleId): bool
+    {
+        $hit = $this->db->fetchScalar(
+            'SELECT 1 FROM chore_schedule_pauses WHERE schedule_id = :id',
+            ['id' => $scheduleId],
+        );
+        return $hit !== false && $hit !== null;
+    }
+
+    /** @return list<int> paused schedule ids in this household */
+    public function listPausedIds(int $householdId): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT p.schedule_id
+             FROM chore_schedule_pauses p
+             JOIN chore_schedules s ON s.id = p.schedule_id
+             WHERE s.household_id = :hid',
+            ['hid' => $householdId],
+        );
+        return array_map(static fn(array $r): int => (int) $r['schedule_id'], $rows);
+    }
+
+    // --- participant pools (v0.4.2; presence of rows = restricted rotation pool) ---
+
+    /**
+     * Replace the schedule's participant pool. Empty list clears it (→ rotate
+     * across all members). Atomic via the nested-transaction guard.
+     *
+     * @param list<int> $userIds
+     */
+    public function setParticipants(int $scheduleId, array $userIds): void
+    {
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            $this->db->run('DELETE FROM chore_schedule_participants WHERE schedule_id = :s', ['s' => $scheduleId]);
+            foreach (array_values(array_unique($userIds)) as $uid) {
+                $this->db->run(
+                    'INSERT INTO chore_schedule_participants (schedule_id, user_id) VALUES (:s, :u)',
+                    ['s' => $scheduleId, 'u' => $uid],
+                );
+            }
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /** @return list<int> */
+    public function listParticipantIds(int $scheduleId): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT user_id FROM chore_schedule_participants WHERE schedule_id = :s ORDER BY user_id ASC',
+            ['s' => $scheduleId],
+        );
+        return array_map(static fn(array $r): int => (int) $r['user_id'], $rows);
+    }
+
     private function validateTimezone(string $tz): void
     {
         if (!in_array($tz, \DateTimeZone::listIdentifiers(), true)) {

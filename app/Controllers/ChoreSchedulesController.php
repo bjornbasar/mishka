@@ -184,6 +184,37 @@ final class ChoreSchedulesController
         return (new Response())->redirect('/chores', 303);
     }
 
+    #[Route('/chores/schedules/{id}/pause', methods: ['POST'])]
+    public function handlePause(Request $request): Response
+    {
+        $resolved = $this->resolveSchedule($request);
+        if ($resolved instanceof Response) {
+            return $resolved;
+        }
+        [$schedule] = $resolved;
+        $this->schedules->pause((int) $schedule['id']);
+        return (new Response())->redirect('/chores', 303);
+    }
+
+    #[Route('/chores/schedules/{id}/resume', methods: ['POST'])]
+    public function handleResume(Request $request): Response
+    {
+        $resolved = $this->resolveSchedule($request);
+        if ($resolved instanceof Response) {
+            return $resolved;
+        }
+        [$schedule] = $resolved;
+        $sid = (int) $schedule['id'];
+
+        $this->schedules->resume($sid);
+        // Forward-only: rewind the watermark to now so a long pause doesn't spawn a
+        // backlog of missed occurrences on resume.
+        $nowSql = (new \DateTimeImmutable('now', new \DateTimeZone((string) $schedule['timezone'])))->format('Y-m-d H:i:00');
+        $this->schedules->setGeneratedThrough($sid, $nowSql);
+
+        return (new Response())->redirect('/chores', 303);
+    }
+
     // --- helpers ---
 
     private function requireSession(): ?Response

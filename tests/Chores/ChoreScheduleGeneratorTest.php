@@ -268,6 +268,23 @@ final class ChoreScheduleGeneratorTest extends TestCase
         self::assertGreaterThan(0, $created);
     }
 
+    public function test_paused_schedule_is_skipped_by_generate_for_household(): void
+    {
+        $uid = $this->insertUser('a@example.com');
+        $hid = $this->households->createForOwner('Den', $uid, $this->tz);
+        $tz = new \DateTimeZone($this->tz);
+        $active = $this->makeSchedule($hid, $uid, ['title' => 'Active', 'rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+        $paused = $this->makeSchedule($hid, $uid, ['title' => 'Paused', 'rrule' => 'FREQ=DAILY', 'anchor_at_local' => '2026-06-10 09:00:00']);
+        $this->schedules->pause($paused);
+
+        $this->gen->generateForHousehold($hid, new \DateTimeImmutable('2026-06-12 08:00:00', $tz));
+
+        self::assertGreaterThan(0, $this->countGenerated($active));
+        self::assertSame(0, $this->countGenerated($paused));
+        // The paused schedule's watermark must NOT have drifted forward.
+        self::assertNull($this->schedules->findById($paused)['generated_through']);
+    }
+
     // --- helpers ---
 
     private function insertUser(string $email, string $name = 'Test'): int
