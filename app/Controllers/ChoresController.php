@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
+use App\Chores\Achievements;
 use App\Chores\ChoreRepository;
 use App\Chores\ChoreScheduleGenerator;
 use App\Chores\ChoreScheduleRepository;
+use App\Chores\WeekWindow;
 use App\Household\HouseholdRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
@@ -90,7 +92,7 @@ final class ChoresController
             ->withBody($this->view->render('chores/index.twig', [
                 'open_chores' => $open,
                 'done_chores' => $done,
-                'tally' => $this->chores->leaderboardForHousehold($hid, $this->weekStartUtc($household)),
+                'tally' => $this->achievementsBoard($hid, $household),
                 'schedules' => $this->scheduleViewRows($hid, $memberNames),
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));
@@ -415,18 +417,29 @@ final class ChoresController
     }
 
     /**
-     * Monday 00:00 in the household timezone, expressed as a UTC 'Y-m-d H:i:s'
-     * string so it compares apples-to-apples with the ledger's UTC completed_at.
+     * Leaderboard rows enriched with each member's badges + weekly streak (v0.4.3).
+     * One ledger query for the board + one for recent completions; Achievements
+     * stitches them together purely in PHP. All week arithmetic goes through
+     * WeekWindow so DST transitions don't drift the streak walk.
      *
      * @param array<string, mixed>|null $household
+     * @return list<array<string, mixed>>
      */
-    private function weekStartUtc(?array $household): string
+    private function achievementsBoard(int $hid, ?array $household): array
     {
         $tz = new \DateTimeZone((string) ($household['timezone'] ?? 'Pacific/Auckland'));
-        return (new \DateTimeImmutable('now', $tz))
-            ->modify('monday this week')->setTime(0, 0, 0)
-            ->setTimezone(new \DateTimeZone('UTC'))
-            ->format('Y-m-d H:i:s');
+        $now = new \DateTimeImmutable('now');
+        $weekStart = WeekWindow::weekStartUtc($tz, $now);
+        $streakSince = WeekWindow::lookbackStartUtc($tz, 52, $now);
+
+        $board = $this->chores->leaderboardForHousehold($hid, $weekStart);
+        $recent = $this->chores->recentCompletionsForHousehold($hid, $streakSince);
+        $achievements = (new Achievements())->compute($board, $recent, $tz, $now);
+
+        return array_map(
+            static fn(array $row): array => $row + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0]),
+            $board,
+        );
     }
 
     /**

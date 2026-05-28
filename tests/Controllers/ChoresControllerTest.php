@@ -203,6 +203,9 @@ final class ChoresControllerTest extends AppTestCase
         $response = $this->request('GET', '/chores');
         // The doer's 10 points should appear somewhere on the board.
         self::assertStringContainsString('10', $response->body());
+        // v0.4.3: one completion earns the first_chore badge — emoji + title attr.
+        self::assertStringContainsString('🌱', $response->body());
+        self::assertStringContainsString('First chore', $response->body());
         self::assertTrue($this->choreRepo->findById($id)['is_done']);
     }
 

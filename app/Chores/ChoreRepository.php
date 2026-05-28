@@ -352,7 +352,7 @@ final class ChoreRepository
      * GROUP BY satisfied.
      *
      * @return list<array{user_id: int, display_name: string, email: string,
-     *                    total_points: int, week_points: int}>
+     *                    total_points: int, week_points: int, total_completions: int}>
      */
     public function leaderboardForHousehold(int $householdId, string $weekStartUtcSql): array
     {

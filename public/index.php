@@ -67,6 +67,7 @@ $db = new Connection(
 $twig = new TwigAdapter(__DIR__ . '/../templates', cache: false);
 $twig->twig()->addExtension(new CsrfTwigExtension());
 $twig->twig()->addGlobal('brand', require __DIR__ . '/../config/brand.php');
+$twig->twig()->addGlobal('badge_meta', require __DIR__ . '/../config/badges.php');
 
 $app = new App();
 

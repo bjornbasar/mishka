@@ -18,7 +18,7 @@ namespace App\Chores;
 final class Achievements
 {
     /**
-     * @param list<array{user_id: int, total_points: int, week_points: int, total_completions: int}> $board
+     * @param list<array{user_id: int, total_points: int, week_points: int, total_completions: int, ...}> $board
      * @param array<int, list<string>> $recentCompletionsByUser  user_id → UTC completed_at strings (DESC)
      * @return array<int, array{badges: list<string>, streak: int}>  keyed by user_id
      */

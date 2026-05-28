@@ -70,6 +70,9 @@ final class HomeControllerTest extends AppTestCase
         self::assertStringContainsString('10', $response->body());          // earned points
         self::assertStringContainsString('1 open', $response->body());      // one open chore
         self::assertStringContainsString('/chores', $response->body());
+        // v0.4.3: one completion → first_chore badge renders (emoji + title attr).
+        self::assertStringContainsString('🌱', $response->body());
+        self::assertStringContainsString('First chore', $response->body());
     }
 
     public function test_logged_in_with_stale_active_household_redirects_to_setup(): void

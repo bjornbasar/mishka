@@ -1,0 +1,27 @@
+{#
+    Shared leaderboard row macro (v0.4.3). Imported by both
+    `templates/chores/index.twig` and `templates/home.twig` so the two pages
+    can't drift in markup.
+
+    Expects each `member` row to carry:
+      display_name, email, week_points, total_points,
+      badges (list<string>),  streak (int)
+
+    The badge presentation (emoji + title) is looked up from the `badge_meta`
+    Twig global registered in public/index.php (config/badges.php).
+#}
+{% macro row(member) %}
+    <li style="margin:0.15rem 0;">
+        <strong>{{ member.display_name ?: member.email }}</strong>
+        {{ member.week_points }} this wk
+        <small style="color:var(--muted);">· {{ member.total_points }} all-time</small>
+        {% if member.streak is defined and member.streak >= 2 %}
+            <span title="{{ member.streak }}-week streak" style="margin-left:0.4rem;">🔥 {{ member.streak }}</span>
+        {% endif %}
+        {% if member.badges is defined %}
+            {% for code in member.badges %}
+                <span title="{{ badge_meta[code].title }}" style="margin-left:0.25rem;">{{ badge_meta[code].emoji }}</span>
+            {% endfor %}
+        {% endif %}
+    </li>
+{% endmacro %}
