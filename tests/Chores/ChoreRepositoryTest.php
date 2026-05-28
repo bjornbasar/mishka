@@ -318,6 +318,67 @@ final class ChoreRepositoryTest extends TestCase
         self::assertSame(7, $row['week_points']);
     }
 
+    // --- v0.4.3: leaderboard total_completions + recentCompletionsForHousehold ---
+
+    public function test_leaderboard_returns_total_completions(): void
+    {
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $bob = $this->insertUser('bob@example.com', 'Bob');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $this->addMember($hid, $bob, 'member');
+
+        $c1 = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 10, 'assigned_to' => $alice]));
+        $c2 = $this->repo->create($this->minimalChoreData($hid, $alice, ['points' => 5, 'assigned_to' => $alice]));
+        $this->repo->markDone($c1, $alice);
+        $this->repo->markDone($c2, $alice);
+
+        $board = $this->repo->leaderboardForHousehold($hid, '2000-01-01 00:00:00');
+        $byUser = [];
+        foreach ($board as $row) {
+            $byUser[$row['user_id']] = $row;
+        }
+
+        self::assertSame(2, $byUser[$alice]['total_completions']);
+        self::assertSame(0, $byUser[$bob]['total_completions']);  // R8: LEFT JOIN regression guard
+    }
+
+    public function test_recent_completions_returns_per_user_lists_desc(): void
+    {
+        $alice = $this->insertUser('alice@example.com', 'Alice');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $this->insertLedgerRow($hid, $alice, 5, '2026-06-05 09:00:00');
+        $this->insertLedgerRow($hid, $alice, 5, '2026-06-09 09:00:00');
+        $this->insertLedgerRow($hid, $alice, 5, '2026-06-07 09:00:00');
+
+        $map = $this->repo->recentCompletionsForHousehold($hid, '2026-06-01 00:00:00');
+
+        self::assertArrayHasKey($alice, $map);
+        self::assertSame(
+            ['2026-06-09 09:00:00', '2026-06-07 09:00:00', '2026-06-05 09:00:00'],
+            $map[$alice],
+        );
+    }
+
+    public function test_recent_completions_excludes_departed_members(): void
+    {
+        $owner = $this->insertUser('owner@example.com', 'Owner');
+        $carol = $this->insertUser('carol@example.com', 'Carol');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $owner, 'owner');
+        $this->addMember($hid, $carol, 'member');
+        $this->insertLedgerRow($hid, $owner, 5, '2026-06-09 09:00:00');
+        $this->insertLedgerRow($hid, $carol, 5, '2026-06-09 09:00:00');
+        // Carol leaves the household (membership only — her ledger row persists).
+        $this->db->run('DELETE FROM household_members WHERE household_id = :h AND user_id = :u', ['h' => $hid, 'u' => $carol]);
+
+        $map = $this->repo->recentCompletionsForHousehold($hid, '2026-06-01 00:00:00');
+
+        self::assertArrayHasKey($owner, $map);
+        self::assertArrayNotHasKey($carol, $map);
+    }
+
     public function test_household_delete_cascades_to_chores(): void
     {
         $uid = $this->insertUser('a@example.com');

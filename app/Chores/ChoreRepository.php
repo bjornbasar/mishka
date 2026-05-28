@@ -359,7 +359,8 @@ final class ChoreRepository
         $rows = $this->db->fetchAll(
             'SELECT u.id AS user_id, u.display_name, u.email,
                     COALESCE(SUM(l.points), 0) AS total_points,
-                    COALESCE(SUM(CASE WHEN l.completed_at >= :week_start THEN l.points ELSE 0 END), 0) AS week_points
+                    COALESCE(SUM(CASE WHEN l.completed_at >= :week_start THEN l.points ELSE 0 END), 0) AS week_points,
+                    COUNT(l.id) AS total_completions
              FROM household_members m
              JOIN users u ON u.id = m.user_id
              LEFT JOIN chore_points_ledger l
@@ -378,9 +379,40 @@ final class ChoreRepository
                 'email' => (string) $r['email'],
                 'total_points' => (int) $r['total_points'],
                 'week_points' => (int) $r['week_points'],
+                'total_completions' => (int) $r['total_completions'],
             ],
             $rows,
         );
+    }
+
+    /**
+     * Per-member completion timestamps on/after `$sinceUtc`, scoped to CURRENT
+     * household members (the JOIN drops departed members + accounts deleted →
+     * credited_user_id SET NULL — NULL never equals an int). One query, grouped
+     * in PHP. No new index — `idx_chore_points_ledger_household_completed`
+     * covers the WHERE; `household_members` is tiny per household.
+     *
+     * @return array<int, list<string>>  user_id → UTC completed_at strings, DESC
+     */
+    public function recentCompletionsForHousehold(int $householdId, string $sinceUtcSql): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT l.credited_user_id AS user_id, l.completed_at
+             FROM chore_points_ledger l
+             JOIN household_members m
+               ON m.household_id = l.household_id AND m.user_id = l.credited_user_id
+             WHERE l.household_id = :hid AND l.completed_at >= :since
+             ORDER BY l.completed_at DESC',
+            ['hid' => $householdId, 'since' => $sinceUtcSql],
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $uid = (int) $r['user_id'];
+            $out[$uid] ??= [];
+            $out[$uid][] = (string) $r['completed_at'];
+        }
+        return $out;
     }
 
     private function validateTimezone(string $tz): void
