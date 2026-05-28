@@ -98,7 +98,39 @@ No new machinery: a generated occurrence is a real chore. **Skip** = delete it (
 
 `chore_schedule_participants` (composite PK; both FKs CASCADE). Rotation cycles `listMembers ∩ pool` in join order when the pool has rows, else all members (v0.4.1 behaviour). A pool whose members have all left the household → the occurrence is **unassigned** (NULL), never a silent fall-back to people the user didn't pick. The generator computes the candidate list once per schedule (no N+1); the schedule form has a member-checkbox picker under "Rotate" (leave all unchecked = everyone); fixed mode clears the pool.
 
-## Future work (post-v0.4.2)
+## v0.4.3 — badges + weekly streaks
 
-- Penalty (negative) points; badges / streaks.
+All derived from the v0.4.2 `chore_points_ledger` — **no schema changes**. The leaderboard rows on both `/chores` and the home page gain per-member badges (small emoji + `title=` for the description) and a weekly streak (🔥 N, shown only when N ≥ 2).
+
+### Badges (stateless, re-derived per render)
+
+Six escalating badges as a single registry on `App\Chores\Achievements` (returned from a method, not a `const` — PHP rejects closures in constant expressions). Criteria are pure functions over a per-member stats array (`total_completions`, `total_points`, `week_points`, `streak`). Presentation (emoji + title) lives in `config/badges.php` and is registered as a Twig global (`badge_meta`) alongside `brand` — the service never sees emoji.
+
+| Code | Emoji | Criterion |
+|---|---|---|
+| `first_chore` | 🌱 | total_completions ≥ 1 |
+| `ten_chores` | ⭐ | total_completions ≥ 10 |
+| `fifty_chores` | 🏅 | total_completions ≥ 50 |
+| `centurion` | 💯 | total_points ≥ 100 |
+| `five_hundred` | 🏆 | total_points ≥ 500 |
+| `four_week_streak` | 🔥 | streak ≥ 4 |
+
+### Weekly streaks — DST-safe via `WeekWindow`
+
+A streak is the count of consecutive weeks (Monday in household tz) with ≥ 1 ledger row crediting the member, walked back from the most recent activity week. Broken if the latest activity is older than (this week − 1) — i.e. a *full* missed week.
+
+The walk is the bit that needs care. Monday 00:00 NZDT (UTC+13) and Monday 00:00 NZST (UTC+12) are **not** 168 UTC-hours apart — adjacent Monday-NZ markers are 169 UTC-hours apart at the end of DST and 167 at the start. A naive `cursor − 7 days` step on a UTC string drifts by exactly one hour across every transition and silently breaks every streak that spans one. **`App\Chores\WeekWindow` is the single home of the DST fix**: every `−1 week` step runs `->modify('-1 week')->setTime(0, 0, 0)` *in household tz* and only converts to UTC for the string representation, so each step always lands on the correct Monday-household-midnight marker regardless of DST. `WeekWindow` is exercised by `tests/Chores/WeekWindowTest.php` (NZ end-of-DST + NZ start-of-DST + non-DST control); the Achievements unit tests pin both transition directions end-to-end.
+
+### Query / wiring
+
+`ChoreRepository::leaderboardForHousehold` gains a `COUNT(l.id) AS total_completions` aggregate (still one query; LEFT JOIN means zero-completion members still appear at 0). `ChoreRepository::recentCompletionsForHousehold(hid, sinceUtc)` returns `user_id → list<completed_at>` for the streak walk, scoped to current `household_members` (departed members drop off automatically; accounts whose credit was SET-NULL'd never join because NULL ≠ int).
+
+Both controllers (`ChoresController` + `HomeController`) call the same `achievementsBoard()` helper (mirrors the `isOverdue` duplication precedent), feeding the leaderboard + recent-completions through `Achievements::compute()` keyed by `user_id` and merging `badges` + `streak` into the board rows. The shared Twig macro `templates/_chore_leaderboard.twig` renders each row identically on both pages — no markup drift.
+
+## Future work (post-v0.4.3)
+
+- Penalty (negative) points (needs a separate `chore_penalties` table since the ledger has `CHECK(points >= 0)`).
+- Daily streaks alongside weekly.
+- Persistent `earned_at` badge history / chronological badge feed; pluggable badge registry.
+- Dedicated `/badges` page (today the inline display is enough).
 - Notifications / reminders (the household already gets these via the v0.3.2 iCal feed).

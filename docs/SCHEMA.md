@@ -260,3 +260,9 @@ CREATE INDEX IF NOT EXISTS idx_chore_schedule_participants_schedule ON chore_sch
 **`chore_schedule_pauses`** — presence of a row = the schedule is paused; the generator skips it. Real FK CASCADE (new table) cleans up on schedule delete.
 
 **`chore_schedule_participants`** — the rotation pool subset; presence of rows restricts rotation to `listMembers ∩ pool` (join order), else all members. Composite PK dedups; both FKs CASCADE.
+
+## v0.4.3 — badges + weekly streaks (no schema changes)
+
+Pure-derivation feature on top of v0.4.2. Two query additions on `ChoreRepository`:
+- `leaderboardForHousehold` gains a `COUNT(l.id) AS total_completions` aggregate. The existing LEFT JOIN keeps zero-completion members at 0.
+- `recentCompletionsForHousehold(hid, sinceUtc): user_id → list<completed_at>` — for the streak walk; INNER JOIN to `household_members` so departed members and SET-NULL'd credits drop out automatically. No new index — `idx_chore_points_ledger_household_completed` covers the WHERE and `household_members` is tiny per household.

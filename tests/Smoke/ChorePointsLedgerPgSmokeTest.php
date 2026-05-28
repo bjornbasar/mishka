@@ -155,6 +155,22 @@ final class ChorePointsLedgerPgSmokeTest extends TestCase
         self::assertSame(1, $count);
     }
 
+    public function test_recent_completions_for_household_runs_on_pg(): void
+    {
+        // v0.4.3 query path: the household_members JOIN + ORDER BY DESC must run
+        // cleanly on real PG (SQLite is permissive). Smoke-only — no business
+        // logic; the unit tests cover correctness.
+        $uid = $this->insertUser('f@example.com');
+        $hid = $this->households->createForOwner('Den', $uid);
+        $id = $this->makeChore($hid, $uid, 5);
+        $this->chores->markDone($id, $uid);
+
+        $map = $this->chores->recentCompletionsForHousehold($hid, '2000-01-01 00:00:00');
+
+        self::assertArrayHasKey($uid, $map);
+        self::assertCount(1, $map[$uid]);
+    }
+
     private function insertUser(string $email): int
     {
         $suffix = bin2hex(random_bytes(4));

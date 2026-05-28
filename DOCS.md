@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.4.2 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.4.3 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -51,9 +51,11 @@ mishka/
 │   │   ├── RangeExpander.php                    v0.3.1; recurr-driven expansion + override de-dup
 │   │   └── RruleTranslator.php                  v0.3.1; preset form ↔ RRULE round-trip
 │   ├── Chores/                                   v0.4.0+
-│   │   ├── ChoreRepository.php                   chores CRUD + markDone/reopen (ledger-coupled v0.4.2) + leaderboard + createGenerated
+│   │   ├── Achievements.php                      v0.4.3; pure-PHP — badges + weekly streaks from the ledger
+│   │   ├── ChoreRepository.php                   chores CRUD + markDone/reopen (ledger-coupled v0.4.2) + leaderboard + recent completions (v0.4.3) + createGenerated
 │   │   ├── ChoreScheduleGenerator.php            v0.4.1; clamped horizon + pure-fn rotation; skips paused + pool-aware (v0.4.2)
-│   │   └── ChoreScheduleRepository.php           v0.4.1 templates; + pause/resume + participant-pool methods (v0.4.2)
+│   │   ├── ChoreScheduleRepository.php           v0.4.1 templates; + pause/resume + participant-pool methods (v0.4.2)
+│   │   └── WeekWindow.php                        v0.4.3; DST-safe week arithmetic (single home for the household-tz/UTC dance)
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
 │   │   ├── AuthController.php
@@ -153,6 +155,8 @@ mishka/
 31. **Durable points ledger replaces the live tally** (v0.4.2). `markDone` writes a `chore_points_ledger` row iff the guarded UPDATE transitioned the chore (`run()===1`), one UTC timestamp to both rows; `reopen` deletes it; no `UNIQUE(chore_id)` (reopen→recomplete). Editing/deleting a completed chore no longer mutates history (chore_id/credited_user_id SET NULL). Idempotent `NOT EXISTS` backfill in `schema.sql`.
 32. **Weekly leaderboard windowed in PHP, compared in UTC** (v0.4.2). Monday 00:00 household tz → UTC string bound vs the ledger's UTC `completed_at`, so PG (TIMESTAMPTZ) and SQLite (TEXT) agree. Ranked `week_points DESC, MIN(joined_at)`.
 33. **Pause via flag-table; participant pools via subset-table** (v0.4.2). `chore_schedules` can't gain columns (no ALTER), so pause = presence in `chore_schedule_pauses` (skipped in `generateForHousehold`, never inside `generateForSchedule`, so the watermark can't drift); a pool = rows in `chore_schedule_participants` (rotation cycles `listMembers ∩ pool`, empty intersection → unassigned). Both new tables carry real FKs.
+34. **DST-safe week arithmetic centralised in `WeekWindow`** (v0.4.3). Monday 00:00 NZDT and Monday 00:00 NZST are NOT 168 UTC-hours apart (169 at the end of DST, 167 at the start), so naive `−7d` on a UTC string drifts by an hour across every transition and silently breaks streak walks. `WeekWindow` does every step in household tz via `->modify('-1 week')->setTime(0, 0, 0)`, converting to UTC only for the string representation. Both controllers + `Achievements` route through it.
+35. **Badges + streaks are stateless** (v0.4.3). Derived per-render from the ledger; no `member_badges` table, no `earned_at` history. Badge criteria are pure functions over a stats array, returned from a method (not `const` — PHP rejects closures in constant expressions). Presentation (emoji + title) registered as the `badge_meta` Twig global, mirroring `brand`; the service never sees emoji.
 
 ---
 
@@ -202,7 +206,7 @@ CI runs two jobs: `test` (SQLite in-memory + PHPStan) and `pg-smoke` (postgres:1
 
 ## Future work
 
-- **Chores polish (later):** penalty/negative points, badges/streaks. (Ledger, leaderboard, pause, and participant pools shipped in v0.4.2.)
+- **Chores polish (later):** penalty/negative points; daily streaks alongside weekly; persistent badge history / pluggable registry / `/badges` page. (Ledger, leaderboard, pause, participant pools shipped in v0.4.2; badges + weekly streaks in v0.4.3.)
 - **Household lifecycle gaps:** leave/transfer/delete household, regenerate invite code, invite via email, household timezone editor.
 - **Email verification, password change/reset.**
 - **Profile editing.**
