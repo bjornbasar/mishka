@@ -11,6 +11,7 @@ use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
+use Karhu\Middleware\Csrf;
 use Karhu\Middleware\Session;
 use Karhu\View\TwigAdapter;
 
@@ -213,6 +214,150 @@ final class HouseholdController
         return (new Response())->redirect('/', 303);
     }
 
+    // ============================================================
+    // v0.5.0 — household lifecycle (regenerate / leave / transfer / delete)
+    // ============================================================
+
+    #[Route('/household/regenerate-code', methods: ['POST'])]
+    public function handleRegenerateCode(Request $request): Response
+    {
+        if (!Session::has('user_id') || !Session::has('active_household_id')) {
+            return (new Response())->redirect('/login', 302);
+        }
+        $userId = (int) Session::get('user_id');
+        $hid = (int) Session::get('active_household_id');
+
+        $this->auth->requireOwner($userId, $hid);
+        $this->households->regenerateJoinCode($hid);
+
+        Session::set('flash_success', 'Invite code regenerated. The old code no longer works.');
+        return (new Response())->redirect('/household', 303);
+    }
+
+    #[Route('/household/leave', methods: ['POST'])]
+    public function handleLeave(Request $request): Response
+    {
+        if (!Session::has('user_id') || !Session::has('active_household_id')) {
+            return (new Response())->redirect('/login', 302);
+        }
+        $userId = (int) Session::get('user_id');
+        $hid = (int) Session::get('active_household_id');
+
+        // Anyone in the household (owner OR member) lands here. Owners get a
+        // 422 with helpful copy — they must transfer ownership or delete the
+        // household first. removeMember is the single source-of-truth for the
+        // "owners can't leave" invariant (it throws); we surface the rule.
+        $this->auth->requireMember($userId, $hid);
+
+        if ($this->households->isOwner($userId, $hid)) {
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody('Owners cannot leave a household. Transfer ownership first or delete the household.');
+        }
+
+        $this->households->removeMember($hid, $userId);
+
+        // Drop the active-household session state so the next request goes
+        // through the post-leave landing logic (either another household, or
+        // /household/setup if this was the only one).
+        Session::forget('active_household_id');
+        Session::forget('active_household_role');
+
+        // Pick a fallback household if the user has others; otherwise bounce
+        // to /household/setup.
+        $other = $this->households->listForUser($userId);
+        if ($other !== []) {
+            $fallback = $other[0];
+            $this->activateHousehold($userId, $fallback['id'], $fallback['role']);
+            return (new Response())->redirect('/household', 303);
+        }
+        return (new Response())->redirect('/household/setup', 303);
+    }
+
+    #[Route('/household/transfer', methods: ['POST'])]
+    public function handleTransfer(Request $request): Response
+    {
+        if (!Session::has('user_id') || !Session::has('active_household_id')) {
+            return (new Response())->redirect('/login', 302);
+        }
+        $actingId = (int) Session::get('user_id');
+        $hid = (int) Session::get('active_household_id');
+
+        $this->auth->requireOwner($actingId, $hid);
+
+        $newOwnerId = (int) ($this->readBody($request)['new_owner_user_id'] ?? 0);
+
+        // Defensive: must be a non-owner member of THIS household.
+        // The repo's transferOwnership re-verifies inside the locked txn
+        // (BL-3), but a friendly 422 here saves the round-trip on the common
+        // "target was kicked just now" UI race.
+        if ($newOwnerId <= 0 || !$this->households->isMember($newOwnerId, $hid)) {
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody('Pick a current member of this household to transfer ownership to.');
+        }
+        if ($this->households->isOwner($newOwnerId, $hid)) {
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody('Target is already the owner.');
+        }
+
+        try {
+            $this->households->transferOwnership($hid, $actingId, $newOwnerId);
+        } catch (\RuntimeException $e) {
+            // Race: target was kicked or owner status changed between the
+            // check above and the FOR UPDATE lock inside the repo. Return
+            // 422 rather than 500 — the user can simply retry.
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody('Could not transfer ownership: ' . htmlspecialchars($e->getMessage()));
+        }
+
+        // The acting user is now a 'member' for this household — bump session.
+        Session::set('active_household_role', 'member');
+        // Defence in depth — rotate the CSRF token after a privilege change (M4).
+        Csrf::regenerate();
+        Session::set('flash_success', 'Household ownership transferred.');
+
+        return (new Response())->redirect('/household', 303);
+    }
+
+    #[Route('/household/delete', methods: ['POST'])]
+    public function handleDelete(Request $request): Response
+    {
+        if (!Session::has('user_id') || !Session::has('active_household_id')) {
+            return (new Response())->redirect('/login', 302);
+        }
+        $userId = (int) Session::get('user_id');
+        $hid = (int) Session::get('active_household_id');
+
+        $this->auth->requireOwner($userId, $hid);
+
+        $household = $this->households->findById($hid);
+        if ($household === null) {
+            // Race: already deleted. Clear session keys and bounce.
+            Session::forget('active_household_id');
+            Session::forget('active_household_role');
+            return (new Response())->redirect('/', 303);
+        }
+
+        $confirmName = trim((string) ($this->readBody($request)['confirm_name'] ?? ''));
+        if (!hash_equals($household['name'], $confirmName)) {
+            return (new Response(422))
+                ->withHeader('Content-Type', 'text/html; charset=utf-8')
+                ->withBody('Type the household name exactly to confirm deletion. Nothing was deleted.');
+        }
+
+        $this->households->delete($hid);
+
+        Session::forget('active_household_id');
+        Session::forget('active_household_role');
+        Csrf::regenerate();
+        Session::set('flash_success', 'Household deleted. All its chores, events, and history are gone.');
+
+        return (new Response())->redirect('/', 303);
+    }
+
     /**
      * Set the active-household session keys + persist last_household_id.
      * Called from setup (create/join) and switch.
@@ -236,7 +381,12 @@ final class HouseholdController
         $bodyArr = is_array($body) ? $body : [];
 
         $out = [];
-        foreach (['action', 'name', 'join_code', 'household_id'] as $key) {
+        // v0.5.0: extend the allowlist with new_owner_user_id (transfer) +
+        // confirm_name (delete). The whitelist gate keeps surprise inputs out.
+        foreach (
+            ['action', 'name', 'join_code', 'household_id', 'new_owner_user_id', 'confirm_name']
+            as $key
+        ) {
             $val = $bodyArr[$key] ?? null;
             if (is_scalar($val)) {
                 $out[$key] = (string) $val;
