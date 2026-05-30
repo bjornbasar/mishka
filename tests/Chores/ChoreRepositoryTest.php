@@ -418,6 +418,72 @@ final class ChoreRepositoryTest extends TestCase
         self::assertNull($this->repo->findById($id));
     }
 
+    // --- v0.5.1 missed-chore counts ---
+
+    public function test_missed_counts_returns_assignee_keyed_map(): void
+    {
+        $alice = $this->insertUser('a@example.com', 'Alice');
+        $bob = $this->insertUser('b@example.com', 'Bob');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $this->addMember($hid, $bob, 'member');
+
+        // Alice has 2 chores past due, 1 future, 1 done past due
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2026-05-01 09:00:00']));
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2026-05-15 09:00:00']));
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2027-05-15 09:00:00']));
+        $doneChoreId = $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2026-05-10 09:00:00']));
+        $this->repo->markDone($doneChoreId, $alice);
+
+        // Bob has 1 chore past due
+        $this->repo->create($this->minimalChoreData($hid, $bob, ['assigned_to' => $bob, 'due_at_local' => '2026-05-15 09:00:00']));
+
+        // Unassigned chore past due — does NOT count toward anyone.
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => null, 'due_at_local' => '2026-05-15 09:00:00']));
+
+        $missed = $this->repo->missedCountsForHousehold($hid, '2026-06-01 00:00:00');
+
+        self::assertSame(2, $missed[$alice]);
+        self::assertSame(1, $missed[$bob]);
+    }
+
+    public function test_missed_counts_drops_chores_for_kicked_members(): void
+    {
+        // Self-heal: a chore assigned_to a user who's no longer in the
+        // household must not appear in the missed tally. Matches the INNER JOIN
+        // in the leaderboard query.
+        $alice = $this->insertUser('a@example.com', 'Alice');
+        $kicked = $this->insertUser('k@example.com', 'Kicked');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        $this->addMember($hid, $kicked, 'member');
+
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $kicked, 'due_at_local' => '2026-05-15 09:00:00']));
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2026-05-15 09:00:00']));
+
+        // Kicked is removed mid-flight.
+        $this->db->run(
+            'DELETE FROM household_members WHERE household_id = :h AND user_id = :u',
+            ['h' => $hid, 'u' => $kicked],
+        );
+
+        $missed = $this->repo->missedCountsForHousehold($hid, '2026-06-01 00:00:00');
+
+        self::assertSame([$alice => 1], $missed);
+        self::assertArrayNotHasKey($kicked, $missed);
+    }
+
+    public function test_missed_counts_returns_empty_when_no_chores_past_due(): void
+    {
+        $alice = $this->insertUser('a@example.com');
+        $hid = $this->insertHousehold('Den');
+        $this->addMember($hid, $alice, 'owner');
+        // Future-only assignment.
+        $this->repo->create($this->minimalChoreData($hid, $alice, ['assigned_to' => $alice, 'due_at_local' => '2099-01-01 09:00:00']));
+
+        self::assertSame([], $this->repo->missedCountsForHousehold($hid, '2026-06-01 00:00:00'));
+    }
+
     // --- v0.4.2 points ledger ---
 
     public function test_mark_done_writes_one_ledger_row_crediting_the_doer(): void

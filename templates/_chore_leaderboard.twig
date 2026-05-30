@@ -1,14 +1,18 @@
 {#
-    Shared leaderboard row macro (v0.4.3). Imported by both
-    `templates/chores/index.twig` and `templates/home.twig` so the two pages
-    can't drift in markup.
+    Shared leaderboard row macro (v0.4.3, extended v0.5.1 with missed-count).
+    Imported by both `templates/chores/index.twig` and `templates/home.twig` so
+    the two pages can't drift in markup.
 
     Expects each `member` row to carry:
       display_name, email, week_points, total_points,
-      badges (list<string>),  streak (int)
+      badges (list<string>),  streak (int),  missed_count (int, v0.5.1)
 
     The badge presentation (emoji + title) is looked up from the `badge_meta`
     Twig global registered in public/index.php (config/badges.php).
+
+    `missed_count` shows as ⏰ N only when > 0 — zero-suppressed so high
+    performers don't get a flat `⏰ 0` that reads as a badge. Purely
+    observational; no points are deducted (v0.5.1 design decision).
 #}
 {% macro row(member) %}
     <li style="margin:0.15rem 0;">
@@ -22,6 +26,10 @@
             {% for code in member.badges %}
                 <span title="{{ badge_meta[code].title }}" style="margin-left:0.25rem;">{{ badge_meta[code].emoji }}</span>
             {% endfor %}
+        {% endif %}
+        {% if member.missed_count is defined and member.missed_count > 0 %}
+            <span title="{{ member.missed_count }} chore{{ member.missed_count == 1 ? '' : 's' }} past due — no points lost, just a heads-up"
+                  style="margin-left:0.4rem; color:var(--muted);">⏰ {{ member.missed_count }}</span>
         {% endif %}
     </li>
 {% endmacro %}

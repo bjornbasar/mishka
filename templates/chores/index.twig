@@ -22,29 +22,39 @@
     {% endif %}
 
     <section>
-        <h2 style="font-size:1.1rem;">To do</h2>
-        {% if open_chores|length == 0 %}
+        <h2 style="font-size:1.1rem; margin-bottom:0.75rem;">To do</h2>
+        {% if open_buckets|length == 0 %}
             <p style="color:var(--muted);">Nothing to do — all caught up.</p>
         {% else %}
-            <ul class="chore-list" style="list-style:none; margin:0; padding:0;">
-                {% for c in open_chores %}
-                    <li class="chore-item" style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border);">
-                        <form method="POST" action="/chores/{{ c.id }}/done" style="margin:0;">
-                            {{ csrf_field() }}
-                            <button type="submit" title="Mark done" style="background:transparent; border:1px solid var(--border); color:var(--fg); border-radius:0.25rem; cursor:pointer; padding:0.1rem 0.5rem;">Done</button>
-                        </form>
-                        <span style="flex:1;">
-                            <a href="/chores/{{ c.id }}" style="color:var(--fg);">{{ c.title }}</a>
-                            {% if c.is_overdue %}<span class="overdue-badge" style="color:var(--error); font-size:0.8em; font-weight:bold; margin-left:0.4rem;">Overdue</span>{% endif %}
-                            <small style="color:var(--muted); display:block;">
-                                {{ c.assignee_name }}
-                                {% if c.due_at_local %} · due {{ c.due_at_local|slice(0, 16)|replace({'T': ' '}) }}{% endif %}
-                                {% if c.points > 0 %} · {{ c.points }} pt{% endif %}
-                            </small>
-                        </span>
-                    </li>
-                {% endfor %}
-            </ul>
+            {# v0.5.1: day-grouped cards. open_buckets is pre-ordered
+               (Overdue → Today → Tomorrow → next 6 days → Later) by
+               ChoresController::bucketByDay; empty buckets are filtered out. #}
+            {% for bucket in open_buckets %}
+                <h3 class="chore-day-heading {% if bucket.key == 'overdue' %}is-overdue{% elseif bucket.key == 'today' %}is-today{% endif %}">
+                    {{ bucket.label }}
+                    <small style="color:var(--muted); font-weight:normal;">· {{ bucket.chores|length }}</small>
+                </h3>
+                <ul class="chore-card-list">
+                    {% for c in bucket.chores %}
+                        <li class="chore-card {% if c.is_overdue %}is-overdue{% elseif bucket.key == 'today' %}is-today{% endif %}">
+                            <form method="POST" action="/chores/{{ c.id }}/done" class="chore-done-form">
+                                {{ csrf_field() }}
+                                <button type="submit" class="btn-done" title="Mark done">✓&nbsp;Done</button>
+                            </form>
+                            <div class="chore-card-body">
+                                <a href="/chores/{{ c.id }}" class="chore-card-title">{{ c.title }}</a>
+                                <small class="chore-card-meta">
+                                    {{ c.assignee_name }}
+                                    {% if c.due_at_local %}
+                                        · due {{ c.due_at_local|slice(11, 5) }}
+                                    {% endif %}
+                                    {% if c.points > 0 %} · {{ c.points }} pt{% endif %}
+                                </small>
+                            </div>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
         {% endif %}
     </section>
 

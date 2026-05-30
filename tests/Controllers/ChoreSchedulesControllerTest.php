@@ -51,6 +51,122 @@ final class ChoreSchedulesControllerTest extends AppTestCase
         self::assertSame('Pacific/Auckland', $row['timezone']);
     }
 
+    public function test_post_create_monthly_dow_first_friday(): void
+    {
+        // End-to-end smoke for "1st Friday of the month": form fields
+        // recurrence_monthly_mode=dow + position=1 + day=FR should land as
+        // BYDAY=1FR in the DB, and the generator should emit Fridays.
+        [, $hid] = $this->signInAsHouseholdOwner();
+
+        $response = $this->request('POST', '/chores/schedules', [
+            'title' => 'Pay rent',
+            'points' => '20',
+            'anchor_date' => '2026-07-01',
+            'due_time' => '09:00',
+            'recurrence_preset' => 'monthly',
+            'recurrence_monthly_mode' => 'dow',
+            'recurrence_monthly_dow_position' => '1',
+            'recurrence_monthly_dow_day' => 'FR',
+            'assignment_mode' => 'rotate',
+        ]);
+
+        self::assertSame(303, $response->status());
+        $rrule = (string) $this->db->fetchScalar(
+            'SELECT rrule FROM chore_schedules WHERE household_id = :h AND title = :t',
+            ['h' => $hid, 't' => 'Pay rent'],
+        );
+        self::assertSame('FREQ=MONTHLY;BYDAY=1FR', $rrule);
+    }
+
+    public function test_post_create_monthly_dow_last_sunday(): void
+    {
+        [, $hid] = $this->signInAsHouseholdOwner();
+        $this->request('POST', '/chores/schedules', [
+            'title' => 'Sunday review',
+            'points' => '3',
+            'anchor_date' => '2026-07-01',
+            'due_time' => '20:00',
+            'recurrence_preset' => 'monthly',
+            'recurrence_monthly_mode' => 'dow',
+            'recurrence_monthly_dow_position' => '-1',
+            'recurrence_monthly_dow_day' => 'SU',
+            'assignment_mode' => 'rotate',
+        ]);
+        $rrule = (string) $this->db->fetchScalar(
+            'SELECT rrule FROM chore_schedules WHERE household_id = :h AND title = :t',
+            ['h' => $hid, 't' => 'Sunday review'],
+        );
+        self::assertSame('FREQ=MONTHLY;BYDAY=-1SU', $rrule);
+    }
+
+    public function test_post_create_reads_byday_from_post_array_form_urlencoded_path(): void
+    {
+        // Regression for the form-urlencoded `recurrence_byday[]` shape that
+        // real browsers send. Pre-fix, the controller fell through to
+        // `$request->post('recurrence_byday')` which throws TypeError
+        // (Request::post() return type is string, $_POST value is an array).
+        // The fix: arrayField() reads $_POST directly when the JSON body
+        // path doesn't carry the field.
+        [, $hid] = $this->signInAsHouseholdOwner();
+
+        $_POST['recurrence_byday'] = ['MO', 'WE', 'FR'];
+        try {
+            $response = $this->request('POST', '/chores/schedules', [
+                'title' => 'MWF chore',
+                'points' => '5',
+                'anchor_date' => '2026-06-01',  // Monday
+                'due_time' => '07:00',
+                'recurrence_preset' => 'weekly',
+                'assignment_mode' => 'rotate',
+            ]);
+
+            self::assertSame(303, $response->status());
+            $row = $this->db->fetchOne(
+                'SELECT rrule FROM chore_schedules WHERE household_id = :h AND title = :t',
+                ['h' => $hid, 't' => 'MWF chore'],
+            );
+            self::assertNotNull($row);
+            self::assertStringContainsString('FREQ=WEEKLY', $row['rrule']);
+            // RruleTranslator sorts BYDAY canonically (MO,WE,FR), so all three appear.
+            self::assertStringContainsString('BYDAY=MO,WE,FR', $row['rrule']);
+        } finally {
+            unset($_POST['recurrence_byday']);
+        }
+    }
+
+    public function test_post_create_reads_participants_from_post_array(): void
+    {
+        // Symmetric regression for `participants[]` — pre-fix the rotation
+        // pool was silently dropped on real browser submits.
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', 'pw-correct-horse-staple');
+        $this->householdRepo->addMember($hid, $bob);
+
+        $_POST['participants'] = [(string) $uid, (string) $bob];
+        try {
+            $this->request('POST', '/chores/schedules', [
+                'title' => 'Pool chore',
+                'points' => '3',
+                'anchor_date' => '2026-06-02',
+                'due_time' => '18:00',
+                'recurrence_preset' => 'weekly',
+                'recurrence_byday' => ['TU'],
+                'assignment_mode' => 'rotate',
+            ]);
+            $scheduleId = (int) $this->db->fetchScalar(
+                'SELECT id FROM chore_schedules WHERE household_id = :h AND title = :t',
+                ['h' => $hid, 't' => 'Pool chore'],
+            );
+            $count = (int) $this->db->fetchScalar(
+                'SELECT COUNT(*) FROM chore_schedule_participants WHERE schedule_id = :s',
+                ['s' => $scheduleId],
+            );
+            self::assertSame(2, $count);
+        } finally {
+            unset($_POST['participants']);
+        }
+    }
+
     public function test_post_create_preset_none_is_422(): void
     {
         $this->signInAsHouseholdOwner();

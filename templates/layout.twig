@@ -65,7 +65,9 @@
         h1, h2 { margin-top: 0; }
         form.auth { display: flex; flex-direction: column; gap: 1rem; max-width: 28rem; }
         form.auth label { display: flex; flex-direction: column; gap: 0.25rem; }
-        form.auth input {
+        form.auth input,
+        form.auth select,
+        form.auth textarea {
             background: var(--card);
             border: 1px solid var(--border);
             color: var(--fg);
@@ -73,6 +75,19 @@
             border-radius: 0.375rem;
             font: inherit;
         }
+        /* Drop the browser-default <select> chrome (the light-grey bevel +
+           native dropdown arrow) and supply our own arrow via background-SVG
+           so it sits flush with the rest of the dark theme. */
+        form.auth select {
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            padding-right: 2rem;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%239aa3b2' d='M6 8 0 0h12z'/></svg>");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+        }
+        form.auth textarea { font-family: inherit; resize: vertical; min-height: 4.5rem; }
         form.auth button[type=submit] {
             background: var(--accent);
             color: #1a1109;
@@ -136,14 +151,85 @@
             /* On narrow viewports the month view stays but the user clicks "Agenda" — no JS swap. */
         }
 
-        /* Recurrence form: show only the fields relevant to the selected preset.
-           Pure CSS :has() — keeps the form JS-free. */
-        .recurrence-fieldset:has(select [value="weekly"]:checked) .recurrence-weekly,
-        .recurrence-fieldset:has(select [value="weekly"]:checked) .recurrence-interval { display: flex; }
-        .recurrence-fieldset:has(select [value="monthly"]:checked) .recurrence-monthly,
-        .recurrence-fieldset:has(select [value="monthly"]:checked) .recurrence-interval { display: flex; }
-        .recurrence-fieldset:has(select [value="daily"]:checked) .recurrence-interval,
-        .recurrence-fieldset:has(select [value="yearly"]:checked) .recurrence-interval { display: flex; }
+        /* v0.5.1 chore cards — day-grouped to-do list. The .chore-card
+           wraps the Done button + the chore body; the left-border accent
+           communicates urgency (red for overdue, accent for today, muted
+           for upcoming) without shouting. */
+        .chore-day-heading {
+            font-size: 0.95rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--muted);
+            margin: 1.25rem 0 0.5rem;
+            padding-bottom: 0.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .chore-day-heading.is-overdue { color: var(--error); border-bottom-color: var(--error); }
+        .chore-day-heading.is-today   { color: var(--accent); border-bottom-color: var(--accent); }
+        .chore-card-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+        .chore-card {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.65rem 0.85rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-left: 4px solid var(--border);
+            border-radius: 0.4rem;
+            transition: border-color 0.15s ease, transform 0.1s ease;
+        }
+        .chore-card:hover { border-color: var(--accent); }
+        .chore-card.is-today { border-left-color: var(--accent); }
+        .chore-card.is-overdue { border-left-color: var(--error); }
+        .chore-done-form { margin: 0; }
+        .btn-done {
+            background: var(--accent);
+            color: #1a1109;
+            border: 0;
+            padding: 0.45rem 0.85rem;
+            border-radius: 0.35rem;
+            font-weight: 600;
+            font-size: 0.875rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .btn-done:hover { filter: brightness(1.1); }
+        .btn-done:active { transform: translateY(1px); }
+        .chore-card-body { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+        .chore-card-title {
+            color: var(--fg);
+            font-weight: 600;
+            text-decoration: none;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .chore-card-title:hover { text-decoration: underline; }
+        .chore-card-meta { color: var(--muted); font-size: 0.85em; }
+
+        /* Recurrence form: show only the fields relevant to the selected
+           preset. Toggled via a `data-preset` attribute that a one-line
+           inline `onchange` on the <select> keeps in sync. Older versions
+           used `:has(select [value="X"]:checked)` + inline `style="display:none;"`
+           on the labels — that combination silently never worked because
+           inline styles beat class selectors without `!important`, so the
+           weekly checkboxes, monthly day input, and interval input were
+           always hidden regardless of the preset. */
+        /* Hide rule is prefixed with `.recurrence-fieldset` to push its
+           specificity to (0,2,0) — otherwise `form.auth label` at (0,1,2)
+           wins the cascade and the sub-fields render `display: flex` even
+           when the preset doesn't call for them. The show rules below sit at
+           (0,3,0) and beat both. */
+        .recurrence-fieldset .recurrence-weekly,
+        .recurrence-fieldset .recurrence-monthly,
+        .recurrence-fieldset .recurrence-interval { display: none; }
+        .recurrence-fieldset[data-preset="weekly"] .recurrence-weekly,
+        .recurrence-fieldset[data-preset="weekly"] .recurrence-interval,
+        .recurrence-fieldset[data-preset="monthly"] .recurrence-monthly,
+        .recurrence-fieldset[data-preset="monthly"] .recurrence-interval,
+        .recurrence-fieldset[data-preset="daily"] .recurrence-interval,
+        .recurrence-fieldset[data-preset="yearly"] .recurrence-interval { display: flex; }
     </style>
 </head>
 <body>

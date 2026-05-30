@@ -31,6 +31,8 @@ final class RruleTranslator
     private const MAP_DOW_TO_BYDAY = [
         1 => 'MO', 2 => 'TU', 3 => 'WE', 4 => 'TH', 5 => 'FR', 6 => 'SA', 7 => 'SU',
     ];
+    /** RFC 5545 positional prefixes for monthly BYDAY: 1st-4th + last. */
+    private const VALID_MONTHLY_DOW_POSITIONS = [1, 2, 3, 4, -1];
 
     /**
      * @param array{
@@ -38,6 +40,9 @@ final class RruleTranslator
      *     interval?: int|string,
      *     byday?: list<string>,
      *     monthly_day?: int|string,
+     *     monthly_mode?: string,
+     *     monthly_dow_position?: int|string,
+     *     monthly_dow_day?: string,
      * } $form
      */
     public function fromForm(array $form, \DateTimeImmutable $startsAtLocal): ?string
@@ -55,7 +60,9 @@ final class RruleTranslator
     }
 
     /**
-     * @return array{preset: string, interval: int, byday: list<string>, monthly_day: int}
+     * @return array{preset: string, interval: int, byday: list<string>,
+     *               monthly_day: int, monthly_mode: string,
+     *               monthly_dow_position: int, monthly_dow_day: string}
      */
     public function toForm(?string $rrule): array
     {
@@ -64,6 +71,12 @@ final class RruleTranslator
             'interval' => 1,
             'byday' => [],
             'monthly_day' => 1,
+            // Default monthly sub-mode is 'day' (BYMONTHDAY=N); 'dow' is the
+            // positional day-of-week alternative (BYDAY=1FR etc.). Defaults
+            // satisfy the template even when the active preset isn't monthly.
+            'monthly_mode' => 'day',
+            'monthly_dow_position' => 1,
+            'monthly_dow_day' => 'MO',
         ];
 
         if ($rrule === null || trim($rrule) === '') {
@@ -82,30 +95,102 @@ final class RruleTranslator
         $freq = $parts['FREQ'] ?? '';
         $interval = isset($parts['INTERVAL']) ? max(1, (int) $parts['INTERVAL']) : 1;
 
+        if ($freq === 'MONTHLY') {
+            return $this->monthlyToForm($parts, $interval, $default);
+        }
+
         return match ($freq) {
             'DAILY' => ['preset' => 'daily'] + $default,
             'WEEKLY' => [
                 'preset' => 'weekly',
                 'interval' => $interval,
                 'byday' => $this->parseByDay($parts['BYDAY'] ?? ''),
-                'monthly_day' => 1,
-            ],
-            'MONTHLY' => [
-                'preset' => 'monthly',
-                'interval' => 1,
-                'byday' => [],
-                'monthly_day' => isset($parts['BYMONTHDAY'])
-                    ? max(1, min(28, (int) $parts['BYMONTHDAY']))
-                    : 1,
-            ],
-            'YEARLY' => [
-                'preset' => 'yearly',
-                'interval' => 1,
-                'byday' => [],
-                'monthly_day' => 1,
-            ],
+            ] + $default,
+            'YEARLY' => ['preset' => 'yearly'] + $default,
             default => ['preset' => 'custom'] + $default,
         };
+    }
+
+    /**
+     * Decide which monthly sub-shape this RRULE represents:
+     *   - BYDAY=NDD (positional day-of-week)  → monthly_mode = 'dow'
+     *   - BYMONTHDAY=N                         → monthly_mode = 'day' (default)
+     *   - Both keys present                    → preset = 'custom' (ambiguous)
+     *   - Neither                              → monthly_mode = 'day' (default)
+     *
+     * @param array<string, string> $parts
+     * @param array<string, mixed>  $default
+     * @return array{preset: string, interval: int, byday: list<string>,
+     *               monthly_day: int, monthly_mode: string,
+     *               monthly_dow_position: int, monthly_dow_day: string}
+     */
+    private function monthlyToForm(array $parts, int $interval, array $default): array
+    {
+        $hasByDay = isset($parts['BYDAY']) && $parts['BYDAY'] !== '';
+        $hasByMonthDay = isset($parts['BYMONTHDAY']) && $parts['BYMONTHDAY'] !== '';
+
+        if ($hasByDay && $hasByMonthDay) {
+            // Ambiguous combo (e.g., "every 1st Friday on the 13th") — not a
+            // shape this form can represent cleanly; fall back to custom.
+            return ['preset' => 'custom'] + $default;
+        }
+
+        if ($hasByDay) {
+            $pos = $this->parsePositionalByDay($parts['BYDAY']);
+            if ($pos === null) {
+                // BYDAY present but not a single positional code (e.g.,
+                // BYDAY=MO,WE in monthly — weekday recurrence, not supported
+                // by either monthly sub-mode). Fall back to custom.
+                return ['preset' => 'custom'] + $default;
+            }
+            return [
+                'preset' => 'monthly',
+                'interval' => $interval,
+                'byday' => [],
+                'monthly_day' => 1,
+                'monthly_mode' => 'dow',
+                'monthly_dow_position' => $pos['position'],
+                'monthly_dow_day' => $pos['day'],
+            ];
+        }
+
+        // Plain `FREQ=MONTHLY[;BYMONTHDAY=N]` — the existing day-of-month mode.
+        return [
+            'preset' => 'monthly',
+            'interval' => $interval,
+            'byday' => [],
+            'monthly_day' => $hasByMonthDay
+                ? max(1, min(28, (int) $parts['BYMONTHDAY']))
+                : 1,
+            'monthly_mode' => 'day',
+            'monthly_dow_position' => 1,
+            'monthly_dow_day' => 'MO',
+        ];
+    }
+
+    /**
+     * Parse a single positional BYDAY value (`1FR`, `-1MO`, `4TH`, …) into
+     * its numeric prefix and the day code. Returns null if the input isn't
+     * a single positional code we accept (e.g., plain `FR`, multi-day list,
+     * out-of-range position like `5MO`).
+     *
+     * @return array{position: int, day: string}|null
+     */
+    private function parsePositionalByDay(string $byday): ?array
+    {
+        $trimmed = strtoupper(trim($byday));
+        if (str_contains($trimmed, ',')) {
+            return null;   // multi-day list — not a single positional code
+        }
+        if (!preg_match('/^(-?\d+)(MO|TU|WE|TH|FR|SA|SU)$/', $trimmed, $m)) {
+            return null;
+        }
+        $position = (int) $m[1];
+        if (!in_array($position, self::VALID_MONTHLY_DOW_POSITIONS, true)) {
+            // Out-of-range (e.g., `5FR`, `-2MO`) → custom-shape fallback.
+            return null;
+        }
+        return ['position' => $position, 'day' => $m[2]];
     }
 
     /**
@@ -129,23 +214,45 @@ final class RruleTranslator
     }
 
     /**
-     * @param array{monthly_day?: int|string, interval?: int|string} $form
+     * @param array{
+     *     monthly_day?: int|string,
+     *     interval?: int|string,
+     *     monthly_mode?: string,
+     *     monthly_dow_position?: int|string,
+     *     monthly_dow_day?: string,
+     * } $form
      */
     private function buildMonthly(array $form, \DateTimeImmutable $startsAtLocal): string
     {
-        $day = isset($form['monthly_day'])
-            ? (int) $form['monthly_day']
-            : (int) $startsAtLocal->format('j');
-        $day = max(1, min(28, $day));
-
         $interval = isset($form['interval']) ? max(1, (int) $form['interval']) : 1;
-
         $rrule = 'FREQ=MONTHLY';
         if ($interval > 1) {
             $rrule .= ";INTERVAL={$interval}";
         }
-        $rrule .= ";BYMONTHDAY={$day}";
-        return $rrule;
+
+        $mode = (string) ($form['monthly_mode'] ?? 'day');
+        if ($mode === 'dow') {
+            // Positional day-of-week: e.g., "1st Friday" → BYDAY=1FR;
+            // "Last Sunday" → BYDAY=-1SU. Validation falls back to a
+            // safe default (1st of the same DOW as the anchor) if the
+            // form supplied garbage.
+            $position = (int) ($form['monthly_dow_position'] ?? 1);
+            if (!in_array($position, self::VALID_MONTHLY_DOW_POSITIONS, true)) {
+                $position = 1;
+            }
+            $day = strtoupper((string) ($form['monthly_dow_day'] ?? ''));
+            if (!in_array($day, self::VALID_BYDAY, true)) {
+                $day = self::MAP_DOW_TO_BYDAY[(int) $startsAtLocal->format('N')];
+            }
+            return $rrule . ";BYDAY={$position}{$day}";
+        }
+
+        // Default 'day' mode: BYMONTHDAY=N (clamped 1-28).
+        $day = isset($form['monthly_day'])
+            ? (int) $form['monthly_day']
+            : (int) $startsAtLocal->format('j');
+        $day = max(1, min(28, $day));
+        return $rrule . ";BYMONTHDAY={$day}";
     }
 
     /**

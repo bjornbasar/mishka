@@ -91,6 +91,8 @@ final class ChoresController
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('chores/index.twig', [
                 'open_chores' => $open,
+                // v0.5.1: pre-grouped by due-date bucket for the card layout.
+                'open_buckets' => $this->bucketByDay($open, $household),
                 'done_chores' => $done,
                 'tally' => $this->achievementsBoard($hid, $household),
                 'schedules' => $this->scheduleViewRows($hid, $memberNames),
@@ -436,9 +438,120 @@ final class ChoresController
         $recent = $this->chores->recentCompletionsForHousehold($hid, $streakSince);
         $achievements = (new Achievements())->compute($board, $recent, $tz, $now);
 
+        // v0.5.1: derive missed-chore counts per member. Wall-clock comparison
+        // in household tz matches isOverdue() in this controller; bare
+        // 'Y-m-d H:i:s' (no zone suffix) matches what's stored in
+        // chores.due_at_local on both PG and SQLite.
+        $nowLocal = $now->setTimezone($tz)->format('Y-m-d H:i:s');
+        $missed = $this->chores->missedCountsForHousehold($hid, $nowLocal);
+
         return array_map(
-            static fn(array $row): array => $row + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0]),
+            static fn(array $row): array => $row
+                + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0])
+                + ['missed_count' => $missed[(int) $row['user_id']] ?? 0],
             $board,
+        );
+    }
+
+    /**
+     * Group open chores into ordered day-buckets relative to the household's
+     * "today". Bucket order is fixed; empty buckets are filtered out.
+     *
+     *   Overdue  → all chores past their due date, anything-missing-due-date too
+     *   Today    → due today (any time)
+     *   Tomorrow → due the next calendar day
+     *   <weekday or "Sat Jun 4"> for each of the next 5 days
+     *   Later    → everything beyond that
+     *
+     * Sorted within each bucket by due_at_local ASC (then title).
+     *
+     * @param list<array<string, mixed>>  $open
+     * @param array<string, mixed>|null   $household
+     * @return list<array{label: string, key: string, chores: list<array<string, mixed>>}>
+     */
+    private function bucketByDay(array $open, ?array $household): array
+    {
+        $tz = new \DateTimeZone((string) ($household['timezone'] ?? 'Pacific/Auckland'));
+        $today = (new \DateTimeImmutable('now', $tz))->setTime(0, 0, 0);
+        $todayYmd = $today->format('Y-m-d');
+
+        // Build the look-ahead day labels (today + 7). The bucket key is a
+        // stable string (`today` / `tomorrow` / ymd for later days) so the
+        // template's `bucket.key == 'today'` highlight check works regardless
+        // of the actual date.
+        $labels = [];   // ymd → ['label' => ..., 'key' => ..., 'rank' => ...]
+        for ($offset = 0; $offset < 8; $offset++) {
+            $d = $today->modify("+{$offset} days");
+            $ymd = $d->format('Y-m-d');
+            $label = match ($offset) {
+                0 => 'Today',
+                1 => 'Tomorrow',
+                default => $d->format('D j M'),
+            };
+            $key = match ($offset) {
+                0 => 'today',
+                1 => 'tomorrow',
+                default => $ymd,
+            };
+            $labels[$ymd] = ['label' => $label, 'key' => $key, 'rank' => $offset + 1];
+        }
+        // Rank 0 = Overdue (sorts first), 99 = Later (sorts last).
+        $overdueBucket = ['label' => 'Overdue', 'key' => 'overdue', 'rank' => 0, 'chores' => []];
+        $laterBucket   = ['label' => 'Later',   'key' => 'later',   'rank' => 99, 'chores' => []];
+        $dayBuckets = [];
+
+        foreach ($open as $row) {
+            if ($row['is_overdue']) {
+                $overdueBucket['chores'][] = $row;
+                continue;
+            }
+            $due = (string) ($row['due_at_local'] ?? '');
+            if ($due === '') {
+                // No due date → drop into "Later" so it doesn't dominate Today.
+                $laterBucket['chores'][] = $row;
+                continue;
+            }
+            $dueYmd = substr($due, 0, 10);
+            if (isset($labels[$dueYmd])) {
+                $dayBuckets[$dueYmd] ??= $labels[$dueYmd] + ['chores' => []];
+                $dayBuckets[$dueYmd]['chores'][] = $row;
+            } else {
+                // Beyond the 7-day window
+                $laterBucket['chores'][] = $row;
+            }
+        }
+
+        // Within each bucket, order by due_at_local ASC (nulls last) + title.
+        $sortByDue = function (array $a, array $b): int {
+            $da = (string) ($a['due_at_local'] ?? '9999-99-99');
+            $db = (string) ($b['due_at_local'] ?? '9999-99-99');
+            return $da <=> $db ?: strcasecmp((string) ($a['title'] ?? ''), (string) ($b['title'] ?? ''));
+        };
+        usort($overdueBucket['chores'], $sortByDue);
+        usort($laterBucket['chores'], $sortByDue);
+        foreach ($dayBuckets as &$b) {
+            usort($b['chores'], $sortByDue);
+        }
+        unset($b);
+
+        $all = [];
+        if ($overdueBucket['chores'] !== []) {
+            $all[] = $overdueBucket;
+        }
+        // dayBuckets entries are only created when a chore lands in them, so
+        // every bucket here is non-empty by construction — no filter needed.
+        foreach ($dayBuckets as $b) {
+            $all[] = $b;
+        }
+        if ($laterBucket['chores'] !== []) {
+            $all[] = $laterBucket;
+        }
+
+        usort($all, fn(array $a, array $b): int => $a['rank'] <=> $b['rank']);
+        // Strip rank before returning — template doesn't need it.
+        return array_map(
+            static fn(array $b): array => ['label' => $b['label'], 'key' => $b['key'], 'chores' => $b['chores']],
+            $all,
         );
     }
 

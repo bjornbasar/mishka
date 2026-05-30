@@ -17,6 +17,56 @@ final class ChoresControllerTest extends AppTestCase
         self::assertStringContainsString('chore', strtolower($response->body()));
     }
 
+    public function test_get_chores_surfaces_missed_count_on_leaderboard(): void
+    {
+        // v0.5.1: leaderboard renders ⏰ N when a member has any chore past
+        // its due date. Pure derivation — no schema change, no point deduction.
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $this->choreRepo->create($this->choreData($hid, $uid, [
+            'assigned_to' => $uid,
+            'due_at_local' => '2026-01-01 09:00:00',  // long past
+        ]));
+        // Stamp the ledger so the user has a row in the leaderboard at all
+        // (leaderboardForHousehold draws members from chore_points_ledger via
+        // a LEFT JOIN; without any ledger row the user isn't listed).
+        $this->choreRepo->markDone(
+            $this->choreRepo->create($this->choreData($hid, $uid, [
+                'assigned_to' => $uid,
+                'due_at_local' => '2026-05-10 09:00:00',
+                'points' => 5,
+            ])),
+            $uid,
+        );
+
+        $body = $this->request('GET', '/chores')->body();
+        // ⏰ icon (with the count) shows next to the member name.
+        self::assertStringContainsString('⏰', $body);
+        self::assertMatchesRegularExpression('/⏰\s*1\b/u', $body);
+    }
+
+    public function test_get_chores_groups_open_chores_by_day_heading(): void
+    {
+        // v0.5.1: To-do list is broken into day-buckets. With a chore due in
+        // the distant past + one with no due date, we expect at least an
+        // Overdue heading and a Later heading.
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $this->choreRepo->create($this->choreData($hid, $uid, [
+            'title' => 'Ancient backlog',
+            'due_at_local' => '2024-01-01 09:00:00',
+            'assigned_to' => $uid,
+        ]));
+        $this->choreRepo->create($this->choreData($hid, $uid, [
+            'title' => 'Whenever',
+            'due_at_local' => null,
+            'assigned_to' => $uid,
+        ]));
+
+        $body = $this->request('GET', '/chores')->body();
+        self::assertMatchesRegularExpression('/chore-day-heading[^>]*is-overdue/', $body);
+        self::assertStringContainsString('Overdue', $body);
+        self::assertStringContainsString('Later', $body);
+    }
+
     public function test_get_chores_redirects_anon_to_login(): void
     {
         $response = $this->request('GET', '/chores');

@@ -289,16 +289,14 @@ final class ChoreSchedulesController
      */
     private function extractParticipants(Request $request, int $hid): array
     {
-        $body = $request->body();
-        $bodyArr = is_array($body) ? $body : [];
-        $candidate = $bodyArr['participants'] ?? null;
-
+        // Use the shared array-field reader so the form-urlencoded path
+        // (real browser submits of `participants[]`) doesn't silently drop
+        // the rotation pool. Pre-bugfix this method ONLY read the JSON body,
+        // so production form submits ended up with an empty pool.
         $ids = [];
-        if (is_array($candidate)) {
-            foreach ($candidate as $v) {
-                if (is_scalar($v) && preg_match('/^\d+$/', (string) $v) === 1) {
-                    $ids[] = (int) $v;
-                }
+        foreach ($this->arrayField($request, 'participants') as $v) {
+            if (preg_match('/^\d+$/', $v) === 1) {
+                $ids[] = (int) $v;
             }
         }
         return array_values(array_filter(
@@ -325,37 +323,78 @@ final class ChoreSchedulesController
     }
 
     /**
-     * @return array{preset: string, interval: int, byday: list<string>, monthly_day: int}
+     * @return array{preset: string, interval: int, byday: list<string>,
+     *               monthly_day: int, monthly_mode: string,
+     *               monthly_dow_position: int, monthly_dow_day: string}
      */
     private function extractRecurrence(Request $request): array
     {
-        $body = $request->body();
-        $bodyArr = is_array($body) ? $body : [];
-
         $preset = $this->str($request, 'recurrence_preset');
         $interval = max(1, (int) ($this->str($request, 'recurrence_interval') ?: '1'));
         $monthlyDay = (int) ($this->str($request, 'recurrence_monthly_day') ?: '1');
 
-        $byday = [];
-        $candidate = $bodyArr['recurrence_byday'] ?? $bodyArr['byday'] ?? null;
-        if (is_array($candidate)) {
-            $byday = array_values(array_filter(
-                array_map(static fn(mixed $v): string => is_string($v) ? $v : '', $candidate),
-                static fn(string $v): bool => $v !== '',
-            ));
-        } else {
-            $csv = $request->post('recurrence_byday');
+        $byday = $this->arrayField($request, 'recurrence_byday');
+        if ($byday === []) {
+            // Legacy CSV fallback (single-string `recurrence_byday=MO,WE,FR`)
+            // for any test or API caller that doesn't use the bracketed form.
+            $csv = $this->str($request, 'recurrence_byday');
             if ($csv !== '') {
                 $byday = array_values(array_filter(array_map('trim', explode(',', $csv)), static fn(string $v): bool => $v !== ''));
             }
         }
+
+        // Monthly positional-day-of-week sub-mode (e.g., "first Friday").
+        // RruleTranslator branches on monthly_mode and ignores the inactive
+        // sub-mode's fields, so reading both unconditionally is safe.
+        $monthlyMode = $this->str($request, 'recurrence_monthly_mode');
+        if ($monthlyMode !== 'dow') {
+            $monthlyMode = 'day';
+        }
+        $dowPosition = (int) ($this->str($request, 'recurrence_monthly_dow_position') ?: '1');
+        $dowDay = strtoupper($this->str($request, 'recurrence_monthly_dow_day'));
 
         return [
             'preset' => $preset !== '' ? $preset : 'none',
             'interval' => $interval,
             'byday' => $byday,
             'monthly_day' => $monthlyDay >= 1 ? $monthlyDay : 1,
+            'monthly_mode' => $monthlyMode,
+            'monthly_dow_position' => $dowPosition,
+            'monthly_dow_day' => $dowDay,
         ];
+    }
+
+    /**
+     * Read an array-valued form field (e.g., name="X[]") from either the JSON
+     * body (test harness convention) OR PHP's `$_POST` superglobal (real
+     * browser form-urlencoded submits). karhu's `Request::post()` returns
+     * `string` and throws a TypeError when the underlying $_POST value is an
+     * array — this helper bypasses that constraint without needing a karhu
+     * patch.
+     *
+     * @return list<string>
+     */
+    private function arrayField(Request $request, string $field): array
+    {
+        $body = $request->body();
+        if (is_array($body)) {
+            $candidate = $body[$field] ?? null;
+            if (is_array($candidate)) {
+                return array_values(array_filter(
+                    array_map(static fn(mixed $v): string => is_scalar($v) ? (string) $v : '', $candidate),
+                    static fn(string $v): bool => $v !== '',
+                ));
+            }
+        }
+        // Form-urlencoded path: real browser submission sets $_POST[$field]
+        // to an array when name="X[]" with multiple values.
+        if (isset($_POST[$field]) && is_array($_POST[$field])) {
+            return array_values(array_filter(
+                array_map(static fn(mixed $v): string => is_scalar($v) ? (string) $v : '', $_POST[$field]),
+                static fn(string $v): bool => $v !== '',
+            ));
+        }
+        return [];
     }
 
     private function str(Request $request, string $key): string

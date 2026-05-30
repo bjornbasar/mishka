@@ -415,6 +415,49 @@ final class ChoreRepository
         return $out;
     }
 
+    /**
+     * Missed-chore count per assignee (v0.5.1 leaderboard).
+     *
+     * "Missed" = open chore (completed_at IS NULL) assigned to a current
+     * household member, with a due_at_local in the past. Compared against
+     * `$nowLocal`, a wall-clock 'Y-m-d H:i:s' string built in the household
+     * timezone by the caller — mirrors the existing `isOverdue` convention
+     * which compares `due_at_local` (a bare TIMESTAMP) to `now()` in the
+     * household's IANA zone.
+     *
+     * Tally is purely derived: no `missed_at` column, no point deduction.
+     * The intent is observability ("you have 3 chores past due") without
+     * punishment, matching the v0.4.3 stateless-badges principle.
+     *
+     * INNER JOIN to household_members drops chores whose assignee was kicked
+     * (SET NULL) or whose membership row is gone — same self-heal behaviour
+     * as the leaderboard query.
+     *
+     * @return array<int, int>  user_id → missed-count (only positive entries)
+     */
+    public function missedCountsForHousehold(int $householdId, string $nowLocal): array
+    {
+        $rows = $this->db->fetchAll(
+            'SELECT c.assigned_to AS user_id, COUNT(*) AS missed
+             FROM chores c
+             JOIN household_members m
+               ON m.household_id = c.household_id AND m.user_id = c.assigned_to
+             WHERE c.household_id = :hid
+               AND c.completed_at IS NULL
+               AND c.due_at_local IS NOT NULL
+               AND c.due_at_local < :now
+               AND c.assigned_to IS NOT NULL
+             GROUP BY c.assigned_to',
+            ['hid' => $householdId, 'now' => $nowLocal],
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int) $r['user_id']] = (int) $r['missed'];
+        }
+        return $out;
+    }
+
     private function validateTimezone(string $tz): void
     {
         if (!in_array($tz, \DateTimeZone::listIdentifiers(), true)) {
