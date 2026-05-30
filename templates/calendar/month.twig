@@ -31,10 +31,15 @@
                 <tr>
                     {% for cell in row %}
                         <td class="{% if not cell.in_month %}other-month {% endif %}{% if cell.is_today %}today {% endif %}{% if cell.is_weekend %}weekend{% endif %}">
-                            <div class="day-number">{{ cell.date|date('j') }}</div>
+                            {# Day number is pre-formatted in MonthGridBuilder
+                               using the household timezone — using Twig's |date
+                               filter on cell.date would re-render it in PHP's
+                               default tz (UTC in prod), shifting the displayed
+                               day by 12-13 hours in NZ. #}
+                            <div class="day-number">{{ cell.day_number }}</div>
                             {% for pill in cell.pills %}
                                 {% if pill.role == 'overflow' %}
-                                    <a href="/calendar/agenda?ym={{ year }}-{{ '%02d'|format(month) }}&day={{ cell.date|date('d') }}" class="event-pill overflow-pill">{{ pill.title }}</a>
+                                    <a href="/calendar/agenda?ym={{ year }}-{{ '%02d'|format(month) }}&day={{ '%02d'|format(cell.day_number) }}" class="event-pill overflow-pill">{{ pill.title }}</a>
                                 {% else %}
                                     <a href="/calendar/events/{{ pill.event_id }}" class="event-pill multi-day-{{ pill.role }}">{{ pill.title }}</a>
                                 {% endif %}

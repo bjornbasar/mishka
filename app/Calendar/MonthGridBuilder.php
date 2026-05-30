@@ -38,6 +38,7 @@ final class MonthGridBuilder
      * }> $occurrences
      * @return list<list<array{
      *     date: \DateTimeImmutable,
+     *     day_number: int,
      *     in_month: bool,
      *     is_today: bool,
      *     is_weekend: bool,
@@ -123,6 +124,7 @@ final class MonthGridBuilder
      * @param array<int, int> $slots
      * @return array{
      *     date: \DateTimeImmutable,
+     *     day_number: int,
      *     in_month: bool,
      *     is_today: bool,
      *     is_weekend: bool,
@@ -188,6 +190,12 @@ final class MonthGridBuilder
 
         return [
             'date' => $date,
+            // Pre-formatted in the household timezone (the same zone $date was
+            // built in). The template uses this instead of Twig's `|date` filter,
+            // which would re-render the DateTimeImmutable in PHP's default
+            // timezone (UTC in the production container) — that's how a Jun 30
+            // 00:00 NZ event was previously displayed under the 29 cell.
+            'day_number' => (int) $date->format('j'),
             'in_month' => $inMonth,
             'is_today' => $cellYmd === $todayYmd,
             'is_weekend' => $dow >= 6,
