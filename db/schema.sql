@@ -4,6 +4,10 @@
 -- v0.3.0: events
 -- v0.3.1: event_exceptions
 -- v0.3.2: ical_feed_tokens
+-- v0.4.0: chores
+-- v0.4.1: chore_schedules
+-- v0.4.2: chore_points_ledger + chore_schedule_pauses + chore_schedule_participants
+-- v0.5.0: email_verification_tokens + password_reset_tokens + user_password_changes + email_send_attempts
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -383,3 +387,118 @@ CREATE TABLE IF NOT EXISTS chore_schedule_participants (
 
 CREATE INDEX IF NOT EXISTS idx_chore_schedule_participants_schedule
     ON chore_schedule_participants(schedule_id);
+
+-- ============================================================
+-- v0.5.0: email_verification_tokens — soft-banner email verification
+-- ============================================================
+--
+-- A row backs a `/verify-email/{raw_token}` URL emailed to a user after register
+-- or resend. Raw hex token shown ONCE in the email; only the SHA-256 hash is
+-- stored, looked up via the UNIQUE index on token_hash. Identical pattern to
+-- ical_feed_tokens — the route is unauthenticated (token IS the auth) and
+-- redeemed atomically against `used_at IS NULL AND expires_at > :now` to prevent
+-- a concurrent-redemption race (B6).
+--
+-- `sent_at NULL` records the SMTP-failure state: registration always completes
+-- even when MailHog/Postmark is down, and the resend flow uses `sent_at` for
+-- ops-side observability. The user-facing banner copy is identical regardless
+-- (single-copy decision U-3) — sent_at is for logs, not for users.
+--
+-- TTL is 24h, single-use. Issue invalidates older pending rows for the same
+-- user in the same txn (prevents a stockpile of valid tokens). All expiry math
+-- is done in PHP via gmdate('Y-m-d H:i:s') — SQLite's NOW() lacks INTERVAL
+-- arithmetic and PG's behaviour with TIMESTAMPTZ differs across timezones (B3).
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL UNIQUE,            -- SHA-256 of the raw hex token
+    expires_at  TIMESTAMPTZ NOT NULL,                -- TTL = 24h, stamped in PHP
+    used_at     TIMESTAMPTZ NULL,                    -- NULL = pending; set = redeemed (single-use)
+    sent_at     TIMESTAMPTZ NULL,                    -- NULL = SMTP send failed (ops-only signal)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_pending
+    ON email_verification_tokens(user_id) WHERE used_at IS NULL;
+
+-- ============================================================
+-- v0.5.0: password_reset_tokens — 1h forgot-password flow
+-- ============================================================
+--
+-- Same pattern as email_verification_tokens (SHA-256-hashed raw token, atomic
+-- single-use redeem, all expiry math in PHP), but TTL = 1h (industry standard
+-- for password reset). No `sent_at` column — `/password-reset` is always-200
+-- + 1500ms timing-floored (B4), so the user sees no signal whether a hit ever
+-- attempted SMTP. Issue invalidates older pending rows; success also calls
+-- invalidatePendingForUser to nuke any racing tokens.
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL UNIQUE,            -- SHA-256 of the raw hex token
+    expires_at  TIMESTAMPTZ NOT NULL,                -- TTL = 1h, stamped in PHP
+    used_at     TIMESTAMPTZ NULL,                    -- NULL = pending; set = redeemed (single-use)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_pending
+    ON password_reset_tokens(user_id) WHERE used_at IS NULL;
+
+-- ============================================================
+-- v0.5.0: user_password_changes — session revocation stamp (H1)
+-- ============================================================
+--
+-- One row per user; presence + value of `password_changed_at` is the predicate
+-- the SessionRevocationGuard middleware checks against `Session::get('auth_time')`.
+-- Lives in a separate table (not as users.password_changed_at) because the
+-- additive-only schema convention forbids ALTER on the existing users table —
+-- every prior release reserved the column it needed in advance (email_verified_at
+-- in v0.1, schedule_id in v0.4.0), but no slot was reserved for this.
+--
+-- Predicate matrix (legacy-session grandfather, user decision U-1):
+--   - No row + no auth_time         → PASS (pre-v0.5 baseline; security promise
+--                                            activates on next login)
+--   - Row + no auth_time            → REVOKE (legacy session post-pw-change)
+--   - No row + auth_time set        → PASS (modern session, never changed pw)
+--   - Both set                      → COMPARE: revoke if auth_time < changed_at
+--
+-- Upsert pattern: ON CONFLICT (user_id) DO UPDATE on PG, INSERT OR REPLACE on
+-- SQLite — repo translates per dialect via the existing isUniqueViolation
+-- pattern from EventExceptionRepository. The pinned-$now invariant (BL-2) keeps
+-- the self-changing user from self-revoking on a slow request.
+
+CREATE TABLE IF NOT EXISTS user_password_changes (
+    user_id              INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    password_changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- v0.5.0: email_send_attempts — app-layer rate limit (H4)
+-- ============================================================
+--
+-- Records each `/password-reset` request (keyed by IP) and `/me/verify-email/
+-- resend` (keyed by user) so the controllers can `countRecent(kind, key, 10min)`
+-- before issuing a new token. Closes abuse at the app layer regardless of
+-- what's in front (no Cloudflare/nginx rate-limit assumed).
+--
+-- Buckets:
+--   - password_reset_request : 5 / 10min / IP   (anonymous, IP-keyed)
+--   - verify_resend          : 3 / 10min / user (authed, user-keyed)
+--
+-- Unbounded growth note: at ~5-10 attempts/day in the family-scale baseline
+-- this table stays tiny (< 4k rows/year). A future maintenance job can prune
+-- WHERE attempted_at < NOW() - '90 days'; for now the SELECT WHERE attempted_at
+-- >= now - 10min always hits the partial-ish (kind, attempted_at) index.
+
+CREATE TABLE IF NOT EXISTS email_send_attempts (
+    id            SERIAL PRIMARY KEY,
+    ip_address    VARCHAR(45) NULL,                  -- NULL for user-keyed; IPv4 + IPv6 both fit 45
+    user_id       INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('password_reset_request', 'verify_resend')),
+    attempted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_send_attempts_recent
+    ON email_send_attempts(kind, attempted_at);
