@@ -41,7 +41,8 @@ final class MishkaUserRepository implements UserRepositoryInterface
      * contract) so login can avoid a second round-trip to fetch the PK.
      * Consumers that only care about karhu's typed shape will ignore it.
      *
-     * @return array{id: int, username: string, password_hash: string, roles: list<string>}|null
+     * @return array{id: int, username: string, password_hash: string,
+     *               roles: list<string>, email_verified_at: ?string}|null
      */
     public function findByUsername(string $username): ?array
     {
@@ -49,12 +50,15 @@ final class MishkaUserRepository implements UserRepositoryInterface
 
         // Single query — JOIN + jsonAgg avoids a second round-trip for roles.
         // FILTER excludes the LEFT JOIN's null rows when a user has no roles.
-        $sql = "SELECT u.id, u.email, u.password_hash,
+        // v0.5.0: also SELECT email_verified_at so login can seed the session
+        // (NavContext reads Session::get('email_verified_at') to derive the
+        // soft verify banner — avoids a per-render SELECT).
+        $sql = "SELECT u.id, u.email, u.password_hash, u.email_verified_at,
                        COALESCE({$this->jsonAggFn}(r.role) FILTER (WHERE r.role IS NOT NULL), '[]') AS roles
                 FROM users u
                 LEFT JOIN system_roles r ON r.user_id = u.id
                 WHERE u.email = :email AND u.id > 0
-                GROUP BY u.id, u.email, u.password_hash";
+                GROUP BY u.id, u.email, u.password_hash, u.email_verified_at";
 
         $row = $this->db->fetchOne($sql, ['email' => $email]);
         if ($row === null) {
@@ -66,6 +70,9 @@ final class MishkaUserRepository implements UserRepositoryInterface
             'username' => (string) $row['email'],
             'password_hash' => (string) $row['password_hash'],
             'roles' => $this->decodeRoles($row['roles']),
+            'email_verified_at' => $row['email_verified_at'] === null
+                ? null
+                : (string) $row['email_verified_at'],
         ];
     }
 
@@ -205,6 +212,106 @@ final class MishkaUserRepository implements UserRepositoryInterface
             'UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = :id',
             ['id' => $userId],
         );
+    }
+
+    // ============================================================
+    // v0.5.0 extensions — account lifecycle
+    // ============================================================
+
+    /**
+     * Update the user's display name. No-op for the system sentinel (id=0).
+     * Caller is responsible for length + content validation; this method
+     * just writes whatever it's given.
+     */
+    public function updateDisplayName(int $userId, string $displayName): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+        $this->db->run(
+            'UPDATE users SET display_name = :name, updated_at = CURRENT_TIMESTAMP WHERE id = :id',
+            ['name' => $displayName, 'id' => $userId],
+        );
+    }
+
+    /**
+     * Update the password hash AND stamp the credential-change in the same
+     * transaction. The pair is atomic — a failure on either write rolls both
+     * back, preserving the invariant that SessionRevocationGuard relies on
+     * (every password change is reflected in user_password_changes).
+     *
+     * BL-2: caller MUST pass the pinned `$now` from the handler. This repo
+     * never re-derives the timestamp — passing two different gmdate() values
+     * for users.updated_at vs user_password_changes.password_changed_at is the
+     * exact bug BL-2 prevents.
+     *
+     * Nested-txn guard pattern (mirrors create()).
+     */
+    public function updatePassword(int $userId, string $passwordHash, string $now): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            $this->db->run(
+                'UPDATE users SET password_hash = :h, updated_at = :now WHERE id = :id',
+                ['h' => $passwordHash, 'now' => $now, 'id' => $userId],
+            );
+
+            // Stamp credential-change with the SAME `$now` the caller pinned.
+            // Constructing UserPasswordChangeRepository here keeps the ctor of
+            // MishkaUserRepository stable (single Connection arg) while still
+            // making the two writes atomic via the shared PDO transaction.
+            (new UserPasswordChangeRepository($this->db))->stamp($userId, $now);
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Set `email_verified_at = NOW()` for a user, ONLY if it's currently NULL.
+     * The WHERE guard makes this idempotent — re-verifying a token that was
+     * already redeemed (race) doesn't overwrite the original verification
+     * timestamp.
+     */
+    public function markEmailVerified(int $userId): void
+    {
+        if ($userId <= 0) {
+            return;
+        }
+        $this->db->run(
+            'UPDATE users SET email_verified_at = CURRENT_TIMESTAMP,
+                              updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id AND email_verified_at IS NULL',
+            ['id' => $userId],
+        );
+    }
+
+    /** Returns true iff the user has a non-null email_verified_at stamp. */
+    public function isEmailVerified(int $userId): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+        $stamp = $this->db->fetchScalar(
+            'SELECT email_verified_at FROM users WHERE id = :id',
+            ['id' => $userId],
+        );
+        return $stamp !== null && $stamp !== false;
     }
 
     /** Normalise email: trim + lowercase. Applied on every read and write. */

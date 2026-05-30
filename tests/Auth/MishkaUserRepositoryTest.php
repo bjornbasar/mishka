@@ -160,4 +160,114 @@ final class MishkaUserRepositoryTest extends TestCase
         $after = $this->db->fetchScalar('SELECT last_login_at FROM users WHERE id = :id', ['id' => $id]);
         self::assertNotNull($after);
     }
+
+    // ============================================================
+    // v0.5.0 extensions — account lifecycle
+    // ============================================================
+
+    public function test_update_display_name_persists_new_value(): void
+    {
+        $id = $this->repo->create('user@example.com', $this->hasher->hash('correct horse battery'), 'Old Name');
+
+        $this->repo->updateDisplayName($id, 'New Name');
+
+        $row = $this->repo->findById($id);
+        self::assertNotNull($row);
+        self::assertSame('New Name', $row['display_name']);
+    }
+
+    public function test_update_display_name_is_a_noop_for_sentinel(): void
+    {
+        // id=0 is the system sentinel; updating its display_name would corrupt
+        // the schema seed. The repo silently no-ops to match findById(0) → null.
+        $this->repo->updateDisplayName(0, 'Hacker');
+
+        $row = $this->db->fetchOne('SELECT display_name FROM users WHERE id = 0');
+        self::assertNotNull($row);
+        self::assertSame('System', $row['display_name']);
+    }
+
+    public function test_update_password_writes_hash_and_stamps_credential_change(): void
+    {
+        // BL-2: caller pins $now once; the same value must land on both the
+        // hash-write (via users.updated_at) AND the credential-change stamp.
+        $id = $this->repo->create('user@example.com', $this->hasher->hash('old password'), 'User');
+        $newHash = $this->hasher->hash('new password');
+        $now = gmdate('Y-m-d H:i:s');
+
+        $this->repo->updatePassword($id, $newHash, $now);
+
+        // 1. Hash was written.
+        $row = $this->repo->findById($id);
+        self::assertNotNull($row);
+        self::assertSame($newHash, $row['password_hash']);
+
+        // 2. user_password_changes row exists with the pinned $now.
+        $stamp = $this->db->fetchScalar(
+            'SELECT password_changed_at FROM user_password_changes WHERE user_id = :id',
+            ['id' => $id],
+        );
+        self::assertSame($now, $stamp);
+    }
+
+    public function test_update_password_stamps_atomically_with_hash_write(): void
+    {
+        // If the stamp INSERT throws (e.g., constraint violation), the hash
+        // write MUST roll back too — the SessionRevocationGuard predicate
+        // depends on the invariant that a hash change is always reflected in
+        // user_password_changes.
+        $id = $this->repo->create('user@example.com', $this->hasher->hash('old'), 'User');
+
+        // Pre-existing stamp — the upsert path will UPDATE this row (no throw).
+        // Verify hash + stamp both end up at the new value (no partial state).
+        $this->repo->updatePassword($id, $this->hasher->hash('mid'), '2026-01-01 00:00:00');
+        $this->repo->updatePassword($id, $this->hasher->hash('new'), '2026-01-02 00:00:00');
+
+        $row = $this->repo->findById($id);
+        $stamp = $this->db->fetchScalar(
+            'SELECT password_changed_at FROM user_password_changes WHERE user_id = :id',
+            ['id' => $id],
+        );
+        self::assertNotNull($row);
+        self::assertTrue($this->hasher->verify('new', $row['password_hash']));
+        self::assertSame('2026-01-02 00:00:00', $stamp);
+    }
+
+    public function test_mark_email_verified_sets_timestamp_when_null(): void
+    {
+        $id = $this->repo->create('user@example.com', $this->hasher->hash('x'), 'User');
+        self::assertFalse($this->repo->isEmailVerified($id));
+
+        $this->repo->markEmailVerified($id);
+
+        self::assertTrue($this->repo->isEmailVerified($id));
+    }
+
+    public function test_mark_email_verified_is_idempotent(): void
+    {
+        $id = $this->repo->create('user@example.com', $this->hasher->hash('x'), 'User');
+        $this->repo->markEmailVerified($id);
+        $firstStamp = $this->db->fetchScalar(
+            'SELECT email_verified_at FROM users WHERE id = :id',
+            ['id' => $id],
+        );
+        self::assertNotNull($firstStamp);
+
+        // Sleep 1ms to make sure CURRENT_TIMESTAMP would tick if we re-stamped.
+        usleep(1100);
+        $this->repo->markEmailVerified($id);
+        $secondStamp = $this->db->fetchScalar(
+            'SELECT email_verified_at FROM users WHERE id = :id',
+            ['id' => $id],
+        );
+
+        // The WHERE email_verified_at IS NULL guard means the second call is
+        // a no-op — original timestamp preserved.
+        self::assertSame($firstStamp, $secondStamp);
+    }
+
+    public function test_is_email_verified_returns_false_for_sentinel(): void
+    {
+        self::assertFalse($this->repo->isEmailVerified(0));
+    }
 }

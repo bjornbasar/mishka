@@ -27,7 +27,26 @@ final class HouseholdRepository
     private const JOIN_CODE_LENGTH = 8;
     private const JOIN_CODE_MAX_ATTEMPTS = 5;
 
-    public function __construct(private readonly Connection $db) {}
+    /**
+     * Engine-specific row-lock suffix for SELECT statements that must hold
+     * locks until the surrounding transaction commits.
+     *
+     * PG: " FOR UPDATE" — locks the matched rows against concurrent UPDATE/
+     * DELETE under the default READ COMMITTED isolation level (round-4 BL-3
+     * needs this for the owner-transfer race).
+     *
+     * SQLite: "" — single-writer engine; once a transaction begins WRITING
+     * (the subsequent UPDATE in transferOwnership), no other writer can run
+     * until commit, so the lock is implicit. SQLite also REJECTS the
+     * `FOR UPDATE` keyword as a syntax error, so it must be omitted.
+     */
+    private string $forUpdateSuffix;
+
+    public function __construct(private readonly Connection $db)
+    {
+        $driver = (string) $this->db->pdo()->getAttribute(\PDO::ATTR_DRIVER_NAME);
+        $this->forUpdateSuffix = $driver === 'pgsql' ? ' FOR UPDATE' : '';
+    }
 
     /**
      * Create a household and add the creator as 'owner' atomically.
@@ -244,6 +263,124 @@ final class HouseholdRepository
             ['uid' => $userId, 'hid' => $householdId],
         );
         return $hit !== false && $hit !== null;
+    }
+
+    // ============================================================
+    // v0.5.0 extensions — household lifecycle
+    // ============================================================
+
+    /**
+     * Rotate the household's join code. The old code stops working immediately
+     * (lookups go by `WHERE join_code = X`, which the UPDATE invalidates).
+     *
+     * Reuses the same generateUniqueJoinCode() retry loop as createForOwner.
+     * Returns the new code so the caller can echo it back to the owner.
+     */
+    public function regenerateJoinCode(int $householdId): string
+    {
+        $newCode = $this->generateUniqueJoinCode();
+        $this->db->run(
+            'UPDATE households SET join_code = :code WHERE id = :id',
+            ['code' => $newCode, 'id' => $householdId],
+        );
+        return $newCode;
+    }
+
+    /**
+     * Atomic owner-transfer. Promotes $newOwner to 'owner' and demotes $oldOwner
+     * to 'member' inside one transaction.
+     *
+     * B5: both UPDATEs are guarded (`WHERE role='member'` / `WHERE role='owner'`)
+     * and the rowCount must be 1 each — if either matches 0 rows the txn rolls
+     * back. Two concurrent transfers can't both succeed (the second one's
+     * guarded UPDATE matches 0 rows once the first commits).
+     *
+     * BL-3 (round 4): under PG READ COMMITTED, the two UPDATEs alone are not
+     * enough — the validate-target-is-member check is unlocked, so two
+     * concurrent transfers can both pass validation before either commits.
+     * Fix: `SELECT … FOR UPDATE` locks the two relevant rows BEFORE the
+     * UPDATEs, serialising the operation. SQLite is single-writer so the
+     * suffix is empty (set at ctor time); the locking is implicit there.
+     */
+    public function transferOwnership(int $householdId, int $oldOwnerUserId, int $newOwnerUserId): void
+    {
+        if ($oldOwnerUserId === $newOwnerUserId) {
+            throw new \RuntimeException('Cannot transfer ownership to the current owner.');
+        }
+
+        $pdo = $this->db->pdo();
+        $transactionStarted = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $transactionStarted = true;
+        }
+
+        try {
+            // Lock the two member rows up-front (PG). Re-verify both roles
+            // INSIDE the lock so a concurrent rename/transfer can't slip in.
+            $locked = $this->db->fetchAll(
+                "SELECT user_id, role FROM household_members
+                 WHERE household_id = :hid AND user_id IN (:old, :new){$this->forUpdateSuffix}",
+                ['hid' => $householdId, 'old' => $oldOwnerUserId, 'new' => $newOwnerUserId],
+            );
+            $rolesByUser = [];
+            foreach ($locked as $row) {
+                $rolesByUser[(int) $row['user_id']] = (string) $row['role'];
+            }
+            if (($rolesByUser[$oldOwnerUserId] ?? null) !== 'owner') {
+                throw new \RuntimeException('Caller is not the current owner of this household.');
+            }
+            if (($rolesByUser[$newOwnerUserId] ?? null) !== 'member') {
+                throw new \RuntimeException('Target user is not a non-owner member of this household.');
+            }
+
+            // Promote first, demote second. The two-owner intermediate state is
+            // degenerate-OK (transient inside the txn); zero-owner would be
+            // degenerate-bad (no owner = no one can transfer back).
+            $promoted = $this->db->run(
+                "UPDATE household_members SET role = 'owner'
+                 WHERE household_id = :hid AND user_id = :uid AND role = 'member'",
+                ['hid' => $householdId, 'uid' => $newOwnerUserId],
+            );
+            if ($promoted !== 1) {
+                throw new \RuntimeException('Failed to promote new owner (target no longer a member).');
+            }
+
+            $demoted = $this->db->run(
+                "UPDATE household_members SET role = 'member'
+                 WHERE household_id = :hid AND user_id = :uid AND role = 'owner'",
+                ['hid' => $householdId, 'uid' => $oldOwnerUserId],
+            );
+            if ($demoted !== 1) {
+                throw new \RuntimeException('Failed to demote old owner (caller no longer the owner).');
+            }
+
+            if ($transactionStarted) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($transactionStarted) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Delete a household. FK ON DELETE CASCADE on every child table
+     * (household_members, events, event_exceptions, chores, chore_schedules,
+     * chore_points_ledger, etc.) wipes their rows automatically.
+     *
+     * Idempotent — DELETE on a missing id is a no-op (rowCount=0). The
+     * caller is responsible for any session-state cleanup (clearing
+     * active_household_id) for users who were members.
+     */
+    public function delete(int $householdId): void
+    {
+        $this->db->run(
+            'DELETE FROM households WHERE id = :id',
+            ['id' => $householdId],
+        );
     }
 
     /**

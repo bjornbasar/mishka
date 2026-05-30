@@ -205,6 +205,102 @@ final class HouseholdRepositoryTest extends TestCase
         $this->repo->addMember($hid, $joinerId);
     }
 
+    // ============================================================
+    // v0.5.0 extensions — household lifecycle
+    // ============================================================
+
+    public function test_regenerate_join_code_produces_a_different_8char_code(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $hid = $this->repo->createForOwner('Den', $owner);
+        $before = (string) $this->db->fetchScalar(
+            'SELECT join_code FROM households WHERE id = :id',
+            ['id' => $hid],
+        );
+
+        $after = $this->repo->regenerateJoinCode($hid);
+
+        self::assertNotSame($before, $after);
+        self::assertMatchesRegularExpression('/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{8}$/', $after);
+
+        $persisted = (string) $this->db->fetchScalar(
+            'SELECT join_code FROM households WHERE id = :id',
+            ['id' => $hid],
+        );
+        self::assertSame($after, $persisted);
+    }
+
+    public function test_transfer_ownership_swaps_owner_and_target_roles_atomically(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $target = $this->insertUser('target@example.com');
+        $hid = $this->repo->createForOwner('Den', $owner);
+        $this->repo->addMember($hid, $target);
+
+        $this->repo->transferOwnership($hid, $owner, $target);
+
+        self::assertFalse($this->repo->isOwner($owner, $hid));
+        self::assertTrue($this->repo->isOwner($target, $hid));
+        // Both remain members — neither was removed.
+        self::assertTrue($this->repo->isMember($owner, $hid));
+        self::assertTrue($this->repo->isMember($target, $hid));
+    }
+
+    public function test_transfer_ownership_throws_when_target_is_not_a_member(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $stranger = $this->insertUser('stranger@example.com');
+        $hid = $this->repo->createForOwner('Den', $owner);
+
+        $this->expectException(\RuntimeException::class);
+        try {
+            $this->repo->transferOwnership($hid, $owner, $stranger);
+        } finally {
+            // The throw must roll back any partial state — owner is still owner.
+            self::assertTrue($this->repo->isOwner($owner, $hid));
+        }
+    }
+
+    public function test_transfer_ownership_throws_when_old_owner_is_not_owner(): void
+    {
+        // BL-3 guard: a stale caller can't promote arbitrary members to owner
+        // by claiming to be the existing owner. The guarded UPDATE on
+        // role='owner' affects 0 rows for a non-owner caller, so the txn
+        // rolls back.
+        $owner = $this->insertUser('owner@example.com');
+        $someoneElse = $this->insertUser('else@example.com');
+        $hid = $this->repo->createForOwner('Den', $owner);
+        $this->repo->addMember($hid, $someoneElse);
+
+        $this->expectException(\RuntimeException::class);
+        $this->repo->transferOwnership($hid, $someoneElse, $owner);
+    }
+
+    public function test_delete_household_cascades_membership_rows(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $member = $this->insertUser('member@example.com');
+        $hid = $this->repo->createForOwner('Den', $owner);
+        $this->repo->addMember($hid, $member);
+
+        $this->repo->delete($hid);
+
+        self::assertNull($this->repo->findById($hid));
+        $remainingMembers = (int) $this->db->fetchScalar(
+            'SELECT COUNT(*) FROM household_members WHERE household_id = :hid',
+            ['hid' => $hid],
+        );
+        self::assertSame(0, $remainingMembers);
+    }
+
+    public function test_delete_household_is_a_noop_on_nonexistent_id(): void
+    {
+        // Idempotent — useful for the controller flow where the user may
+        // have raced two delete-form submits.
+        $this->repo->delete(999_999);
+        self::assertNull($this->repo->findById(999_999));
+    }
+
     private function insertUser(string $email): int
     {
         return (int) $this->db->fetchScalar(
