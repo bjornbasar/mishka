@@ -126,11 +126,16 @@ final class AuthController
             return (new Response())->redirect('/');
         }
 
+        // v0.5.0 flash query params: ?reset=ok (post-password-reset) and
+        // ?reason=password_changed (SessionRevocationGuard bounce). Both are
+        // single-string GET keys; the template branches on the value.
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('auth/login.twig', [
                 'errors' => [],
                 'old' => [],
+                'reset' => $request->query('reset'),
+                'reason' => $request->query('reason'),
             ] + $this->nav->forCurrentUser()));
     }
 

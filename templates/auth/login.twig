@@ -5,6 +5,16 @@
 {% block content %}
     <h1>Sign in</h1>
 
+    {# v0.5.0 flash query params (passed from AuthController::showLogin):
+       - ?reset=ok               PasswordResetController after a successful reset (no auto-login).
+       - ?reason=password_changed SessionRevocationGuard bounce when a session's auth_time
+                                  predates the user's password_changed_at stamp. #}
+    {% if reset|default('') == 'ok' %}
+        <div class="flash">Password reset — sign in with your new password.</div>
+    {% elseif reason|default('') == 'password_changed' %}
+        <div class="flash">Your password was changed elsewhere. Please sign in again.</div>
+    {% endif %}
+
     {% if errors %}
         <ul class="errors">
             {% for error in errors %}<li>{{ error }}</li>{% endfor %}
@@ -22,6 +32,9 @@
             Password
             <input type="password" name="password" required>
         </label>
+        <p style="margin: -0.5rem 0 0; font-size: 0.875rem;">
+            <a href="/password-reset">Forgot password?</a>
+        </p>
         <button type="submit">Sign in</button>
     </form>
 
