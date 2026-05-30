@@ -10,6 +10,8 @@
         "bjornbasar/karhu-view": "^0.1",
         "sabre/vobject": "^4.5",
         "simshaun/recurr": "^6.0",
+        "symfony/mailer": "^7.2",
+        "symfony/mime": "^7.2",
         "twig/twig": "^3.10",
         "vlucas/phpdotenv": "^5.6"
     },
