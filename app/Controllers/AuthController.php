@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Account\UserPreferenceRepository;
+use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\MishkaUserRepository;
 use App\Household\HouseholdRepository;
+use App\Mail\Mailer;
+use App\Mail\UrlBuilder;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Auth\PasswordHasher;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
+use Karhu\Middleware\Csrf;
 use Karhu\Middleware\Session;
 use Karhu\View\TwigAdapter;
 
@@ -34,6 +38,10 @@ final class AuthController
         private readonly HouseholdRepository $households,
         private readonly UserPreferenceRepository $prefs,
         private readonly NavContext $nav,
+        // v0.5.0 — register-hook for emailing the verification link.
+        private readonly EmailVerificationTokenRepository $verifyTokens,
+        private readonly Mailer $mailer,
+        private readonly UrlBuilder $urls,
     ) {}
 
     #[Route('/register', methods: ['GET'], name: 'register')]
@@ -84,7 +92,27 @@ final class AuthController
         $id = $this->users->create($email, $hash, $displayName);
         $roles = $this->users->rolesFor($email);
 
-        $this->establishSession($id, strtolower($email), $roles);
+        // v0.5.0: issue + email the verification link. Registration must STILL
+        // succeed if SMTP throws — the banner picks up the unsent-state from
+        // `sent_at IS NULL` on the latest token row (H2). Mailer returns false
+        // on TransportException so the catch is unnecessary at the call site.
+        $rawToken = $this->verifyTokens->issue($id);
+        $delivered = $this->mailer->sendVerification(
+            strtolower($email),
+            $this->urls->absoluteUrl('/verify-email/' . $rawToken),
+            $displayName,
+        );
+        if ($delivered) {
+            // markSent flips sent_at NULL → timestamp so the ops side can see
+            // which tokens reached SMTP (decision U-3 hides this from the UI).
+            $row = $this->verifyTokens->findByRawToken($rawToken);
+            if ($row !== null) {
+                $this->verifyTokens->markSent($row['id']);
+            }
+        }
+
+        // unverified — pass null so NavContext shows the soft banner.
+        $this->establishSession($id, strtolower($email), $roles, emailVerifiedAt: null);
 
         // New users always need to create or join a household before they can
         // do anything else — v0.2 has no useful surface outside that scope.
@@ -131,7 +159,14 @@ final class AuthController
 
         // findByUsername carries `id` so we don't need a second round-trip.
         $this->users->recordLogin($user['id']);
-        $this->establishSession($user['id'], $user['username'], $user['roles']);
+        // v0.5.0: pass email_verified_at into the session so NavContext doesn't
+        // need to re-query it per render.
+        $this->establishSession(
+            $user['id'],
+            $user['username'],
+            $user['roles'],
+            emailVerifiedAt: $user['email_verified_at'] ?? null,
+        );
 
         // v0.2: restore the user's last-active household from user_preferences.
         // If their preferred household is no longer one of their memberships
@@ -282,10 +317,21 @@ final class AuthController
      * Set the post-auth session keys in the correct order to defeat
      * session fixation (regenerate ID, then clear, then write new identity).
      *
+     * v0.5.0 additions:
+     *   - auth_time: pinned at login/register; SessionRevocationGuard compares
+     *     it to user_password_changes.password_changed_at (BL-1 permutation
+     *     matrix). Modern sessions never miss this key.
+     *   - email_verified_at: cached so NavContext doesn't query per render (H5).
+     *   - Csrf::regenerate(): rotate CSRF token on session establishment (H-7).
+     *
      * @param list<string> $roles
      */
-    private function establishSession(int $userId, string $email, array $roles): void
-    {
+    private function establishSession(
+        int $userId,
+        string $email,
+        array $roles,
+        ?string $emailVerifiedAt = null,
+    ): void {
         Session::regenerate();
         // Wipe any pre-existing keys before writing the new identity —
         // belt-and-braces against fixation pre-poisoning.
@@ -293,6 +339,9 @@ final class AuthController
         Session::set('user_id', $userId);
         Session::set('username', $email);
         Session::set('roles', $roles);
+        Session::set('auth_time', gmdate('Y-m-d H:i:s'));
+        Session::set('email_verified_at', $emailVerifiedAt);
+        Csrf::regenerate();
     }
 
     private function isLoggedIn(): bool

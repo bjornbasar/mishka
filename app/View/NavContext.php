@@ -32,7 +32,9 @@ final class NavContext
      * @return array{
      *     session_email: string|null,
      *     households: list<array{id: int, name: string, role: string, joined_at: string}>,
-     *     active_household: array{id: int, name: string, join_code: string, timezone: string, created_at: string}|null
+     *     active_household: array{id: int, name: string, join_code: string, timezone: string, created_at: string}|null,
+     *     verify_required: bool,
+     *     flash: string|null
      * }
      */
     public function forCurrentUser(): array
@@ -43,6 +45,8 @@ final class NavContext
                 'session_email' => null,
                 'households' => [],
                 'active_household' => null,
+                'verify_required' => false,
+                'flash' => $this->takeFlash(),
             ];
         }
 
@@ -62,10 +66,44 @@ final class NavContext
             }
         }
 
+        // v0.5.0 (H5): verify_required derived from session-cached
+        // email_verified_at — avoids 1 extra SELECT per render.
+        // Single-copy banner (decision U-3) shows for ANY logged-in user whose
+        // email_verified_at is NULL, regardless of SMTP success/failure.
+        $verifiedAt = Session::get('email_verified_at');
+        $verifyRequired = is_string($email) && $email !== '' && $verifiedAt === null;
+
         return [
             'session_email' => is_string($email) ? $email : null,
             'households' => $memberships,
             'active_household' => $active,
+            'verify_required' => $verifyRequired,
+            'flash' => $this->takeFlash(),
         ];
+    }
+
+    /**
+     * Read-and-clear the one-shot flash message. Both 'flash_success' and
+     * 'flash_error' keys collapse into the layout's single `flash` slot.
+     */
+    private function takeFlash(): ?string
+    {
+        $success = Session::get('flash_success');
+        $error = Session::get('flash_error');
+        // Clear both regardless of which fired so a write followed by a
+        // re-render doesn't loop.
+        if ($success !== null) {
+            Session::forget('flash_success');
+        }
+        if ($error !== null) {
+            Session::forget('flash_error');
+        }
+        if (is_string($success)) {
+            return $success;
+        }
+        if (is_string($error)) {
+            return $error;
+        }
+        return null;
     }
 }

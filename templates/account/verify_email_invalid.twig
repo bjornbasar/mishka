@@ -1,0 +1,17 @@
+{% extends "layout.twig" %}
+
+{% block title %}Verification link invalid — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>This verification link is invalid or expired</h1>
+
+    <p>
+        Verification links work once and expire after 24 hours. If you still need
+        to verify your email, sign in and click "Resend verification email" on
+        the banner.
+    </p>
+
+    <p>
+        <a href="/login">→ Sign in</a>
+    </p>
+{% endblock %}

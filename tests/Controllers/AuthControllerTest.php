@@ -348,4 +348,64 @@ final class AuthControllerTest extends AppTestCase
 
         self::assertSame($stillInId, $_SESSION['active_household_id']);
     }
+
+    // ============================================================
+    // v0.5.0 — register-hook fires the verification email
+    // ============================================================
+
+    public function test_register_emails_a_verification_link_with_app_url_host(): void
+    {
+        $this->request('POST', '/register', [
+            'email' => 'new@example.com',
+            'display_name' => 'New User',
+            'password' => self::VALID_PASSWORD,
+            'password_confirm' => self::VALID_PASSWORD,
+        ]);
+
+        self::assertCount(1, $this->mailer->sent);
+        $sent = $this->mailer->sent[0];
+        self::assertSame('verification', $sent['kind']);
+        self::assertSame('new@example.com', $sent['to']);
+        // B1: URL host comes from APP_URL (test fixture http://localhost:8080),
+        // NEVER from the request's Host header.
+        self::assertStringStartsWith('http://localhost:8080/verify-email/', $sent['url']);
+        self::assertMatchesRegularExpression(
+            '#^http://localhost:8080/verify-email/[0-9a-f]{64}$#',
+            $sent['url'],
+        );
+    }
+
+    public function test_register_seeds_session_auth_time_and_email_verified_at_null(): void
+    {
+        $this->request('POST', '/register', [
+            'email' => 'new@example.com',
+            'display_name' => 'New User',
+            'password' => self::VALID_PASSWORD,
+            'password_confirm' => self::VALID_PASSWORD,
+        ]);
+
+        // v0.5.0 invariant: every modern session has auth_time set
+        // (SessionRevocationGuard permutation (c) — modern session with no
+        // password change yet → pass).
+        self::assertArrayHasKey('auth_time', $_SESSION);
+        self::assertIsString($_SESSION['auth_time']);
+        // Unverified at register-time.
+        self::assertArrayHasKey('email_verified_at', $_SESSION);
+        self::assertNull($_SESSION['email_verified_at']);
+    }
+
+    public function test_login_seeds_email_verified_at_from_user_row(): void
+    {
+        $uid = $this->createUserWithHash('verified@example.com', self::VALID_PASSWORD);
+        $this->userRepo->markEmailVerified($uid);
+
+        $this->request('POST', '/login', [
+            'email' => 'verified@example.com',
+            'password' => self::VALID_PASSWORD,
+        ]);
+
+        self::assertNotNull($_SESSION['email_verified_at'] ?? null);
+        // auth_time also seeded.
+        self::assertArrayHasKey('auth_time', $_SESSION);
+    }
 }
