@@ -173,6 +173,17 @@
     </header>
 
     <main>
+        {# v0.5.0: single-copy verify banner (decision U-3). Hides SMTP-fail
+           state from non-technical users; sent_at NULL stays in DB for ops. #}
+        {% if verify_required is defined and verify_required %}
+            <div class="flash" style="border-color: var(--muted); color: var(--muted);">
+                Please verify your email —
+                <form method="POST" action="/me/verify-email/resend" style="display: inline;">
+                    {{ csrf_field() }}
+                    <button type="submit" class="link" style="color: var(--accent); text-decoration: underline;">Resend</button>
+                </form>
+            </div>
+        {% endif %}
         {% if flash is defined and flash %}
             <div class="flash">{{ flash }}</div>
         {% endif %}

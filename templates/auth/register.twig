@@ -18,6 +18,9 @@
             Email
             <input type="email" name="email" required autofocus
                    maxlength="320" value="{{ old.email|default('') }}">
+            <small style="color:var(--accent);">
+                <strong>Double-check this</strong> — you can't change your email later in this version.
+            </small>
         </label>
         <label>
             Display name (optional)

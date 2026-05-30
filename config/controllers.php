@@ -16,4 +16,8 @@ return [
     // sequentially and `/chores/{id}` would otherwise capture `/chores/schedules`.
     App\Controllers\ChoreSchedulesController::class,
     App\Controllers\ChoresController::class,
+    // v0.5.0 — account + email-dependent flows
+    App\Controllers\AccountController::class,
+    App\Controllers\PasswordResetController::class,
+    App\Controllers\EmailVerificationController::class,
 ];

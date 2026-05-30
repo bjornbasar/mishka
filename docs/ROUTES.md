@@ -104,3 +104,36 @@ All routes are member-gated (`requireSession` + `requireMember`). Any member may
 The create/edit form (v0.4.2) also accepts `participants[]` — a rotation pool subset (current members only; empty = rotate across everyone).
 
 `ChoreSchedulesController` is registered **before** `ChoresController` so the sequential router doesn't let `/chores/{id}` capture the static `/chores/schedules` paths. Occurrences are materialised lazily on view (in `/chores` and `/`) by `ChoreScheduleGenerator`, bounded to a 14-day rolling horizon and idempotent via `UNIQUE(schedule_id, occurrence_date)`.
+
+## Account (v0.5.0)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /me/profile | Render display-name form (pre-filled). 302 → /login if anonymous. |
+| POST | /me/profile | Whitelist `[display_name]`. Validate 1–120 chars; 303 → /me/profile; 422 on error. |
+| GET | /me/password | Render change-password form (3 inputs). |
+| POST | /me/password | Whitelist `[current_password, new_password, new_password_confirm]`. `$hasher->verify` is **always** called (M1). New is 12–128 chars, matches confirm, differs from current. Pinned-`$now` (BL-2) shared between `updatePassword`'s stamp + `Session::set('auth_time')`. `Session::regenerate()` + `Csrf::regenerate()` (M4 + H-7). 303 → /me/profile. |
+
+## Email-dependent flows (v0.5.0)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /password-reset | Anonymous request form. |
+| POST | /password-reset | Whitelist `[email]`. Always-200 + identical body for hit/miss (B4) + 1.5s timing floor + dummy argon2id verify on miss (H-4). Rate limited 5/10min/IP (H4). Issues + emails the link on hit; silently throttles on over-limit. |
+| GET | /password-reset/{64-hex} | Render reset form if token pending + unexpired. 404 on bad shape / unknown / used / expired. **`Referrer-Policy: no-referrer`** (H-5). |
+| POST | /password-reset/{64-hex} | Whitelist `[new_password, new_password_confirm]`. **Atomic single-use** (B6) via `redeemAtomically`. Updates hash + stamps revocation (pinned `$now`, BL-2). Invalidates other pending tokens. `Csrf::regenerate()`. 303 → `/login?reset=ok`. **No auto-login.** |
+| GET | /verify-email/{64-hex} | Atomic single-use redeem + `markEmailVerified`. If session present, stamps `Session::set('email_verified_at', now)` (H5). 303 → `/` (or `/login`). `Referrer-Policy: no-referrer`. |
+| POST | /me/verify-email/resend | Session-gated; rate limited 3/10min/user. Invalidates pending + reissues + emails. 303 → referrer. Idempotent for already-verified users. |
+
+All emailed URLs are built via `App\Mail\UrlBuilder` which reads ONLY `$_ENV['APP_URL']` — host-header injection (B1) is impossible by construction.
+
+## Household lifecycle (v0.5.0)
+
+| Method | Path | Notes |
+|---|---|---|
+| POST | /household/regenerate-code | Owner-only. Rotates the join code; old code stops working. 303 → /household. |
+| POST | /household/leave | Member-gated. Owners get 422 "transfer or delete first". Non-owners are removed; session active-household keys cleared; 303 → another membership or `/household/setup`. |
+| POST | /household/transfer | Owner-only. Whitelist `[new_owner_user_id]`. Atomic via `SELECT … FOR UPDATE` (PG; no-op SQLite) + guarded promote/demote (BL-3). 422 if target not a current non-owner member. `Csrf::regenerate()` (M4). 303 → /household. |
+| POST | /household/delete | Owner-only. Whitelist `[confirm_name]`. Typed-name confirm via `hash_equals` (H7). FK CASCADE wipes all child rows. Clears active-household session keys. `Csrf::regenerate()`. 303 → /. |
+
+Pipeline order (round-4 BL-1): **Session → SessionRevocationGuard → Csrf → router**. The guard kicks any session whose `auth_time` predates the latest `user_password_changes.password_changed_at`; tests that need the full pipe extend `MiddlewareIntegrationTestCase` (round-4 H-6).

@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.4.3 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.5.0 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 
@@ -10,6 +10,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 - **[docs/ROUTES.md](docs/ROUTES.md)** — full route table grouped by feature
 - **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, recurrence, single-occurrence editing, iCal feed)
 - **[docs/CHORES.md](docs/CHORES.md)** — v0.4 chores design (overdue/time model, live points tally + credit rule, recurring-chore generation + round-robin rotation)
+- **[docs/ACCOUNT.md](docs/ACCOUNT.md)** — v0.5 account lifecycle (profile, password change, reset, verify, household lifecycle, session revocation, rate limit, threat model)
 
 ---
 
@@ -24,6 +25,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 | Auth | karhu's argon2id PasswordHasher + Rbac + Session/CSRF middleware + `Karhu\Error\ForbiddenException` (v0.1.1) |
 | Recurrence | `simshaun/recurr ^6.0` (v0.3.1+) |
 | iCal (v0.3.2+) | `sabre/vobject ^4.5` |
+| Email (v0.5.0+) | `symfony/mailer ^7.2` + `symfony/mime ^7.2`; dev SMTP capture via MailHog in `/data/personal/docker-compose.yml` (profile `mishka`); prod recommendation Postmark |
 | Env loader | `vlucas/phpdotenv ^5.6` |
 | Testing | PHPUnit 11 — SQLite in-memory for unit/integration; PostgreSQL smoke job in CI |
 | Static analysis | PHPStan level 6 |
@@ -37,9 +39,17 @@ This file is the top-level overview. Detail lives in `docs/`:
 mishka/
 ├── app/
 │   ├── Account/UserPreferenceRepository.php
-│   ├── Auth/
-│   │   ├── HouseholdAuthorizer.php             requireMember + requireOwner; throws ForbiddenException
-│   │   └── MishkaUserRepository.php
+│   ├── Auth/                                    v0.5.0 — bulk additions: token repos + session revocation
+│   │   ├── EmailSendAttemptRepository.php       v0.5.0; app-layer rate-limit accounting (H4)
+│   │   ├── EmailVerificationTokenRepository.php v0.5.0; SHA-256-hashed, 24h TTL, atomic single-use, markSent for H2
+│   │   ├── HouseholdAuthorizer.php              requireMember + requireOwner; throws ForbiddenException
+│   │   ├── MishkaUserRepository.php             v0.5.0 ext: updateDisplayName/updatePassword/markEmailVerified/isEmailVerified
+│   │   ├── PasswordResetTokenRepository.php     v0.5.0; SHA-256-hashed, 1h TTL, atomic single-use
+│   │   ├── SessionRevocationGuard.php           v0.5.0; middleware with 4-permutation BL-1 predicate; legacy-grandfather
+│   │   └── UserPasswordChangeRepository.php     v0.5.0; one-row-per-user upsert with caller-pinned $now (BL-2)
+│   ├── Mail/                                    v0.5.0
+│   │   ├── Mailer.php                           symfony/mailer wrapper; non-final (RecordingMailer extends)
+│   │   └── UrlBuilder.php                       reads $_ENV['APP_URL'] only — B1 host-header-injection guard
 │   ├── Calendar/                                v0.3.0+
 │   │   ├── ConcurrentUpdateException.php       optimistic-concurrency signal
 │   │   ├── EventExceptionRepository.php         v0.3.1; two-step DELETE in dropAllForEvent
@@ -58,13 +68,16 @@ mishka/
 │   │   └── WeekWindow.php                        v0.4.3; DST-safe week arithmetic (single home for the household-tz/UTC dance)
 │   ├── Commands/MigrateCommand.php
 │   ├── Controllers/
-│   │   ├── AuthController.php
+│   │   ├── AccountController.php                v0.5.0; /me/profile + /me/password (BL-2 pinned-$now)
+│   │   ├── AuthController.php                   v0.5.0 ext: register-hook (verify-email send) + establishSession writes auth_time/email_verified_at/Csrf::regenerate
 │   │   ├── CalendarController.php               v0.3.0+ (single-occurrence routes v0.3.1)
 │   │   ├── ChoresController.php                  v0.4.0; chores CRUD + done/reopen + points board (+ lazy-gen hook v0.4.1)
 │   │   ├── ChoreSchedulesController.php          v0.4.1; recurring-chore CRUD (scanned before ChoresController)
+│   │   ├── EmailVerificationController.php      v0.5.0; GET /verify-email/{token} + POST /me/verify-email/resend (rate-limited)
 │   │   ├── HomeController.php                    v0.4.0: points board + open/overdue counts
-│   │   ├── HouseholdController.php
-│   │   └── IcalFeedController.php               v0.3.2
+│   │   ├── HouseholdController.php              v0.5.0 ext: regenerate-code / leave / transfer (BL-3 atomic) / delete
+│   │   ├── IcalFeedController.php               v0.3.2
+│   │   └── PasswordResetController.php          v0.5.0; always-200 + 1.5s timing floor + dummy argon2id verify on miss (B4 + H-4); atomic single-use redeem (B6); Referrer-Policy on token routes (H-5)
 │   ├── Household/HouseholdRepository.php
 │   └── View/
 │       ├── CsrfTwigExtension.php
@@ -157,6 +170,15 @@ mishka/
 33. **Pause via flag-table; participant pools via subset-table** (v0.4.2). `chore_schedules` can't gain columns (no ALTER), so pause = presence in `chore_schedule_pauses` (skipped in `generateForHousehold`, never inside `generateForSchedule`, so the watermark can't drift); a pool = rows in `chore_schedule_participants` (rotation cycles `listMembers ∩ pool`, empty intersection → unassigned). Both new tables carry real FKs.
 34. **DST-safe week arithmetic centralised in `WeekWindow`** (v0.4.3). Monday 00:00 NZDT and Monday 00:00 NZST are NOT 168 UTC-hours apart (169 at the end of DST, 167 at the start), so naive `−7d` on a UTC string drifts by an hour across every transition and silently breaks streak walks. `WeekWindow` does every step in household tz via `->modify('-1 week')->setTime(0, 0, 0)`, converting to UTC only for the string representation. Both controllers + `Achievements` route through it.
 35. **Badges + streaks are stateless** (v0.4.3). Derived per-render from the ledger; no `member_badges` table, no `earned_at` history. Badge criteria are pure functions over a stats array, returned from a method (not `const` — PHP rejects closures in constant expressions). Presentation (emoji + title) registered as the `badge_meta` Twig global, mirroring `brand`; the service never sees emoji.
+36. **Host-header-injection guard via boot-required `APP_URL`** (v0.5.0). The unauthenticated `/password-reset` endpoint would otherwise be a phishing factory: forge `Host: evil.com`, request a reset for a victim, and SMTP-deliver `https://evil.com/password-reset/<token>`. Fix: `App\Mail\UrlBuilder` reads only `$_ENV['APP_URL']`; `public/index.php` validates the env var at boot (must match `^https?://`). No code path reads `$request->header('host')` for emailed URLs (B1).
+37. **Token pattern reused** (v0.5.0). `email_verification_tokens` and `password_reset_tokens` mirror `ical_feed_tokens` byte-for-byte: 32 random bytes → 64-char hex shown ONCE → SHA-256 stored as `token_hash` with a UNIQUE index. One canonical token shape across the app reduces the bug surface.
+38. **Atomic single-use redeem via guarded UPDATE** (v0.5.0). Both `password_reset_tokens` and `email_verification_tokens` redeem via `UPDATE … SET used_at = :now WHERE id AND used_at IS NULL AND expires_at > :now` and gate the post-redeem write on `rowCount === 1`. Two concurrent POSTs of the same token cannot both succeed (B6). Expiry math is in PHP via `gmdate('Y-m-d H:i:s')` because SQLite doesn't translate `NOW() + INTERVAL` (B3).
+39. **Owner-transfer atomicity with FOR UPDATE on PG** (v0.5.0). The non-unique partial index `idx_household_members_role` can't enforce single-owner. `transferOwnership` opens a txn, runs `SELECT user_id, role FROM household_members WHERE household_id=:h AND user_id IN (:old,:new) FOR UPDATE` (no-op on SQLite — single-writer makes the lock implicit; PG-only syntax detected via PDO driver name), re-verifies inside the lock, then promote-first / demote-second with guarded UPDATEs. Two-owner intermediate state is degenerate-OK; zero-owner would be degenerate-bad and the rowCount check blocks it (B5 + round-4 BL-3).
+40. **Session revocation via separate stamp table** (v0.5.0). `users` can't gain a `password_changed_at` column (additive-only schema), so `user_password_changes (user_id PK, password_changed_at)` is the stamp. `SessionRevocationGuard` middleware compares `Session::get('auth_time')` to the stamp; 4-permutation predicate handles missing-state combinations (legacy session pre-v0.5 = grandfather pass per user decision U-1, BL-1). The pinned-`$now` invariant (BL-2) — caller pins one `gmdate()` call and passes the SAME string to `updatePassword`'s stamp and `Session::set('auth_time')` — prevents the user from self-revoking on their own password change.
+41. **App-layer rate limit via simple counter table** (v0.5.0). `email_send_attempts (kind CHECK IN ('password_reset_request','verify_resend'), ip_address NULL, user_id NULL, attempted_at)` records every issuance attempt; the controller does `countRecentByIp/ByUser(kind, key, 10min)` before issuing. Two independent buckets (5/10min/IP for reset, 3/10min/user for resend) so one bucket overflowing doesn't lock the other. Unbounded growth is fine at family-scale; a future prune job can DELETE old rows (H4).
+42. **Soft-banner email verification with always-quiet copy** (v0.5.0). No app features are gated on `email_verified_at`. The layout banner reads "Please verify your email — [Resend]" regardless of SMTP outcome (user decision U-3); `email_verification_tokens.sent_at` distinguishes for ops, never for users. Family-friendly tone, no scary "we couldn't send" copy.
+43. **Always-200 + 1.5s timing floor + dummy argon2id verify on miss** (v0.5.0). The hit path takes ~100–500ms (issue + Twig render + SMTP); the miss path was ~5ms. Three layers close enumeration: (a) identical body for hit/miss; (b) `usleep(max(0, 1_500_000 - elapsed_us))` floor; (c) on miss, run a throwaway `PasswordHasher::verify` against a precomputed dummy hash so the argon2id baseline cost lands on miss too (round-4 H-4 — defence in depth for SMTP-timeout edge cases that blow past the floor on hit). Tests use a 50ms floor for speed; `PasswordResetTimingTest` exercises the real 1.5s floor.
+44. **`Referrer-Policy: no-referrer` on token-bearing routes** (v0.5.0, round-4 H-5). Both `/password-reset/{token}` GET responses (form + invalid page) and `/verify-email/{token}` GET set the header, preventing the raw token from leaking via `Referer` if the user clicks an external link from those pages.
 
 ---
 
@@ -169,6 +191,9 @@ mishka/
 | `roles` (v0.1) | list&lt;string&gt; | login, register | Global roles from `system_roles` |
 | `active_household_id` (v0.2) | int / absent | setup, switch, login (from `user_preferences`) | Scope for household-scoped queries |
 | `active_household_role` (v0.2) | 'owner' / 'member' | same as above | UI gates (show invite code, show rename form) |
+| `auth_time` (v0.5.0) | string (GMT 'Y-m-d H:i:s') | login, register, password change | Compared by `SessionRevocationGuard` to `user_password_changes.password_changed_at` |
+| `email_verified_at` (v0.5.0) | ?string | login, register (null), verify-email click-through | Cached so `NavContext` doesn't re-query per render; null → soft verify banner |
+| `flash_success` / `flash_error` (v0.5.0) | string | post-success / -error redirects | One-shot — `NavContext::forCurrentUser()` reads + clears for the next render |
 | `_csrf_token` (v0.1) | string | first request | Set + verified by `Karhu\Middleware\Csrf` |
 
 ---
@@ -181,7 +206,10 @@ mishka/
 | `DB_USER` | yes | DB user |
 | `DB_PASS` | yes | DB password |
 | `APP_ENV` | no | `dev` (default) or `prod` |
-| `APP_URL` | no | Base URL, used in absolute links |
+| `APP_URL` | **yes (v0.5.0)** | Required at boot — used for absolute URLs in emails (B1 fix). Must match `^https?://`. |
+| `MAIL_FROM_ADDRESS` | **yes (v0.5.0)** | Required at boot — From: address on outbound emails. |
+| `MAIL_FROM_NAME` | no | From: display name (default `Mishka Den`). |
+| `MAILER_DSN` | no | symfony/mailer transport DSN. Dev default is MailHog (`smtp://mailhog:1025?timeout=5`). Prod: Postmark recommended (`smtp://apikey:<token>@smtp.postmarkapp.com:587?timeout=5&encryption=tls`). `?timeout=5` keeps a request from hanging when SMTP is down. |
 
 ---
 

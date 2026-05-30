@@ -6,7 +6,7 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.4.3** — chores gamification. Kid-motivating badges and weekly streaks on the leaderboard, all derived from the v0.4.2 ledger — no schema changes.
+**v0.5.0** — account / household lifecycle + email. Mishka now sends mail (SMTP via symfony/mailer + MailHog in dev), users can change their display name + password, recover via emailed reset links, verify their email via a soft banner, and households gracefully wind down: regenerate invite code, leave, transfer ownership atomically, or delete (FK CASCADE wipes all chores/events/leaderboard).
 
 ## Quick start
 
@@ -32,19 +32,23 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
 
-## What works in v0.4.3
+## What works in v0.5.0
 
-Carried forward from v0.1–v0.4.2: registration + login, households (N:M membership + invite codes), the full household calendar, per-user signed iCal feed, chores (one-off + recurring with round-robin/fixed assignment, overdue badges, durable points ledger, weekly + all-time leaderboard, pause/resume, per-chore rotation pools).
+Carried forward from v0.1–v0.4.3: registration + login, households (N:M membership + invite codes), the full household calendar, per-user signed iCal feed, chores (one-off + recurring with round-robin/fixed assignment, overdue badges, durable points ledger, weekly + all-time leaderboard, pause/resume, per-chore rotation pools, kid-friendly badges + weekly streaks).
 
-**New in v0.4.3:**
-- **Kid-friendly badges** — six escalating badges on the leaderboard, earned the moment the criterion is met: first chore 🌱, 10 chores ⭐, 50 chores 🏅, 100 points 💯, 500 points 🏆, four-week streak 🔥. Hover any badge for the description.
-- **Weekly streaks** — a 🔥 N counter next to each member's name shows how many consecutive weeks (Monday in the household timezone) they've completed at least one chore. Forgiving inside the current week; resets only after a fully missed week. DST-safe (NZDT↔NZST transitions don't break the count).
-- **No new tables** — everything derived from the v0.4.2 ledger. Two new repo queries, one new pure-PHP service.
+**New in v0.5.0:**
+- **Email transport** — symfony/mailer (^7.2) wired in, MailHog dev compose, Postmark recommended for prod. `APP_URL` is required at boot (B1 — host-header injection in email links is impossible by construction).
+- **Profile editing** — `/me/profile` lets a user edit their display name. Email change is deferred to v0.6+ (FK identifier; loud warning on /register).
+- **Password change** — `/me/password` confirms the current password, validates the new one (12–128 chars, must differ), and rotates the session ID. The pinned-`$now` invariant (BL-2) ensures the user does NOT self-revoke.
+- **Password reset** — anonymous `/password-reset` issues a 1h single-use token. Always-200 response + 1.5s timing floor + equalised miss-path work (defence vs. enumeration). Session is NOT auto-logged-in on success.
+- **Email verification** — soft banner only ("Please verify your email — [Resend]"). 24h single-use token, sent at registration. Verifying flips the banner off immediately for the logged-in tab.
+- **Session revocation** — `SessionRevocationGuard` middleware kicks any session whose `auth_time` predates the latest `user_password_changes.password_changed_at`. Pre-v0.5 sessions are grandfathered (decision U-1).
+- **Household lifecycle** — owners can regenerate the invite code, transfer ownership atomically (`SELECT … FOR UPDATE` on PG; BL-3), or delete the household with typed-name confirmation (FK CASCADE wipes everything). Non-owners can leave; owners get a 422 directing them to transfer or delete first.
+- **App-layer rate limit** — `email_send_attempts` caps `/password-reset` to 5/10min/IP and `/me/verify-email/resend` to 3/10min/user.
 
 ## Roadmap
 
-- **Chores polish (later):** penalty/negative points, daily streaks alongside weekly, persistent badge history + dedicated /badges page, pluggable badge registry.
-- Later: leave/transfer/delete household, regenerate invite code, profile editing, email verification, password change/reset, per-household feeds, subscribe-to-external-calendar.
+- **v0.6+ candidates:** email change (FK touchpoints), account delete (FK RESTRICT chain on `events.created_by` / `chores.created_by`), per-device session revoke (sessions-list UI), persistent badge history, daily streaks alongside weekly, subscribe-to-external-calendar.
 
 ## Docs
 

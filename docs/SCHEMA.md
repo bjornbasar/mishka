@@ -266,3 +266,58 @@ CREATE INDEX IF NOT EXISTS idx_chore_schedule_participants_schedule ON chore_sch
 Pure-derivation feature on top of v0.4.2. Two query additions on `ChoreRepository`:
 - `leaderboardForHousehold` gains a `COUNT(l.id) AS total_completions` aggregate. The existing LEFT JOIN keeps zero-completion members at 0.
 - `recentCompletionsForHousehold(hid, sinceUtc): user_id → list<completed_at>` — for the streak walk; INNER JOIN to `household_members` so departed members and SET-NULL'd credits drop out automatically. No new index — `idx_chore_points_ledger_household_completed` covers the WHERE and `household_members` is tiny per household.
+
+## v0.5.0 — account lifecycle + email-dependent flows
+
+Four NEW tables, no ALTER (additive-only schema convention). `users.email_verified_at` already shipped in v0.1.
+
+```sql
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL UNIQUE,            -- SHA-256 of the raw hex token
+    expires_at  TIMESTAMPTZ NOT NULL,                -- TTL = 24h, stamped in PHP
+    used_at     TIMESTAMPTZ NULL,                    -- NULL = pending; set = redeemed
+    sent_at     TIMESTAMPTZ NULL,                    -- NULL = SMTP send failed (ops-only)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_email_verification_tokens_user_pending
+    ON email_verification_tokens(user_id) WHERE used_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL UNIQUE,
+    expires_at  TIMESTAMPTZ NOT NULL,                -- TTL = 1h
+    used_at     TIMESTAMPTZ NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_pending
+    ON password_reset_tokens(user_id) WHERE used_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS user_password_changes (
+    user_id              INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    password_changed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS email_send_attempts (
+    id            SERIAL PRIMARY KEY,
+    ip_address    VARCHAR(45) NULL,                  -- NULL for user-keyed buckets
+    user_id       INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('password_reset_request', 'verify_resend')),
+    attempted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_email_send_attempts_recent
+    ON email_send_attempts(kind, attempted_at);
+```
+
+**Token pattern** mirrors `ical_feed_tokens` exactly: 32 random bytes → 64-char hex shown ONCE in the email → SHA-256 stored as `token_hash` with a UNIQUE index. Lookups are constant-time-enough (256-bit entropy ⇒ brute force is infeasible).
+
+**`email_verification_tokens.sent_at`** records SMTP delivery for ops observability (H2). The user-facing banner is the single-copy "Please verify your email — [Resend]" regardless (decision U-3). `password_reset_tokens` has no `sent_at` column because the always-200 + 1.5s timing-floor pattern hides SMTP-fail from the user entirely.
+
+**`user_password_changes`** is the session-revocation stamp (H1). One row per user, upserted. The `SessionRevocationGuard` middleware compares `Session::get('auth_time')` to `password_changed_at` and bounces stale sessions. Lives in a separate table (not as `users.password_changed_at`) because the schema convention forbids ALTER; v0.1 didn't reserve a slot.
+
+**`email_send_attempts`** is the app-layer rate limit (H4). Two independent buckets keyed by IP (`password_reset_request`, 5/10min) or user (`verify_resend`, 3/10min). Unbounded growth is acceptable at family-scale (~4k rows/year); a future pruning job can DELETE WHERE attempted_at < NOW() - '90 days'.
+
+**FK CASCADE chain on `users.id` delete**: all four new tables cascade. The PG smoke test in `tests/Smoke/AccountLifecyclePgSmokeTest.php` verifies this end-to-end.

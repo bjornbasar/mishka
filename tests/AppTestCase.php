@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace App\Tests;
 
 use App\Account\UserPreferenceRepository;
+use App\Auth\EmailSendAttemptRepository;
+use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\HouseholdAuthorizer;
 use App\Auth\MishkaUserRepository;
+use App\Auth\PasswordResetTokenRepository;
+use App\Auth\UserPasswordChangeRepository;
 use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
 use App\Calendar\EventService;
@@ -18,6 +22,7 @@ use App\Calendar\RruleTranslator;
 use App\Chores\ChoreRepository;
 use App\Chores\ChoreScheduleGenerator;
 use App\Chores\ChoreScheduleRepository;
+use App\Controllers\AccountController;
 use App\Controllers\AuthController;
 use App\Controllers\CalendarController;
 use App\Controllers\ChoresController;
@@ -25,6 +30,11 @@ use App\Controllers\ChoreSchedulesController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
+use App\Controllers\EmailVerificationController;
+use App\Controllers\PasswordResetController;
+use App\Mail\Mailer;
+use App\Mail\UrlBuilder;
+use App\Tests\Fixtures\RecordingMailer;
 use App\Household\HouseholdRepository;
 use App\View\CsrfTwigExtension;
 use App\View\NavContext;
@@ -61,6 +71,12 @@ abstract class AppTestCase extends TestCase
     protected ChoreRepository $choreRepo;
     protected ChoreScheduleRepository $scheduleRepo;
     protected PasswordHasher $hasher;
+    // v0.5.0
+    protected EmailVerificationTokenRepository $verifyTokenRepo;
+    protected PasswordResetTokenRepository $resetTokenRepo;
+    protected UserPasswordChangeRepository $pwChangeRepo;
+    protected EmailSendAttemptRepository $sendAttemptRepo;
+    protected RecordingMailer $mailer;
 
     protected function setUp(): void
     {
@@ -102,6 +118,14 @@ abstract class AppTestCase extends TestCase
         $authz = new HouseholdAuthorizer($this->householdRepo);
         $nav = new NavContext($this->householdRepo);
 
+        // v0.5.0 — account lifecycle + email-dependent flows
+        $this->verifyTokenRepo = new EmailVerificationTokenRepository($this->db);
+        $this->resetTokenRepo = new PasswordResetTokenRepository($this->db);
+        $this->pwChangeRepo = new UserPasswordChangeRepository($this->db);
+        $this->sendAttemptRepo = new EmailSendAttemptRepository($this->db);
+        $this->mailer = new RecordingMailer();
+        $urlBuilder = new UrlBuilder('http://localhost:8080');
+
         $twig = new TwigAdapter(__DIR__ . '/../templates', cache: false);
         $twig->twig()->addExtension(new CsrfTwigExtension());
         $twig->twig()->addGlobal('brand', require __DIR__ . '/../config/brand.php');
@@ -128,11 +152,31 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
+        // v0.5.0 container bindings
+        $app->container()->set(EmailVerificationTokenRepository::class, $this->verifyTokenRepo);
+        $app->container()->set(PasswordResetTokenRepository::class, $this->resetTokenRepo);
+        $app->container()->set(UserPasswordChangeRepository::class, $this->pwChangeRepo);
+        $app->container()->set(EmailSendAttemptRepository::class, $this->sendAttemptRepo);
+        $app->container()->set(Mailer::class, $this->mailer);
+        $app->container()->set(UrlBuilder::class, $urlBuilder);
 
         $dummyHash = $this->hasher->hash('test-dummy-' . bin2hex(random_bytes(8)));
         $app->container()->factory(AuthController::class, fn() => new AuthController(
             $this->userRepo, $this->hasher, $twig, $dummyHash,
             $this->householdRepo, $this->prefsRepo, $nav,
+            // v0.5.0 register-hook deps
+            $this->verifyTokenRepo, $this->mailer, $urlBuilder,
+        ));
+
+        // PasswordResetController takes scalar ctor params (timing floor +
+        // dummy hash) so it can't auto-wire — register a factory.
+        // Tests use a 50ms floor + empty dummy hash to keep the suite fast;
+        // PasswordResetTimingTest constructs its own with the production 1.5s floor.
+        $app->container()->factory(PasswordResetController::class, fn() => new PasswordResetController(
+            $this->resetTokenRepo, $this->userRepo, $this->hasher, $this->mailer,
+            $urlBuilder, $this->sendAttemptRepo, $twig, $nav,
+            timingFloorMicros: 50_000,
+            dummyHash: '',
         ));
 
         $app->router()->scanControllers([
@@ -146,6 +190,10 @@ abstract class AppTestCase extends TestCase
             // otherwise greedily capture the static `/chores/schedules` paths.
             ChoreSchedulesController::class,
             ChoresController::class,
+            // v0.5.0 — account + email-dependent flows
+            AccountController::class,
+            PasswordResetController::class,
+            EmailVerificationController::class,
         ]);
 
         return $app;
