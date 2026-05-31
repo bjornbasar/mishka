@@ -276,6 +276,9 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer>{{ brand.name }} — {{ brand.tagline }}</footer>
+    <footer>
+        {{ brand.name }} — {{ brand.tagline }}
+        · <a href="/help" style="color: var(--accent);">Help</a>
+    </footer>
 </body>
 </html>

@@ -52,6 +52,7 @@ Carried forward from v0.1–v0.4.3: registration + login, households (N:M member
 
 ## Docs
 
+- [docs/USERGUIDE.md](docs/USERGUIDE.md) — the family-facing walkthrough (also served in-product at `/help`)
 - [DOCS.md](DOCS.md) — full architecture, schema, routes, design decisions
 - [karhu](https://github.com/bjornbasar/karhu) — the microframework this is built on
 

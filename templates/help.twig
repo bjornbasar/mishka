@@ -1,0 +1,58 @@
+{% extends "layout.twig" %}
+
+{% block title %}Help — {{ brand.name }}{% endblock %}
+
+{% block head_extra %}
+    <style>
+        /* Render the CommonMark-generated HTML with comfortable typography.
+           No need for a full prose framework — this is a single doc page. */
+        .userguide { max-width: 720px; }
+        .userguide h1 { font-size: 1.6rem; margin-top: 0; }
+        .userguide h2 {
+            font-size: 1.2rem;
+            margin-top: 2rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .userguide h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+        .userguide p, .userguide li { line-height: 1.65; }
+        .userguide ul, .userguide ol { padding-left: 1.5rem; }
+        .userguide li { margin: 0.25rem 0; }
+        .userguide code {
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 0.1em 0.4em;
+            border-radius: 0.25rem;
+            font-size: 0.9em;
+        }
+        .userguide pre {
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 0.75rem 1rem;
+            border-radius: 0.375rem;
+            overflow-x: auto;
+        }
+        .userguide pre code { background: transparent; border: 0; padding: 0; }
+        .userguide blockquote {
+            margin: 1rem 0;
+            padding: 0.5rem 1rem;
+            border-left: 3px solid var(--muted);
+            color: var(--muted);
+        }
+        .userguide hr {
+            border: 0;
+            border-top: 1px solid var(--border);
+            margin: 2rem 0;
+        }
+        .userguide a { color: var(--accent); }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <article class="userguide">
+        {# guide_html is rendered server-side from docs/USERGUIDE.md via
+           league/commonmark. Single source of truth lives in the Markdown
+           file; this template is just the chrome. #}
+        {{ guide_html|raw }}
+    </article>
+{% endblock %}

@@ -20,4 +20,6 @@ return [
     App\Controllers\AccountController::class,
     App\Controllers\PasswordResetController::class,
     App\Controllers\EmailVerificationController::class,
+    // v0.5.2 — in-product user guide
+    App\Controllers\HelpController::class,
 ];

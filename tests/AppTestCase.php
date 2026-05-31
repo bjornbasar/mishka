@@ -31,6 +31,7 @@ use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
 use App\Controllers\EmailVerificationController;
+use App\Controllers\HelpController;
 use App\Controllers\PasswordResetController;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
@@ -194,6 +195,8 @@ abstract class AppTestCase extends TestCase
             AccountController::class,
             PasswordResetController::class,
             EmailVerificationController::class,
+            // v0.5.2 — in-product user guide
+            HelpController::class,
         ]);
 
         return $app;
