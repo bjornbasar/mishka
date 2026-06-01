@@ -321,3 +321,70 @@ CREATE INDEX IF NOT EXISTS idx_email_send_attempts_recent
 **`email_send_attempts`** is the app-layer rate limit (H4). Two independent buckets keyed by IP (`password_reset_request`, 5/10min) or user (`verify_resend`, 3/10min). Unbounded growth is acceptable at family-scale (~4k rows/year); a future pruning job can DELETE WHERE attempted_at < NOW() - '90 days'.
 
 **FK CASCADE chain on `users.id` delete**: all four new tables cascade. The PG smoke test in `tests/Smoke/AccountLifecyclePgSmokeTest.php` verifies this end-to-end.
+
+## v0.6.0 — web push subscriptions + notification prefs + dispatch ledger + jobs queue
+
+Four new tables — three for push, one for karhu-queue's job board.
+
+```sql
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint      TEXT NOT NULL,
+    p256dh        VARCHAR(256) NOT NULL,
+    auth          VARCHAR(128) NOT NULL,
+    user_agent    VARCHAR(500) NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ NULL,
+    revoked_at    TIMESTAMPTZ NULL
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_active
+    ON push_subscriptions(user_id) WHERE revoked_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_user_endpoint
+    ON push_subscriptions(user_id, endpoint);
+
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+    user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    event_reminder_minutes INTEGER NOT NULL DEFAULT 15
+                            CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
+    overdue_chore_digest   BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS notification_dispatches (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('event_reminder', 'overdue_digest')),
+    ref_id        INTEGER NOT NULL,
+    dispatched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_dispatches_unique
+    ON notification_dispatches(user_id, kind, ref_id);
+CREATE INDEX IF NOT EXISTS idx_notification_dispatches_pruning
+    ON notification_dispatches(dispatched_at);
+
+-- karhu-queue's jobs table; the package owns the contract but mishka inlines
+-- the table here so a single `karhu migrate` covers all persistent state.
+CREATE TABLE IF NOT EXISTS jobs (
+    id         SERIAL PRIMARY KEY,
+    queue      VARCHAR(50) NOT NULL DEFAULT 'default',
+    job        VARCHAR(255) NOT NULL,
+    data       TEXT NOT NULL DEFAULT '{}',
+    status     VARCHAR(20) NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    error      TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_queue_status_id ON jobs(queue, status, id);
+```
+
+**`push_subscriptions`** stores the three values the browser hands back from `pushManager.subscribe()` — endpoint, p256dh, auth. Soft-delete via `revoked_at`; the worker marks revoked on HTTP 410 (subscription expired) and the UI marks revoked on user click. UNIQUE(user_id, endpoint) makes re-register idempotent — the same browser subscribing twice wakes the revoked row instead of creating a duplicate.
+
+**`user_notification_prefs`** is one row per user, defaults to `event_reminder_minutes=15` + `overdue_chore_digest=true`. The CHECK rejects out-of-range minutes. Per-user; per-household customisation deferred to v0.7+ if anyone asks.
+
+**`notification_dispatches`** is the at-most-once ledger. `claim(user_id, kind, ref_id)` returns true iff the INSERT survived the UNIQUE constraint; the caller proceeds to enqueue only on true. ref_id semantics: `event_reminder` → `events.id`; `overdue_digest` → YYYYMMDD-in-hh-tz int. Deliberately NO FK on ref_id (events get deleted, dates aren't a table). Pruned to 90 days at the top of each `push:scan` run.
+
+**`jobs`** is karhu-queue's table — the worker pops `pending` rows, flips to `processing`, runs the handler, flips to `completed` or `failed`. Stuck `processing` rows after a SIGKILL are accepted as at-most-once-by-design (v0.6.1 candidate: `karhu jobs:unstick`).
+
+**FK CASCADE chain on `users.id` delete**: push_subscriptions, user_notification_prefs, notification_dispatches all cascade. `jobs` has no FK — a deleted user's pending jobs stay until the worker drains them (the handler then sees `user_id` doesn't resolve and skips).

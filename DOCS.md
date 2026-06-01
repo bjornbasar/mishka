@@ -1,6 +1,6 @@
 # Mishka Den — Project Documentation
 
-**Version:** 0.5.0 | **License:** MIT | **PHP:** >=8.4
+**Version:** 0.6.0 | **License:** MIT | **PHP:** >=8.4
 
 A family hub web app — the den mother for your family. First real-world dogfood of the [karhu](https://github.com/bjornbasar/karhu) PHP microframework.
 

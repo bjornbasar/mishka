@@ -237,7 +237,52 @@ If you're suddenly looking at /login with a "Your password was changed elsewhere
 
 ---
 
-## 7. Troubleshooting
+## 7. Notifications
+
+mishka can send you push notifications when:
+
+- An event in your active household is about to start (default: 15 min before; you choose 0–120 min).
+- You have overdue chores in the morning (07:30–08:30 in your household's timezone). One push per day, summarising; not one push per chore.
+
+### Enable on a device
+
+1. Open **/me/notifications** in the browser you use most.
+2. Click **Enable on this device**.
+3. Grant the permission prompt your browser shows.
+4. You'll see the device appear in the "Subscribed devices" list below.
+
+Each browser/device subscribes independently — phone + laptop = two subscriptions. Mishka pushes to all of them.
+
+### iPhone / iPad
+
+Apple only delivers Web Push on iOS 16.4+ AND when the app is installed as a Progressive Web App (PWA) on your home screen. To set that up:
+
+1. Open `https://mishka.minified.work` in **Safari** (not Chrome — Safari is the only browser that can install a PWA on iOS).
+2. Tap the **Share** icon at the bottom (square with the up-arrow).
+3. Scroll and tap **Add to Home Screen**.
+4. Tap **Add**.
+5. Open mishka from your home-screen icon (not from Safari).
+6. Navigate to **/me/notifications** and tap **Enable on this device**.
+
+If you're on iOS older than 16.4, or skip the PWA install, no push notifications will arrive — you'll still see everything in the in-product To-do list and on the calendar.
+
+### Test it
+
+Click **Send test push** on /me/notifications. A notification with "🐻 Mishka push works" should arrive on every device you've enabled within a few seconds. If it doesn't, check the browser's notification permissions for `mishka.minified.work`.
+
+### Tune the timing
+
+Two prefs on /me/notifications:
+- **Event reminder** — off, 5/10/15/30 min, 1 h, 2 h before. Applies to every event in every household you belong to.
+- **Daily 7:30–8:30am digest if I have overdue chores** — checkbox. Single push at the start of your morning; nothing if all chores are caught up.
+
+### Stop notifications
+
+- Revoke a single device on /me/notifications → **Revoke** next to its row.
+- Or turn off notification permission in your browser entirely for `mishka.minified.work`.
+- Or set Event reminder to "Off" and uncheck the digest — pushes stop without unsubscribing the device.
+
+## 8. Troubleshooting
 
 ### "Please verify your email" won't go away
 
@@ -272,7 +317,7 @@ You need to either **transfer ownership** to another member first, or **delete**
 
 ---
 
-## 8. Privacy and security
+## 9. Privacy and security
 
 A one-pager on what Mishka does and doesn't do with your data, for the curious / paranoid.
 

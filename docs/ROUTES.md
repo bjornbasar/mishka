@@ -137,3 +137,21 @@ All emailed URLs are built via `App\Mail\UrlBuilder` which reads ONLY `$_ENV['AP
 | POST | /household/delete | Owner-only. Whitelist `[confirm_name]`. Typed-name confirm via `hash_equals` (H7). FK CASCADE wipes all child rows. Clears active-household session keys. `Csrf::regenerate()`. 303 → /. |
 
 Pipeline order (round-4 BL-1): **Session → SessionRevocationGuard → Csrf → router**. The guard kicks any session whose `auth_time` predates the latest `user_password_changes.password_changed_at`; tests that need the full pipe extend `MiddlewareIntegrationTestCase` (round-4 H-6).
+
+## Notifications + web push (v0.6.0)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /me/notifications | Renders the preferences form + the list of subscribed devices. Exposes the VAPID public key as `data-vapid-public-key` on the wrapper for `push-subscribe.js` to read. |
+| POST | /me/notifications | Whitelist `[event_reminder_minutes, overdue_chore_digest]`. Validate minutes 0–1440 (CHECK constraint enforces upstream). Upsert prefs via `UserNotificationPrefsRepository::setFor`. 303 → /me/notifications. |
+| POST | /me/push/subscribe | JS-driven; form-urlencoded body `endpoint`, `p256dh`, `auth`. Validates `endpoint` shape (HTTPS scheme + non-empty host, H3). `PushSubscriptionRepository::register` is idempotent — re-subscribe wakes the revoked row. CSRF via `X-CSRF-Token` header (meta tag in layout). |
+| POST | /me/push/subscriptions/{id}/delete | Revoke if owned by the session user; 403 on foreign. 303 → /me/notifications. |
+| POST | /me/push/test | Enqueues a `SendPushNotification` job for the calling user. 10-second session-level cooldown (H2). Flashes "Enable on a device first" if zero active subs (H6). |
+
+All routes session-gated; anonymous → 302 /login.
+
+The actual push delivery happens out-of-band:
+- `php vendor/bjornbasar/karhu/bin/karhu push:scan` runs every 5 min on Nalle's cron. Three passes: prune dispatch ledger >90 days; event reminders (per-user threshold + 5-min cron jitter buffer); overdue digest (07:30–08:30 household-tz only).
+- `php vendor/bjornbasar/karhu/bin/karhu push:worker` runs as the `mishka-worker` container. Consumes the `jobs` table; for each `SendPushNotification`, fans out to every active subscription for the user via `PushSender`. HTTP 410 → `markRevoked`; success → `touch`; transient → `error_log` (lands in `docker logs mishka-worker`).
+
+All emailed-URL safety properties from v0.5 carry over: the click-action URL in the push payload is built from `APP_URL` via `UrlBuilder` (B1); the payload is JSON-encoded with `JSON_THROW_ON_ERROR`; title truncated to 100 chars + body to 200 chars before encryption (H5).

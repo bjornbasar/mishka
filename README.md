@@ -6,7 +6,9 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.5.0** — account / household lifecycle + email. Mishka now sends mail (SMTP via symfony/mailer + MailHog in dev), users can change their display name + password, recover via emailed reset links, verify their email via a soft banner, and households gracefully wind down: regenerate invite code, leave, transfer ownership atomically, or delete (FK CASCADE wipes all chores/events/leaderboard).
+**v0.6.0** — mobile polish + web push reminders. Mishka now nudges family members on their phones when an event is about to start or chores have slipped past their due date. Web Push Protocol via VAPID, a dedicated worker container drains a karhu-queue, and the cron pushes happen at-most-once via a dedup ledger. Plus five `@media` rules in `layout.twig` close the worst of the 375px-viewport rough edges.
+
+iOS support requires iOS 16.4+ with mishka installed as a PWA (documented in `/help`). Older iOS / non-PWA users see no push but the in-product surfaces still work.
 
 ## Quick start
 
@@ -31,6 +33,18 @@ Then open `http://localhost:8080/register`, create your account, and set up your
 - **Passwords:** argon2id (via `Karhu\Auth\PasswordHasher`)
 - **Tests:** PHPUnit 11 — SQLite in-memory for unit/integration + a PostgreSQL smoke job in CI for dialect-sensitive behavior
 - **Static analysis:** PHPStan level 6
+
+## What works in v0.6.0
+
+Everything in v0.5.x plus:
+
+- **Web push notifications** — opt-in per device via `/me/notifications`. Two notification types: event reminder (N min before, per-user; default 15) and a once-daily overdue-chore digest (07:30–08:30 in the household's timezone). At-most-once dedup. Click an event reminder → land on `/calendar`; click a digest → land on `/chores`.
+- **Per-user preferences** — minutes-before slider, digest toggle. Defaults: 15 min + digest on.
+- **Mobile polish** — agenda items stack date+title vertically, chore cards put the Done button on its own row (full-width, touch-tappable), the household switcher dropdown fits a 375px viewport, 48px touch-target floor.
+- **🔔 nav icon** in the header points to `/me/notifications` for quick access.
+- **CSRF token meta** — `<meta name="csrf-token">` in layout so JS can send `X-CSRF-Token` on the push subscribe POST.
+- **VAPID boot guard** — mishka refuses to start without `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` (RFC 8292 compliant).
+- **`mishka-worker` container** — long-lived karhu-queue consumer; deployed under the `mishka` compose profile alongside MailHog.
 
 ## What works in v0.5.0
 
