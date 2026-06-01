@@ -36,20 +36,25 @@ final class HelpControllerTest extends AppTestCase
         self::assertStringContainsString('<h2>4. Gamification</h2>', $body);
         self::assertStringContainsString('<h2>5. Households</h2>', $body);
         self::assertStringContainsString('<h2>6. Your account</h2>', $body);
-        self::assertStringContainsString('<h2>7. Troubleshooting</h2>', $body);
-        self::assertStringContainsString('<h2>8. Privacy and security</h2>', $body);
+        // v0.6.0 inserted "Notifications" as section 7; troubleshooting + privacy shifted by one.
+        self::assertStringContainsString('<h2>7. Notifications</h2>', $body);
+        self::assertStringContainsString('<h2>8. Troubleshooting</h2>', $body);
+        self::assertStringContainsString('<h2>9. Privacy and security</h2>', $body);
     }
 
     public function test_help_escapes_html_in_source_by_default(): void
     {
         // CommonMark defaults: raw HTML in the source is escaped, not passed
-        // through. Future content additions can't accidentally introduce
-        // an XSS vector via the user guide.
+        // through. Future content additions can't accidentally introduce an
+        // XSS vector via the user guide.
+        //
+        // We narrow to the <article class="userguide"> block because layout.twig
+        // itself ships a legitimate <script> (the v0.6 service worker registration);
+        // that script is layout chrome, not guide content.
         $body = $this->request('GET', '/help')->body();
-        // The guide's `>` blockquote becomes a <blockquote> tag (allowed
-        // CommonMark syntax) — that's fine. We're checking no `<script>`
-        // tags from the source can leak through.
-        self::assertStringNotContainsString('<script>', $body);
+        preg_match('#<article class="userguide">(.*?)</article>#s', $body, $m);
+        self::assertNotEmpty($m, 'userguide article block should be present');
+        self::assertStringNotContainsString('<script>', $m[1]);
     }
 
     public function test_help_renders_signed_in_too(): void

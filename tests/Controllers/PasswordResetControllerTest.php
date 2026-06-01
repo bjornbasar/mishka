@@ -79,14 +79,25 @@ final class PasswordResetControllerTest extends AppTestCase
     {
         // B4: the "200 + identical body" invariant. Hit and miss must render
         // the exact same page so the user can't tell which they triggered.
+        //
+        // v0.6.0: layout.twig grew a <meta name="csrf-token"> in <head> for
+        // the JS push-subscribe flow. The token rotates per render in the
+        // test harness (no live PHP session for storage), so it's stripped
+        // here — the token is not part of the body-equality contract.
         $this->createUserWithHash('user@example.com', 'old-password-correct-horse');
 
         $hit = $this->request('POST', '/password-reset', ['email' => 'user@example.com']);
         $this->mailer->sent = [];  // reset between requests
         $miss = $this->request('POST', '/password-reset', ['email' => 'ghost@example.com']);
 
+        $stripCsrf = static fn(string $body): string => (string) preg_replace(
+            '#<meta name="csrf-token" content="[^"]*">#',
+            '<meta name="csrf-token" content="REDACTED">',
+            $body,
+        );
+
         self::assertSame($hit->status(), $miss->status());
-        self::assertSame($hit->body(), $miss->body());
+        self::assertSame($stripCsrf($hit->body()), $stripCsrf($miss->body()));
     }
 
     public function test_post_request_rate_limit_silently_swallows_excess(): void

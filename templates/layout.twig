@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}{{ brand.name }} — {{ brand.tagline }}{% endblock %}</title>
     <meta name="description" content="{{ brand.tagline }}">
+    {# v0.6.0: expose the session-bound CSRF token to JavaScript via a meta
+       tag so push-subscribe.js (and any future XHR/fetch caller) can read it
+       and send X-CSRF-Token. karhu's Csrf middleware accepts the header form
+       OR the form-field form; the meta tag is the simplest reader path. #}
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     {% block head_extra %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -230,6 +235,43 @@
         .recurrence-fieldset[data-preset="monthly"] .recurrence-interval,
         .recurrence-fieldset[data-preset="daily"] .recurrence-interval,
         .recurrence-fieldset[data-preset="yearly"] .recurrence-interval { display: flex; }
+
+        /* v0.6.0 mobile polish — 5 @media rules covering the 80% of pain
+           identified in the v0.6 plan's mobile survey at 375px (iPhone SE
+           width). No markup changes; pure additive CSS. */
+        @media (max-width: 700px) {
+            /* 1. Agenda items stack date above content (date had min-width:
+                  11rem which ate 53% of a 375px viewport). */
+            .agenda-item { flex-direction: column; gap: 0.5rem; }
+            .agenda-date { min-width: auto; }
+
+            /* 2. Chore cards stack the Done button above the body so it's
+                  full-width tappable instead of a narrow inline button. */
+            .chore-card { flex-direction: column; align-items: stretch; }
+            .btn-done { width: 100%; }
+
+            /* 3. Household-switcher dropdown — was position: absolute right: 0
+                  which overflowed the right edge on narrow viewports. Pin to
+                  the viewport edges instead. */
+            header.top nav details[open] > div,
+            header.top nav .household-switcher > div {
+                position: fixed;
+                left: 1rem;
+                right: 1rem;
+                width: auto;
+                min-width: 0;
+            }
+
+            /* 4. Calendar nav (← Month → Today Agenda) centred + on its own
+                  line below the heading. */
+            .calendar-header { justify-content: center; }
+            .calendar-nav { justify-content: center; flex-basis: 100%; }
+
+            /* 5. Touch-tappable buttons (48px Apple recommendation). */
+            .btn-done,
+            form.auth button[type=submit],
+            .new-event-link { min-height: 48px; }
+        }
     </style>
 </head>
 <body>
@@ -247,6 +289,7 @@
                     {% include "_partials/household_switcher.twig" %}
                 {% endif %}
                 <span>{{ session_email }}</span>
+                <a href="/me/notifications" title="Notification preferences" style="font-size:0.85em;">🔔</a>
                 <form method="POST" action="/logout">
                     {{ csrf_field() }}
                     <button type="submit" class="link">Sign out</button>
@@ -280,5 +323,18 @@
         {{ brand.name }} — {{ brand.tagline }}
         · <a href="/help" style="color: var(--accent);">Help</a>
     </footer>
+
+    {# v0.6.0: register the service worker (covers / scope). The SW only
+       listens for `push` events; no fetch interception, no caching. Loads on
+       every page including pre-login — harmless because the SW can't receive
+       a push without a corresponding server-side dispatch authenticated by
+       VAPID. Browsers that don't support service workers silently skip. #}
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/service-worker.js').catch(function (err) {
+                console.warn('service worker registration failed:', err);
+            });
+        }
+    </script>
 </body>
 </html>
