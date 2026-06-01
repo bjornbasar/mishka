@@ -5,7 +5,7 @@
     "license": "MIT",
     "require": {
         "php": ">=8.4",
-        "bjornbasar/karhu": "^0.1.1",
+        "bjornbasar/karhu": "^0.1.2",
         "bjornbasar/karhu-db": "^0.1",
         "bjornbasar/karhu-queue": "dev-main",
         "bjornbasar/karhu-view": "^0.1",

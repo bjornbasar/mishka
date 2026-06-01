@@ -1,0 +1,24 @@
+# Bind-mount handles the app source at runtime; build context stays lean.
+# Excluding these keeps `docker build` fast even on the Pi-ish hosts.
+
+.git
+.github
+vendor
+node_modules
+
+# Tests / docs / dev-only artefacts — not needed in the image.
+tests
+docs
+phpunit.xml.dist
+phpstan.neon.dist
+
+# Environment + cache
+.env
+.env.*
+.phpunit-cache
+.phpstan-cache
+
+# Editor / OS noise
+.idea
+.vscode
+.DS_Store
