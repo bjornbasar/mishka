@@ -47,9 +47,18 @@ use Karhu\Auth\Rbac;
 use Karhu\Auth\UserRepositoryInterface;
 use Karhu\Db\Connection;
 use Karhu\Error\ExceptionHandler;
+use App\Clock\SystemClock;
+use App\Push\NotificationDispatchRepository;
+use App\Push\PushSender;
+use App\Push\PushSubscriptionRepository;
+use App\Push\UserNotificationPrefsRepository;
+use App\Push\VapidConfig;
 use Karhu\Middleware\Csrf;
 use Karhu\Middleware\Session;
+use Karhu\Queue\DatabaseQueue;
+use Karhu\Queue\QueueInterface;
 use Karhu\View\TwigAdapter;
+use Minishlink\WebPush\WebPush;
 use Symfony\Component\Mailer\Mailer as SymfonyMailer;
 use Symfony\Component\Mailer\Transport;
 
@@ -84,6 +93,27 @@ if (!is_string($mailFromAddress) || !filter_var($mailFromAddress, FILTER_VALIDAT
 }
 $mailFromName = (string) ($_ENV['MAIL_FROM_NAME'] ?? 'Mishka Den');
 $mailerDsn = (string) ($_ENV['MAILER_DSN'] ?? 'null://null');
+
+// v0.6.0: REQUIRE VAPID keypair at boot for Web Push Protocol.
+// Run `vendor/bjornbasar/karhu/bin/karhu push:generate-keys` once and paste the values into
+// `.env`. The private key signs outbound pushes; the public key gets served
+// to browsers via /me/notifications so they can `pushManager.subscribe()`.
+// VAPID_SUBJECT is the operator-contact-on-abuse field (RFC 8292 §2.1) — must
+// be a real mailto: or https:// URL or push services may rate-limit.
+$vapidPublicKey = (string) ($_ENV['VAPID_PUBLIC_KEY'] ?? '');
+$vapidPrivateKey = (string) ($_ENV['VAPID_PRIVATE_KEY'] ?? '');
+$vapidSubject = (string) ($_ENV['VAPID_SUBJECT'] ?? '');
+if ($vapidPublicKey === '' || $vapidPrivateKey === '') {
+    throw new RuntimeException(
+        'VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY missing in .env. Generate with: '
+        . 'php vendor/bjornbasar/karhu/bin/karhu push:generate-keys'
+    );
+}
+if (!preg_match('#^(mailto:[^@\s]+@[^@\s]+|https?://)#', $vapidSubject)) {
+    throw new RuntimeException(
+        'VAPID_SUBJECT must be a real mailto: or https:// URL (RFC 8292 §2.1).'
+    );
+}
 
 $db = new Connection(
     $dsn,
@@ -136,6 +166,16 @@ $urlBuilder = new UrlBuilder($appUrl);
 $mailerTransport = Transport::fromDsn($mailerDsn);
 $mailer = new Mailer(new SymfonyMailer($mailerTransport), $twig, $mailFromAddress, $mailFromName);
 
+// v0.6.0 — web push reminders + clock + queue
+$vapid = new VapidConfig($vapidPublicKey, $vapidPrivateKey, $vapidSubject);
+$pushSubRepo = new PushSubscriptionRepository($db);
+$notifyPrefsRepo = new UserNotificationPrefsRepository($db);
+$notifyDispatchRepo = new NotificationDispatchRepository($db);
+$webPush = new WebPush(['VAPID' => $vapid->forWebPush()], timeout: 5);
+$pushSender = new PushSender($webPush);
+$systemClock = new SystemClock();
+$queue = new DatabaseQueue($db);
+
 $app->container()->set(Connection::class, $db);
 $app->container()->set(UserRepositoryInterface::class, $userRepo);
 $app->container()->set(MishkaUserRepository::class, $userRepo);
@@ -165,6 +205,16 @@ $app->container()->set(UserPasswordChangeRepository::class, $pwChangeRepo);
 $app->container()->set(EmailSendAttemptRepository::class, $sendAttemptRepo);
 $app->container()->set(Mailer::class, $mailer);
 $app->container()->set(UrlBuilder::class, $urlBuilder);
+
+// v0.6.0 bindings — web push + clock + queue
+$app->container()->set(VapidConfig::class, $vapid);
+$app->container()->set(PushSubscriptionRepository::class, $pushSubRepo);
+$app->container()->set(UserNotificationPrefsRepository::class, $notifyPrefsRepo);
+$app->container()->set(NotificationDispatchRepository::class, $notifyDispatchRepo);
+$app->container()->set(PushSender::class, $pushSender);
+$app->container()->set(\App\Clock\ClockInterface::class, $systemClock);
+$app->container()->set(QueueInterface::class, $queue);
+$app->container()->set(DatabaseQueue::class, $queue);
 
 // AuthController takes a scalar $dummyHash (timing-attack defense). The
 // auto-wirer can't inject scalars, so register via factory. Compute the
