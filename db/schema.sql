@@ -8,6 +8,7 @@
 -- v0.4.1: chore_schedules
 -- v0.4.2: chore_points_ledger + chore_schedule_pauses + chore_schedule_participants
 -- v0.5.0: email_verification_tokens + password_reset_tokens + user_password_changes + email_send_attempts
+-- v0.6.0: push_subscriptions + user_notification_prefs + notification_dispatches
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -502,3 +503,132 @@ CREATE TABLE IF NOT EXISTS email_send_attempts (
 
 CREATE INDEX IF NOT EXISTS idx_email_send_attempts_recent
     ON email_send_attempts(kind, attempted_at);
+
+-- ============================================================
+-- v0.6.0: push_subscriptions — Web Push Protocol / VAPID subscription state
+-- ============================================================
+--
+-- Each row backs one browser/device installation's push subscription. The
+-- browser returns three values from pushManager.subscribe(): endpoint (the
+-- push-service URL — can be FCM, Mozilla, Apple, Microsoft), p256dh (a
+-- base64url-encoded P-256 ECDH public key), and auth (a base64url-encoded
+-- shared secret). The worker uses all three when calling minishlink/web-push.
+--
+-- endpoint is TEXT (not VARCHAR) because push URLs can exceed 255 chars in
+-- practice (FCM endpoints in 2026 are ~250 chars; Apple's push endpoints can
+-- be longer). user_agent is a hint for the /me/notifications UI ("which
+-- device is this?"); it's never authoritative.
+--
+-- Soft-delete via revoked_at (not DROP): a user revoking on /me/notifications
+-- sets the flag; a push svc HTTP 410 from the worker also sets it. Revoked
+-- rows stay for the audit trail.
+--
+-- UNIQUE(user_id, endpoint) makes register() idempotent: if the same user re-
+-- subscribes from the same browser, we wake the revoked row (clear revoked_at)
+-- rather than create a duplicate. The matching active partial index speeds
+-- per-user listing.
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint      TEXT NOT NULL,                       -- push-service URL
+    p256dh        VARCHAR(256) NOT NULL,               -- base64url ECDH public key
+    auth          VARCHAR(128) NOT NULL,               -- base64url auth secret
+    user_agent    VARCHAR(500) NULL,                   -- ops hint; never authoritative
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at  TIMESTAMPTZ NULL,                    -- worker touches on success
+    revoked_at    TIMESTAMPTZ NULL                     -- user-revoke OR HTTP 410 from push svc
+);
+
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_active
+    ON push_subscriptions(user_id) WHERE revoked_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_user_endpoint
+    ON push_subscriptions(user_id, endpoint);
+
+-- ============================================================
+-- v0.6.0: user_notification_prefs — per-user push preferences
+-- ============================================================
+--
+-- Two settings:
+--   event_reminder_minutes — fire a push N min before each event in the
+--     user's active households. 0 disables. Capped at 1440 (24h).
+--   overdue_chore_digest — toggle the daily 07:30–08:30 household-tz digest
+--     of overdue chores assigned to this user.
+--
+-- One row per user (PK = user_id). PushScanCommand reads this per scan tick;
+-- per-user customisation is the natural ergonomic level (per-household would
+-- require N rows + a query that the UI can't easily explain). The digest
+-- timing window is GLOBAL (07:30–08:30 hh-tz, locked) — v0.7 candidate.
+
+CREATE TABLE IF NOT EXISTS user_notification_prefs (
+    user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    event_reminder_minutes INTEGER NOT NULL DEFAULT 15
+                            CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
+    overdue_chore_digest   BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- v0.6.0: notification_dispatches — at-most-once dispatch ledger
+-- ============================================================
+--
+-- One row per (user, kind, ref_id) the scanner has decided to fire.
+-- Written via INSERT … ON CONFLICT DO NOTHING; the boolean return tells the
+-- caller whether THIS run wins. Multiple cron ticks racing on the same event
+-- can't double-fire because only one INSERT survives.
+--
+-- ref_id semantics by kind:
+--   'event_reminder' → events.id (the upcoming event)
+--   'overdue_digest' → YYYYMMDD as int in household tz (e.g., 20260601)
+-- Deliberately NO FK on ref_id (events get deleted, dates don't exist as a
+-- table). Dangling ref_ids stay as audit; SERIAL doesn't reuse PG ids so
+-- there's no collision risk.
+--
+-- PushScanCommand prunes rows older than 90 days at the top of each run.
+-- Family-scale (5 users × 5 events/day = 25/day = ~9k/year before prune).
+-- The kind CHECK guards forward-compat — adding a new kind needs a schema
+-- bump and an explicit migration.
+
+CREATE TABLE IF NOT EXISTS notification_dispatches (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('event_reminder', 'overdue_digest')),
+    ref_id        INTEGER NOT NULL,
+    dispatched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_dispatches_unique
+    ON notification_dispatches(user_id, kind, ref_id);
+
+CREATE INDEX IF NOT EXISTS idx_notification_dispatches_pruning
+    ON notification_dispatches(dispatched_at);
+
+-- ============================================================
+-- v0.6.0: jobs — karhu-queue's database-backed queue table
+-- ============================================================
+--
+-- Owned by the karhu-queue package; the table shape is what
+-- Karhu\Queue\DatabaseQueue expects. Inlined here so a single
+-- `bin/karhu migrate` covers all mishka's persistent state.
+--
+-- status lifecycle: pending → processing → completed | failed.
+-- The worker pops one pending → flips to processing → handles → completes
+-- (or fails on exception). Jobs stuck in 'processing' after a worker SIGKILL
+-- stay stuck (at-most-once by design; v0.6.1 candidate: `karhu jobs:unstick`
+-- to sweep `processing` rows older than 5 min back to `pending`).
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id         SERIAL PRIMARY KEY,
+    queue      VARCHAR(50) NOT NULL DEFAULT 'default',
+    job        VARCHAR(255) NOT NULL,
+    data       TEXT NOT NULL DEFAULT '{}',
+    status     VARCHAR(20) NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'processing', 'completed', 'failed')),
+    error      TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_queue_status_id
+    ON jobs(queue, status, id);
