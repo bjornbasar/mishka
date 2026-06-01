@@ -39,8 +39,13 @@ return static function (Container $container): void {
     $cwd = getcwd() ?: __DIR__ . '/..';
     Dotenv::createImmutable($cwd)->safeLoad();
 
+    // Factories receive the Container as the first arg (karhu v0.1.3+).
+    // Avoids `use ($container)` capture noise — same pattern as PHP-DI /
+    // league/container. Connection + VapidConfig don't need the injected
+    // container (no recursive get()s), but take it for signature consistency.
+
     // Connection — every command that touches the DB autowires this.
-    $container->factory(Connection::class, static function () {
+    $container->factory(Connection::class, static function (Container $_c) {
         $dsn = $_ENV['DB_DSN'] ?? getenv('DB_DSN');
         if (!is_string($dsn) || $dsn === '') {
             throw new \RuntimeException('DB_DSN not set in environment or .env');
@@ -53,17 +58,19 @@ return static function (Container $container): void {
     });
 
     // Interface bindings — these can't auto-wire from a type hint alone.
-    $container->factory(QueueInterface::class, static function () use ($container) {
-        return new DatabaseQueue($container->get(Connection::class));
-    });
-    $container->factory(DatabaseQueue::class, static function () use ($container) {
+    $container->factory(
+        QueueInterface::class,
+        static fn(Container $c) => new DatabaseQueue($c->get(Connection::class)),
+    );
+    $container->factory(
         // Some callers type-hint the concrete; map both to the same instance.
-        return $container->get(QueueInterface::class);
-    });
+        DatabaseQueue::class,
+        static fn(Container $c) => $c->get(QueueInterface::class),
+    );
     $container->bind(ClockInterface::class, SystemClock::class);
 
     // VAPID config — boot-built from .env, mirrors public/index.php.
-    $container->factory(VapidConfig::class, static function () {
+    $container->factory(VapidConfig::class, static function (Container $_c) {
         return new VapidConfig(
             (string) ($_ENV['VAPID_PUBLIC_KEY'] ?? ''),
             (string) ($_ENV['VAPID_PRIVATE_KEY'] ?? ''),
@@ -72,9 +79,9 @@ return static function (Container $container): void {
     });
 
     // PushSender — wraps a WebPush configured with the VAPID keypair.
-    $container->factory(PushSender::class, static function () use ($container) {
+    $container->factory(PushSender::class, static function (Container $c) {
         /** @var VapidConfig $vapid */
-        $vapid = $container->get(VapidConfig::class);
+        $vapid = $c->get(VapidConfig::class);
         return new PushSender(new WebPush(['VAPID' => $vapid->forWebPush()], timeout: 5));
     });
 };
