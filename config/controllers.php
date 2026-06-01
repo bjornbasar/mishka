@@ -22,4 +22,6 @@ return [
     App\Controllers\EmailVerificationController::class,
     // v0.5.2 — in-product user guide
     App\Controllers\HelpController::class,
+    // v0.6.0 — push notifications
+    App\Controllers\NotificationsController::class,
 ];

@@ -32,10 +32,19 @@ use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
 use App\Controllers\EmailVerificationController;
 use App\Controllers\HelpController;
+use App\Controllers\NotificationsController;
 use App\Controllers\PasswordResetController;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
+use App\Push\NotificationDispatchRepository;
+use App\Push\PushSender;
+use App\Push\PushSubscriptionRepository;
+use App\Push\UserNotificationPrefsRepository;
+use App\Push\VapidConfig;
 use App\Tests\Fixtures\RecordingMailer;
+use App\Tests\Fixtures\RecordingPushSender;
+use Karhu\Queue\DatabaseQueue;
+use Karhu\Queue\QueueInterface;
 use App\Household\HouseholdRepository;
 use App\View\CsrfTwigExtension;
 use App\View\NavContext;
@@ -78,6 +87,12 @@ abstract class AppTestCase extends TestCase
     protected UserPasswordChangeRepository $pwChangeRepo;
     protected EmailSendAttemptRepository $sendAttemptRepo;
     protected RecordingMailer $mailer;
+    // v0.6.0
+    protected PushSubscriptionRepository $pushSubRepo;
+    protected UserNotificationPrefsRepository $notifyPrefsRepo;
+    protected NotificationDispatchRepository $notifyDispatchRepo;
+    protected RecordingPushSender $pushSender;
+    protected DatabaseQueue $queue;
 
     protected function setUp(): void
     {
@@ -127,6 +142,21 @@ abstract class AppTestCase extends TestCase
         $this->mailer = new RecordingMailer();
         $urlBuilder = new UrlBuilder('http://localhost:8080');
 
+        // v0.6.0 — push notifications
+        $this->pushSubRepo = new PushSubscriptionRepository($this->db);
+        $this->notifyPrefsRepo = new UserNotificationPrefsRepository($this->db);
+        $this->notifyDispatchRepo = new NotificationDispatchRepository($this->db);
+        $this->pushSender = new RecordingPushSender();
+        $this->queue = new DatabaseQueue($this->db);
+        // Stub VAPID — the keys are arbitrary base64url-shape values; tests
+        // never invoke the real WebPush transport (RecordingPushSender does
+        // the substitution).
+        $vapid = new VapidConfig(
+            publicKey: 'BHkj3Stq_test_public_key_base64url_only_for_assertions',
+            privateKey: 'priv_test_only',
+            subject: 'mailto:test@example.com',
+        );
+
         $twig = new TwigAdapter(__DIR__ . '/../templates', cache: false);
         $twig->twig()->addExtension(new CsrfTwigExtension());
         $twig->twig()->addGlobal('brand', require __DIR__ . '/../config/brand.php');
@@ -160,6 +190,13 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(EmailSendAttemptRepository::class, $this->sendAttemptRepo);
         $app->container()->set(Mailer::class, $this->mailer);
         $app->container()->set(UrlBuilder::class, $urlBuilder);
+        // v0.6.0 container bindings
+        $app->container()->set(PushSubscriptionRepository::class, $this->pushSubRepo);
+        $app->container()->set(UserNotificationPrefsRepository::class, $this->notifyPrefsRepo);
+        $app->container()->set(NotificationDispatchRepository::class, $this->notifyDispatchRepo);
+        $app->container()->set(PushSender::class, $this->pushSender);
+        $app->container()->set(VapidConfig::class, $vapid);
+        $app->container()->set(QueueInterface::class, $this->queue);
 
         $dummyHash = $this->hasher->hash('test-dummy-' . bin2hex(random_bytes(8)));
         $app->container()->factory(AuthController::class, fn() => new AuthController(
@@ -197,6 +234,8 @@ abstract class AppTestCase extends TestCase
             EmailVerificationController::class,
             // v0.5.2 — in-product user guide
             HelpController::class,
+            // v0.6.0 — push notifications
+            NotificationsController::class,
         ]);
 
         return $app;
