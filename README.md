@@ -6,9 +6,9 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
-**v0.6.0** — mobile polish + web push reminders. Mishka now nudges family members on their phones when an event is about to start or chores have slipped past their due date. Web Push Protocol via VAPID, a dedicated worker container drains a karhu-queue, and the cron pushes happen at-most-once via a dedup ledger. Plus five `@media` rules in `layout.twig` close the worst of the 375px-viewport rough edges.
+**v0.6.3** — PWA manifest + installability. Mishka is now a real installable Progressive Web App: Android Chrome offers an install affordance, and iOS 16.4+ Safari users get a true standalone PWA when they "Add to Home Screen" — which is what makes iOS Web Push actually fire. Existing bookmark-style installs need to be deleted and re-added to pick up the manifest.
 
-iOS support requires iOS 16.4+ with mishka installed as a PWA (documented in `/help`). Older iOS / non-PWA users see no push but the in-product surfaces still work.
+**v0.6.0** — mobile polish + web push reminders. Mishka nudges family members on their phones when an event is about to start or chores have slipped past their due date. Web Push Protocol via VAPID, a dedicated worker container drains a karhu-queue, and the cron pushes happen at-most-once via a dedup ledger. Plus five `@media` rules in `layout.twig` close the worst of the 375px-viewport rough edges.
 
 ## Quick start
 

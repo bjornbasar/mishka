@@ -7,3 +7,11 @@ RewriteRule ^ - [L]
 
 # Route everything else through the front controller
 RewriteRule ^ index.php [L]
+
+# v0.6.3: Force application/manifest+json on .webmanifest. INERT under PHP's
+# built-in server (current prod); only activates if the front-end becomes Apache.
+# Spec-compliant browsers accept application/json fallback; this silences
+# Lighthouse warnings under Apache.
+<IfModule mod_mime.c>
+    AddType application/manifest+json .webmanifest
+</IfModule>

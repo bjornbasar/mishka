@@ -10,6 +10,17 @@
        and send X-CSRF-Token. karhu's Csrf middleware accepts the header form
        OR the form-field form; the meta tag is the simplest reader path. #}
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    {# v0.6.3: PWA manifest + iOS install support. Apple ignores manifest fields
+       like theme_color, so we duplicate as <meta name="theme-color">. Status bar
+       "black" (NOT "black-translucent") keeps content below the notch on modern
+       iPhones without needing viewport-fit=cover + env(safe-area-inset-*) CSS.
+       apple-mobile-web-app-title is the short_name under the home-screen icon. #}
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#b88746">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Mishka">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
     {% block head_extra %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
