@@ -155,3 +155,17 @@ The actual push delivery happens out-of-band:
 - `php vendor/bjornbasar/karhu/bin/karhu push:worker` runs as the `mishka-worker` container. Consumes the `jobs` table; for each `SendPushNotification`, fans out to every active subscription for the user via `PushSender`. HTTP 410 → `markRevoked`; success → `touch`; transient → `error_log` (lands in `docker logs mishka-worker`).
 
 All emailed-URL safety properties from v0.5 carry over: the click-action URL in the push payload is built from `APP_URL` via `UrlBuilder` (B1); the payload is JSON-encoded with `JSON_THROW_ON_ERROR`; title truncated to 100 chars + body to 200 chars before encryption (H5).
+
+## Static assets (v0.6.3)
+
+Served by the front-end (PHP `-S` in current prod, Apache in any future deploy) directly from `public/` — `.htaccess` `RewriteCond %{REQUEST_FILENAME} -f` short-circuits to the file before karhu's front controller runs. No session, no cookies, no PHP execution.
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /manifest.webmanifest | PWA manifest. `application/manifest+json` under PHP `-S`; same under Apache via the `AddType` in `.htaccess` |
+| GET | /service-worker.js | v0.6.0 push handler. Cacheless, scope `/` |
+| GET | /icon-192.png | 192×192 PNG (manifest `any` icon, also notification icon + badge in service-worker.js) |
+| GET | /icon-512.png | 512×512 PNG (manifest `any` icon — drives Chrome installability) |
+| GET | /icon-512-maskable.png | 512×512 PNG with 80% safe zone (manifest `maskable` icon for Android adaptive launchers) |
+| GET | /apple-touch-icon.png | 180×180 PNG (iOS home-screen icon — referenced by `<link rel="apple-touch-icon">` in layout.twig) |
+| GET | /favicon.ico | Browser tab favicon |

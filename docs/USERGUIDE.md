@@ -255,16 +255,22 @@ Each browser/device subscribes independently — phone + laptop = two subscripti
 
 ### iPhone / iPad
 
-Apple only delivers Web Push on iOS 16.4+ AND when the app is installed as a Progressive Web App (PWA) on your home screen. To set that up:
+Apple only delivers Web Push on iOS 16.4+ AND when the app is installed as a Progressive Web App (PWA) on your home screen. Mishka v0.6.3 ships a real PWA manifest, so after install you'll get a true standalone app — not just a bookmark.
+
+> **⚠️ Already added Mishka to your Home Screen before v0.6.3?**
+>
+> You have the old bookmark-style icon. iOS snapshots PWA settings at install time, so your existing icon will *never* receive push notifications. **Delete the existing Mishka icon from your Home Screen, then re-add it via the steps below.** This is a one-time fix per device.
+
+To install:
 
 1. Open `https://mishka.minified.work` in **Safari** (not Chrome — Safari is the only browser that can install a PWA on iOS).
 2. Tap the **Share** icon at the bottom (square with the up-arrow).
 3. Scroll and tap **Add to Home Screen**.
 4. Tap **Add**.
-5. Open mishka from your home-screen icon (not from Safari).
+5. Open mishka from your home-screen icon (it should launch full-screen with no Safari address bar — that means the PWA is working).
 6. Navigate to **/me/notifications** and tap **Enable on this device**.
 
-If you're on iOS older than 16.4, or skip the PWA install, no push notifications will arrive — you'll still see everything in the in-product To-do list and on the calendar.
+If you're on iOS older than 16.4, push won't arrive — you'll still see everything in the in-product surfaces (calendar, chores, leaderboard).
 
 ### Test it
 
