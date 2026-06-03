@@ -27,6 +27,18 @@ final class AuthControllerTest extends AppTestCase
         self::assertStringContainsString('name="password_confirm"', $response->body());
     }
 
+    // v0.6.3: cross-template guard for the PWA manifest link. HomeControllerTest
+    // covers the home route; this catches a regression where someone moves the
+    // <link rel="manifest"> into a child block instead of the shared layout
+    // <head>. Login is the cleanest no-auth GET that extends layout.twig.
+    public function test_login_page_includes_manifest_link(): void
+    {
+        $response = $this->request('GET', '/login');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('rel="manifest"', $response->body());
+    }
+
     public function test_register_with_valid_data_creates_user_and_logs_in(): void
     {
         $response = $this->request('POST', '/register', [

@@ -94,4 +94,50 @@ final class HomeControllerTest extends AppTestCase
         self::assertSame(302, $response->status());
         self::assertSame('/household/setup', $response->header('location'));
     }
+
+    // --- v0.6.3: PWA manifest + iOS install support ---
+    // The layout template owns the <head>; smoke-test the four bits of HTML the
+    // browser / OS read to decide that mishka is an installable PWA. Any of these
+    // missing means iOS Safari treats "Add to Home Screen" as a bookmark, and
+    // iOS 16.4+ Web Push silently never fires. Tested on the anonymous home so
+    // we don't need a login fixture.
+
+    public function test_layout_includes_manifest_link(): void
+    {
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('<link rel="manifest" href="/manifest.webmanifest">', $response->body());
+    }
+
+    public function test_layout_includes_apple_touch_icon(): void
+    {
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('rel="apple-touch-icon"', $response->body());
+        self::assertStringContainsString('/apple-touch-icon.png', $response->body());
+    }
+
+    public function test_layout_includes_apple_web_app_meta_tags(): void
+    {
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        // status-bar-style is "black" (NOT "black-translucent" — that would put
+        // content under the notch; we don't carry safe-area-inset CSS).
+        self::assertStringContainsString('<meta name="apple-mobile-web-app-capable" content="yes">', $response->body());
+        self::assertStringContainsString('<meta name="apple-mobile-web-app-title" content="Mishka">', $response->body());
+        self::assertStringContainsString('<meta name="apple-mobile-web-app-status-bar-style" content="black">', $response->body());
+    }
+
+    public function test_layout_includes_theme_color_meta(): void
+    {
+        // Duplicated with manifest.theme_color because iOS Safari ignores the
+        // manifest field and only reads <meta name="theme-color">.
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('<meta name="theme-color" content="#b88746">', $response->body());
+    }
 }
