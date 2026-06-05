@@ -140,4 +140,83 @@ final class HomeControllerTest extends AppTestCase
         self::assertSame(200, $response->status());
         self::assertStringContainsString('<meta name="theme-color" content="#b88746">', $response->body());
     }
+
+    // --- v0.6.3 PWA manifest + iOS install support END ---
+
+    // --- v0.6.4: hamburger nav for narrow viewports ---
+    // The mobile nav overflows at 375px (568px wide, 217px past viewport)
+    // because <nav>'s flex row contains 4 links + email span + 🔔 + Sign out
+    // and doesn't wrap. v0.6.4 adds a hamburger toggle for logged-in users.
+    // These tests cover the markup contract — the JS toggle behaviour itself
+    // is exercised via the Playwright manual test (TESTPLAN MOBILE-14/15/16).
+
+    public function test_layout_includes_nav_toggle_button_when_logged_in(): void
+    {
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('class="nav-toggle"', $response->body());
+    }
+
+    public function test_nav_toggle_has_aria_attributes(): void
+    {
+        // One assertion per attribute so refactors that reorder attributes
+        // don't break the test (per adversarial round-2 S10).
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('aria-expanded="false"', $response->body());
+        self::assertStringContainsString('aria-controls="primary-nav"', $response->body());
+        self::assertStringContainsString('aria-label="Main navigation"', $response->body());
+    }
+
+    public function test_nav_toggle_glyph_is_aria_hidden(): void
+    {
+        // SR users hear the aria-label, not "trigram for heaven" (the
+        // ☰ Unicode name). Per adversarial round-1 C2.
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('<span aria-hidden="true">☰</span>', $response->body());
+    }
+
+    public function test_nav_has_primary_nav_id(): void
+    {
+        // Paired with aria-controls on the toggle button.
+        $userId = $this->createUserWithHash('a@example.com', 'pw-correct-horse-staple');
+        $hid = $this->householdRepo->createForOwner('Test Den', $userId);
+        $this->loginAs($userId, 'a@example.com');
+        $this->activateHouseholdInSession($userId, $hid, 'owner');
+
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringContainsString('id="primary-nav"', $response->body());
+    }
+
+    public function test_anonymous_layout_does_not_include_nav_toggle(): void
+    {
+        // Anonymous nav is only "Sign in / Register" (~145px) — fits at
+        // 375px without overflow. Don't render a button with nothing
+        // meaningful to disclose.
+        $response = $this->request('GET', '/');
+
+        self::assertSame(200, $response->status());
+        self::assertStringNotContainsString('class="nav-toggle"', $response->body());
+    }
 }
