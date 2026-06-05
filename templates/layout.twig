@@ -21,6 +21,12 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Mishka">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    {# v0.6.4: pre-paint adds .js-nav to <html> so the @media @700px rules
+       know JS is available before first paint. Without this, the body-end
+       toggle script runs AFTER the 568px-wide nav has already laid out at
+       375px, causing one flash of overflow. Canonical head order kept:
+       charset → viewport → title → csrf → PWA → feature-detect → block. #}
+    <script>document.documentElement.classList.add('js-nav');</script>
     {% block head_extra %}{% endblock %}
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,6 +74,30 @@
         }
         header.top nav { display: flex; gap: 1rem; align-items: center; }
         header.top nav form { display: inline; }
+
+        /* v0.6.4: bell link's font-size moves from the inline style on the
+           anchor to a CSS rule so the drawer's override can win via cascade
+           order (inline always beats classes; matched specificity + later
+           rule does not). */
+        header.top .nav-bell { font-size: 0.85em; }
+
+        /* v0.6.4: hamburger button. Hidden by default everywhere; revealed
+           only inside the narrow-viewport @media rule below AND only when
+           .js-nav is set on <html> (i.e. JS enhanced the page). No-JS users
+           never see it and fall back to the pre-v0.6.4 overflowing nav. */
+        .nav-toggle {
+            display: none;
+            background: transparent;
+            border: 0;
+            color: var(--accent);
+            font: inherit;
+            font-size: 1.5rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 0.5rem 0.75rem;
+            min-height: 48px;
+            min-width: 48px;
+        }
         header.top nav button.link,
         header.top nav a {
             background: transparent;
@@ -282,13 +312,81 @@
             .btn-done,
             form.auth button[type=submit],
             .new-event-link { min-height: 48px; }
+
+            /* 6. (v0.6.4) Hamburger nav drawer. .js-nav class on <html> is
+                  set by the pre-paint script in <head>; gates the entire
+                  mobile-nav behaviour on JS being available. Without it
+                  the toggle stays hidden and nav reverts to the pre-v0.6.4
+                  overflowing flex row (worst-case fallback = current UX). */
+            .js-nav header.top .nav-toggle { display: inline-block; }
+            .js-nav header.top .nav-toggle + nav { display: none; flex-basis: 100%; }
+            .js-nav header.top .nav-toggle[aria-expanded="true"] + nav {
+                display: flex;
+                flex-direction: column;
+                align-items: stretch;
+                gap: 0.5rem;
+                padding-top: 0.5rem;
+                margin-top: 0.5rem;
+                border-top: 1px solid var(--border);
+                text-align: left;
+            }
+            /* Drawer-children normalization — without this, the stacked items
+               look orphaned. Scoped selectors:
+                 - .nav-bell (not a[href=...]) so route changes don't regress.
+                 - form[action="/logout"] button (not form button) so the
+                   household-switcher's per-household forms aren't enlarged. */
+            .js-nav header.top .nav-toggle[aria-expanded="true"] + nav > * {
+                text-align: left;
+            }
+            .js-nav header.top .nav-toggle[aria-expanded="true"] + nav .nav-bell {
+                font-size: 1rem;
+                min-height: 48px;
+                display: inline-flex;
+                align-items: center;
+            }
+            .js-nav header.top .nav-toggle[aria-expanded="true"] + nav form[action="/logout"] button {
+                min-height: 48px;
+            }
+        }
+
+        /* v0.6.4: respect Windows High Contrast / forced-colors palette so
+           the hamburger and drawer border remain visible. */
+        @media (forced-colors: active) {
+            .nav-toggle {
+                color: ButtonText;
+                border: 1px solid ButtonText;
+            }
+            .js-nav header.top .nav-toggle[aria-expanded="true"] + nav {
+                border-top-color: CanvasText;
+            }
+        }
+
+        /* v0.6.4: strip chrome for print. Users printing a calendar or chore
+           page want the data, not the nav + sign-out + footer + banners. */
+        @media print {
+            .nav-toggle,
+            header.top nav,
+            footer,
+            .flash { display: none !important; }
         }
     </style>
 </head>
 <body>
     <header class="top">
         <a href="/" class="brand">{{ brand.name }}</a>
-        <nav>
+        {% if session_email is defined and session_email and active_household is defined and active_household %}
+            {# v0.6.4: hamburger toggle — visible only on <700px when JS is
+               enhanced (.js-nav set by the pre-paint <head> script). The
+               glyph is aria-hidden so SR reads only the aria-label instead
+               of announcing "trigram for heaven". Conditional render: only
+               for logged-in users with an active household — anonymous /
+               household-setup states have a short nav that fits at 375px. #}
+            <button class="nav-toggle" type="button"
+                    aria-expanded="false"
+                    aria-controls="primary-nav"
+                    aria-label="Main navigation"><span aria-hidden="true">☰</span></button>
+        {% endif %}
+        <nav id="primary-nav">
             {% if session_email is defined and session_email %}
                 {% if active_household is defined and active_household %}
                     <a href="/calendar">Calendar</a>
@@ -300,7 +398,7 @@
                     {% include "_partials/household_switcher.twig" %}
                 {% endif %}
                 <span>{{ session_email }}</span>
-                <a href="/me/notifications" title="Notification preferences" style="font-size:0.85em;">🔔</a>
+                <a href="/me/notifications" class="nav-bell" title="Notification preferences">🔔</a>
                 <form method="POST" action="/logout">
                     {{ csrf_field() }}
                     <button type="submit" class="link">Sign out</button>
@@ -346,6 +444,40 @@
                 console.warn('service worker registration failed:', err);
             });
         }
+    </script>
+    {# v0.6.4: hamburger nav toggle + ESC-to-close + viewport-cross reset.
+       Pre-paint <head> script already added .js-nav so the CSS knows JS is
+       available. This script wires up click/key/resize listeners. mishka's
+       iOS floor is 16.4+ (Safari 16+) so legacy MediaQueryList.addListener
+       fallback isn't needed. #}
+    <script>
+        (function () {
+            var toggle = document.querySelector('.nav-toggle');
+            var nav = document.getElementById('primary-nav');
+            if (!toggle || !nav) return;
+
+            function setState(open) {
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            }
+
+            toggle.addEventListener('click', function () {
+                setState(toggle.getAttribute('aria-expanded') !== 'true');
+            });
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && toggle.getAttribute('aria-expanded') === 'true') {
+                    setState(false);
+                    toggle.focus();
+                }
+            });
+
+            // Viewport-cross: iPad rotation portrait → landscape with drawer
+            // open. CSS rule no longer matches above 700px, but aria-expanded
+            // would stay stale (SR would still hear "expanded"). Reset it.
+            window.matchMedia('(max-width: 700px)').addEventListener('change', function (e) {
+                if (!e.matches) setState(false);
+            });
+        })();
     </script>
 </body>
 </html>
