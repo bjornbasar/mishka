@@ -1,18 +1,19 @@
 {# Household switcher — only renders when the user has 2+ memberships. Each
-   row is a tiny POST form so we get CSRF protection without JS. #}
+   row is a tiny POST form so we get CSRF protection without JS. All styling
+   moved to layout.twig CSS in v0.6.5; inline styles were fighting the @media
+   override on narrow viewports (dropdown's inline `top: 1.5rem` was being
+   interpreted against the viewport once @media set `position: fixed`). #}
 {% if households|length > 1 %}
-    <details style="position:relative;">
-        <summary style="cursor:pointer; list-style:none; color:var(--accent);">
-            {{ active_household.name|default('Switch household') }} ▾
-        </summary>
-        <div style="position:absolute; right:0; top:1.5rem; background:var(--card); border:1px solid var(--border); border-radius:0.375rem; min-width:14rem; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:10;">
+    <details class="household-switcher">
+        <summary>{{ active_household.name|default('Switch household') }} ▾</summary>
+        <div class="household-switcher-list">
             {% for h in households %}
-                <form method="POST" action="/household/switch" style="margin:0;">
+                <form method="POST" action="/household/switch">
                     {{ csrf_field() }}
                     <input type="hidden" name="household_id" value="{{ h.id }}">
-                    <button type="submit" style="display:block; width:100%; text-align:left; padding:0.6rem 1rem; background:transparent; border:0; color:{% if h.id == active_household.id|default(0) %}var(--accent){% else %}var(--fg){% endif %}; font:inherit; cursor:pointer;">
+                    <button type="submit"{% if h.id == active_household.id|default(0) %} class="is-active"{% endif %}>
                         {{ h.name }}
-                        <small style="color:var(--muted); display:block;">{{ h.role|capitalize }}</small>
+                        <small>{{ h.role|capitalize }}</small>
                     </button>
                 </form>
             {% endfor %}

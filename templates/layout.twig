@@ -81,6 +81,50 @@
            rule does not). */
         header.top .nav-bell { font-size: 0.85em; }
 
+        /* v0.6.5: household-switcher dropdown. Styling moved out of the partial
+           (was fighting the @media override — inline `top: 1.5rem` was being
+           interpreted against the viewport once @media set `position: fixed`).
+           Desktop default: dropdown opens absolute-positioned BELOW the summary,
+           right-aligned to the trigger's right edge. The narrow-viewport rule
+           inside @media (max-width: 700px) flips it to left-aligned full-width
+           inside the hamburger drawer. */
+        .household-switcher { position: relative; }
+        .household-switcher > summary {
+            cursor: pointer;
+            list-style: none;
+            color: var(--accent);
+        }
+        .household-switcher > summary::-webkit-details-marker { display: none; }
+        .household-switcher-list {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 0.25rem;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 0.375rem;
+            min-width: 14rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+        .household-switcher-list form { margin: 0; }
+        .household-switcher-list button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0.6rem 1rem;
+            background: transparent;
+            border: 0;
+            color: var(--fg);
+            font: inherit;
+            cursor: pointer;
+        }
+        .household-switcher-list button.is-active { color: var(--accent); }
+        .household-switcher-list button small {
+            color: var(--muted);
+            display: block;
+        }
+
         /* v0.6.4: hamburger button. Hidden by default everywhere; revealed
            only inside the narrow-viewport @media rule below AND only when
            .js-nav is set on <html> (i.e. JS enhanced the page). No-JS users
@@ -291,15 +335,17 @@
             .chore-card { flex-direction: column; align-items: stretch; }
             .btn-done { width: 100%; }
 
-            /* 3. Household-switcher dropdown — was position: absolute right: 0
-                  which overflowed the right edge on narrow viewports. Pin to
-                  the viewport edges instead. */
-            header.top nav details[open] > div,
-            header.top nav .household-switcher > div {
-                position: fixed;
-                left: 1rem;
-                right: 1rem;
-                width: auto;
+            /* 3. (v0.6.5) Household-switcher dropdown inside the open
+                  hamburger drawer — flip from desktop's right-aligned
+                  absolute to left-aligned full-width below the summary.
+                  Stays absolute-positioned to its parent .household-switcher
+                  (which is relative), so it opens directly below the
+                  trigger as expected. Replaces the v0.6.4 position:fixed
+                  override that left `top` unset and let the partial's
+                  inline `top: 1.5rem` float the dropdown at viewport-top. */
+            .household-switcher-list {
+                left: 0;
+                right: 0;
                 min-width: 0;
             }
 
