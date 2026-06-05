@@ -1,6 +1,8 @@
-# Mishka Den — Test Plan (v0.6.3)
+# Mishka Den — Test Plan (v0.6.4)
 
-Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.3 (PWA manifest + installability landed 2026-06-04).
+Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.4 (hamburger nav for narrow viewports landed 2026-06-05).
+
+> **Known issue deferred to v0.6.5:** the household-switcher dropdown (only visible to users in 2+ households) misbehaves inside the open hamburger drawer — the dropdown's `position: fixed` + inline `top: 1.5rem` causes it to float at viewport-top instead of below its trigger. Pre-existing bug, only reachable now that the drawer makes the switcher accessible on mobile. Fix in v0.6.5.
 
 Use this for release-candidate verification, regression sweeps after risky changes, and onboarding test users. Each section is independently runnable.
 
@@ -245,6 +247,9 @@ Test in Chrome devtools at 375 × 667 (iPhone SE), AND on an actual iPhone if po
 - **MOBILE-11** Manifest + icons fetch — `curl -sI` returns 200 on `/manifest.webmanifest`, `/icon-192.png`, `/icon-512.png`, `/icon-512-maskable.png`, `/apple-touch-icon.png`. Manifest content-type is `application/manifest+json` (PHP `-S` default) or `application/json` (Apache fallback) — both acceptable
 - **MOBILE-12** Android Chrome shows install mini-infobar / address-bar install icon on first visit; Chrome DevTools → Application → Manifest shows green check with all three icons resolved
 - **MOBILE-13** iOS 16.4+ Safari: pre-existing bookmark-style "PWA" users must delete + re-add to pick up the manifest (one-time per device — documented in USERGUIDE callout)
+- **MOBILE-14** Hamburger visible at 375px (v0.6.4) — for logged-in-with-household users, `☰` button appears in the brand row; nav links are hidden; `body.scrollWidth === window.innerWidth` (no horizontal scroll). For anonymous / no-household users, hamburger is NOT rendered (nav is short enough to fit naturally).
+- **MOBILE-15** Hamburger open/close (v0.6.4) — click `☰` → drawer opens below brand row, items stacked vertically, `aria-expanded="true"` on the button. Click `☰` again or any nav link → drawer closes (or navigates).
+- **MOBILE-16** Hamburger ESC + viewport-cross (v0.6.4) — open drawer, press ESC → drawer closes, `aria-expanded="false"`, focus returns to `☰` button. Open drawer at 375px, resize browser to 1024px → drawer auto-closes (matchMedia listener resets state cleanly).
 
 ---
 
