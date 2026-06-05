@@ -562,11 +562,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_user_endpoint
 -- timing window is GLOBAL (07:30–08:30 hh-tz, locked) — v0.7 candidate.
 
 CREATE TABLE IF NOT EXISTS user_notification_prefs (
-    user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    event_reminder_minutes INTEGER NOT NULL DEFAULT 15
-                            CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
-    overdue_chore_digest   BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    user_id                    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    event_reminder_minutes     INTEGER NOT NULL DEFAULT 15
+                                CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
+    overdue_chore_digest       BOOLEAN NOT NULL DEFAULT TRUE,
+    new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE,   -- v0.6.6
+    new_event_enabled          BOOLEAN NOT NULL DEFAULT TRUE,   -- v0.6.6
+    updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
@@ -593,7 +595,10 @@ CREATE TABLE IF NOT EXISTS user_notification_prefs (
 CREATE TABLE IF NOT EXISTS notification_dispatches (
     id            SERIAL PRIMARY KEY,
     user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('event_reminder', 'overdue_digest')),
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN (
+                    'event_reminder', 'overdue_digest',
+                    'new_chore_assigned', 'new_event'  -- v0.6.6
+                  )),
     ref_id        INTEGER NOT NULL,
     dispatched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -632,3 +637,48 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 CREATE INDEX IF NOT EXISTS idx_jobs_queue_status_id
     ON jobs(queue, status, id);
+
+-- ============================================================
+-- v0.6.6: forward-migration block for existing PG databases
+-- ============================================================
+--
+-- This is mishka's FIRST explicit ALTER TABLE block. Pre-v0.6.6 the project
+-- followed an "additive-only via CREATE TABLE IF NOT EXISTS" convention (per
+-- DOCS.md #14 — adding new inert columns to fresh CREATEs covers all cases
+-- when no existing rows need backfill). v0.6.6 needed to add two boolean
+-- columns to a table that v0.6.0 already created in prod, and to extend the
+-- CHECK predicate on `notification_dispatches.kind` — both impossible via
+-- CREATE TABLE IF NOT EXISTS once the table exists.
+--
+-- The whole block is wrapped in BEGIN/COMMIT so a partial failure (e.g. a
+-- network drop between the DROP and ADD CONSTRAINT) rolls back atomically.
+-- Never leaves the table with no CHECK on `kind`.
+--
+-- Idempotency:
+--   - ALTER TABLE ... ADD COLUMN IF NOT EXISTS is a no-op on subsequent runs.
+--   - The CHECK extension is idempotent via DROP-then-ADD inside the txn:
+--     every run lands in the same final state regardless of prior CHECK.
+--
+-- Driver compat: verified against PHP 8.4 + libpq + PG 16. Older PHP-PG
+-- drivers with PDO::ATTR_EMULATE_PREPARES=false (which is mishka's setting)
+-- may need each ALTER as a separate exec() call — verify on prod libpq
+-- before relying on this pattern in v0.7+.
+--
+-- Convention: ONE PG_ONLY block per schema.sql, at end of file. The strip
+-- regex in tests/bootstrap.php is global but the documented pattern is
+-- single-block-at-EOF.
+--
+-- SQLite (tests/bootstrap.php) strips this entire block via preg_replace
+-- because SQLite doesn't support ALTER TABLE ADD COLUMN IF NOT EXISTS nor
+-- ALTER TABLE DROP/ADD CONSTRAINT. Fresh SQLite test runs get the new
+-- columns + CHECK directly from the CREATE TABLE statements above.
+
+-- BEGIN PG_ONLY
+BEGIN;
+ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_event_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE notification_dispatches DROP CONSTRAINT IF EXISTS notification_dispatches_kind_check;
+ALTER TABLE notification_dispatches ADD CONSTRAINT notification_dispatches_kind_check
+    CHECK (kind IN ('event_reminder', 'overdue_digest', 'new_chore_assigned', 'new_event'));
+COMMIT;
+-- END PG_ONLY

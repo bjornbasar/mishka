@@ -24,6 +24,17 @@ if ($schema === false) {
     exit(1);
 }
 
+// v0.6.6: drop the PG-only forward-migration block. SQLite tests recreate the
+// schema from scratch per test run, so the CREATE TABLE statements above
+// already encode the latest column set + CHECK. SQLite doesn't support
+// `ALTER TABLE ADD COLUMN IF NOT EXISTS` nor `ALTER TABLE DROP/ADD CONSTRAINT`,
+// so the PG-only block would error out on `exec()`.
+//
+// Convention: ONE PG_ONLY block per file, at EOF. Non-greedy + /s flag handles
+// one block per match; PHP's preg_replace replaces all non-overlapping matches
+// by default, so multi-block schemas degrade gracefully.
+$schema = preg_replace('/-- BEGIN PG_ONLY.*?-- END PG_ONLY/s', '', $schema);
+
 // Translate PostgreSQL-only syntax to the SQLite-compatible subset.
 // Order matters: strtr() with an array argument matches longest-key-first, so
 // `TIMESTAMPTZ` is rewritten before the more general `TIMESTAMP` rule fires.
