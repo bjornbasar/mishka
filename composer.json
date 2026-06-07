@@ -10,7 +10,7 @@
         "bjornbasar/karhu-queue": "dev-main",
         "bjornbasar/karhu-view": "^0.1",
         "league/commonmark": "^2.0",
-        "minishlink/web-push": "^9.0",
+        "minishlink/web-push": "^10.1",
         "sabre/vobject": "^4.5",
         "simshaun/recurr": "^6.0",
         "symfony/mailer": "^7.2",
