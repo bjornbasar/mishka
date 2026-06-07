@@ -103,4 +103,18 @@ final class NotificationDispatchRepositoryTest extends TestCase
         $this->expectException(\PDOException::class);
         $this->repo->claim($this->uid, 'made_up_kind', 1);
     }
+
+    public function test_claim_accepts_v066_new_kinds_with_dedup(): void
+    {
+        // v0.6.6 added 'new_chore_assigned' and 'new_event' to the CHECK.
+        // First claim per (uid, kind, ref_id) wins; second loses.
+        self::assertTrue($this->repo->claim($this->uid, 'new_chore_assigned', 42));
+        self::assertFalse($this->repo->claim($this->uid, 'new_chore_assigned', 42));
+
+        self::assertTrue($this->repo->claim($this->uid, 'new_event', 99));
+        self::assertFalse($this->repo->claim($this->uid, 'new_event', 99));
+
+        // Different ref_id under same kind = different row, both win.
+        self::assertTrue($this->repo->claim($this->uid, 'new_chore_assigned', 43));
+    }
 }
