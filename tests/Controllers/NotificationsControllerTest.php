@@ -24,6 +24,9 @@ final class NotificationsControllerTest extends AppTestCase
         self::assertStringContainsString('data-vapid-public-key="BHkj3Stq', $response->body());
         self::assertStringContainsString('Event reminder', $response->body());
         self::assertStringContainsString('Daily 7:30', $response->body());
+        // v0.6.6 — two new creation-time push category checkboxes.
+        self::assertStringContainsString('assigns me a new chore', $response->body());
+        self::assertStringContainsString('new event is added', $response->body());
     }
 
     public function test_get_redirects_anonymous_to_login(): void
@@ -41,28 +44,61 @@ final class NotificationsControllerTest extends AppTestCase
         $response = $this->request('POST', '/me/notifications', [
             'event_reminder_minutes' => '30',
             'overdue_chore_digest' => 'on',
+            'new_chore_assigned_enabled' => 'on',
+            'new_event_enabled' => 'on',
         ]);
 
         self::assertSame(303, $response->status());
         $stored = $this->notifyPrefsRepo->getFor($uid);
         self::assertSame(30, $stored['event_reminder_minutes']);
         self::assertTrue($stored['overdue_chore_digest']);
+        self::assertTrue($stored['new_chore_assigned_enabled']);
+        self::assertTrue($stored['new_event_enabled']);
     }
 
     public function test_post_prefs_unchecked_checkbox_stores_false(): void
     {
-        // Browsers omit unchecked checkboxes from the POST body, so the
-        // absence of overdue_chore_digest means "off."
+        // Browsers omit unchecked checkboxes from the POST body, so absent
+        // checkbox keys mean "off." v0.6.6 added two new checkboxes; all four
+        // boolean prefs follow the same convention.
         $uid = $this->createUserWithHash('me@example.com', 'pw-correct-horse-staple');
         $this->loginAs($uid, 'me@example.com');
 
         $this->request('POST', '/me/notifications', [
             'event_reminder_minutes' => '15',
-            // no overdue_chore_digest key
+            // no overdue_chore_digest, new_chore_assigned_enabled, new_event_enabled
         ]);
 
         $stored = $this->notifyPrefsRepo->getFor($uid);
         self::assertFalse($stored['overdue_chore_digest']);
+        self::assertFalse($stored['new_chore_assigned_enabled']);
+        self::assertFalse($stored['new_event_enabled']);
+    }
+
+    public function test_get_form_reflects_persisted_new_v066_prefs(): void
+    {
+        // v0.6.6 — pre-set mixed state and assert the form rendering reflects it.
+        $uid = $this->createUserWithHash('me@example.com', 'pw-correct-horse-staple');
+        $this->loginAs($uid, 'me@example.com');
+        $this->notifyPrefsRepo->setFor($uid, [
+            'new_chore_assigned_enabled' => true,
+            'new_event_enabled' => false,
+        ]);
+
+        $response = $this->request('GET', '/me/notifications');
+        $body = $response->body();
+
+        self::assertSame(200, $response->status());
+        // Checked = the substring `name="new_chore_assigned_enabled" checked` appears.
+        self::assertStringContainsString(
+            '<input type="checkbox" name="new_chore_assigned_enabled" checked',
+            $body,
+        );
+        // Unchecked = the same name appears but WITHOUT the `checked` attr.
+        self::assertStringContainsString(
+            '<input type="checkbox" name="new_event_enabled" >',
+            $body,
+        );
     }
 
     public function test_post_prefs_rejects_out_of_range_minutes_with_422(): void

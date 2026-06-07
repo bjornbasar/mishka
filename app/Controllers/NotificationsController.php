@@ -102,9 +102,14 @@ final class NotificationsController
 
         // checkbox sends 'on' when checked, absent when unchecked
         $digest = $this->str($request, 'overdue_chore_digest') !== '';
+        // v0.6.6 — two new creation-time push categories with per-user opt-out.
+        $newChoreAssigned = $this->str($request, 'new_chore_assigned_enabled') !== '';
+        $newEvent = $this->str($request, 'new_event_enabled') !== '';
         $this->prefs->setFor($uid, [
             'event_reminder_minutes' => (int) $minutesRaw,
             'overdue_chore_digest' => $digest,
+            'new_chore_assigned_enabled' => $newChoreAssigned,
+            'new_event_enabled' => $newEvent,
         ]);
 
         Session::set('flash_success', 'Notification preferences saved.');

@@ -13,11 +13,16 @@ use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
 use App\Household\HouseholdRepository;
+use App\Jobs\SendPushNotificationJob;
+use App\Push\NotificationDispatchRepository;
+use App\Push\UserNotificationPrefsRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Db\Connection;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
+use Karhu\Queue\QueueInterface;
 use Karhu\View\TwigAdapter;
 
 /**
@@ -46,6 +51,11 @@ final class CalendarController
         private readonly RruleTranslator $rrules,
         private readonly EventExceptionRepository $exceptions,
         private readonly EventService $eventService,
+        // v0.6.6 — fan-out push to every household member except the creator.
+        private readonly UserNotificationPrefsRepository $notifyPrefs,
+        private readonly NotificationDispatchRepository $dispatches,
+        private readonly Connection $db,
+        private readonly QueueInterface $queue,
     ) {}
 
     #[Route('/calendar', methods: ['GET'], name: 'calendar.month')]
@@ -199,8 +209,64 @@ final class CalendarController
             'rrule' => $rrule,
         ]);
 
+        // v0.6.6: push every household member except the creator. Override-
+        // occurrence edits use a different route (handleOccurrenceSave); only
+        // brand-new events from this entry point fire the push. Recurring
+        // series push ONCE here, not per occurrence — push:scan handles the
+        // T-15 event_reminder per occurrence separately.
+        $this->enqueueNewEventPushFanout($hid, $userId, $eid, (string) $input['title']);
+
         $ym = (new \DateTimeImmutable((string) $input['starts_at_local']))->format('Y-m');
         return (new Response())->redirect("/calendar?ym={$ym}", 303);
+    }
+
+    /**
+     * v0.6.6 — fan-out: claim+enqueue once per non-creator household member
+     * whose `new_event_enabled` pref is true. Whole loop is one atomic
+     * transaction (family-scale tradeoff: all-or-nothing rollback is fine at
+     * ≤6 members; per-recipient micro-txn is a v0.7+ optimisation if needed).
+     * Throws on failure — event stays inserted (durable), user sees 500.
+     */
+    private function enqueueNewEventPushFanout(int $hid, int $creatorId, int $eventId, string $eventTitle): void
+    {
+        // TODO(v0.7): batch-fetch prefs via WHERE user_id IN (...) for
+        //   households with >10 members. Per-member SELECT is fine at family-scale.
+        $members = $this->households->listMembers($hid);
+        $pdo = $this->db->pdo();
+        $started = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $started = true;
+        }
+        try {
+            foreach ($members as $m) {
+                $uid = (int) $m['user_id'];
+                if ($uid === $creatorId) {
+                    continue;
+                }
+                $prefs = $this->notifyPrefs->getFor($uid);
+                if (!$prefs['new_event_enabled']) {
+                    continue;
+                }
+                if (!$this->dispatches->claim($uid, 'new_event', $eventId)) {
+                    continue;
+                }
+                $this->queue->push(SendPushNotificationJob::NAME, SendPushNotificationJob::payload(
+                    userId: $uid,
+                    title: '🐻 New event added',
+                    body: $eventTitle,
+                    url: '/calendar',
+                ));
+            }
+            if ($started) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($started) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     #[Route('/calendar/events/{id}', methods: ['GET'])]

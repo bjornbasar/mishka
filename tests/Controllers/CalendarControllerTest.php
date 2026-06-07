@@ -444,6 +444,131 @@ final class CalendarControllerTest extends AppTestCase
         self::assertContains($response->status(), [302, 403]);
     }
 
+    // ============================================================
+    // v0.6.6 — new_event push fan-out (creation-time, opt-out-able)
+    // ============================================================
+    //
+    // POST /calendar/events fans out a SendPushNotification job to every
+    // household member EXCEPT the creator whose new_event_enabled is true
+    // (default). Override-occurrence saves (POST /calendar/events/{id}/
+    // occurrences/{key}) use a different controller method and do NOT push.
+    // Recurring series push ONCE at series creation, not per occurrence —
+    // push:scan handles the T-15 event_reminder per occurrence.
+
+    public function test_post_event_fans_out_push_to_all_members_except_creator(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $carol = $this->createUserWithHash('carol@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+        $this->householdRepo->addMember($hid, $carol);
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'Sunday brunch',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-08-09T11:00',
+            'ends_at_local' => '2026-08-09T12:30',
+            'all_day' => '',
+        ]);
+
+        // Drain the queue. Expect exactly 2 jobs — one each for bob and carol.
+        $recipients = [];
+        while (($job = $this->queue->pop()) !== null) {
+            self::assertSame('SendPushNotification', $job['job']);
+            $recipients[] = (int) $job['data']['user_id'];
+            self::assertStringContainsString('New event added', $job['data']['title']);
+            self::assertStringContainsString('Sunday brunch', $job['data']['body']);
+            self::assertSame('/calendar', $job['data']['url']);
+        }
+        sort($recipients);
+        $expected = [$bob, $carol];
+        sort($expected);
+        self::assertSame($expected, $recipients, 'Creator excluded; non-creator members each pushed');
+    }
+
+    public function test_post_event_solo_household_emits_no_push(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'Solo time',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-08-09T11:00',
+            'ends_at_local' => '2026-08-09T12:30',
+            'all_day' => '',
+        ]);
+
+        self::assertNull($this->queue->pop(), 'Sole-member household must not push the creator');
+    }
+
+    public function test_post_event_skips_opted_out_member(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+        $this->notifyPrefsRepo->setFor($bob, ['new_event_enabled' => false]);
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'Hidden event',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-08-09T11:00',
+            'ends_at_local' => '2026-08-09T12:30',
+            'all_day' => '',
+        ]);
+
+        self::assertNull($this->queue->pop(), 'Opted-out member must not receive a push');
+    }
+
+    public function test_post_event_dedup_records_one_dispatch_row_per_recipient(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'Sunday brunch',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-08-09T11:00',
+            'ends_at_local' => '2026-08-09T12:30',
+            'all_day' => '',
+        ]);
+
+        $count = (int) $this->db->fetchScalar(
+            "SELECT COUNT(*) FROM notification_dispatches WHERE user_id=:uid AND kind='new_event'",
+            ['uid' => $bob],
+        );
+        self::assertSame(1, $count, 'Exactly one dispatch row per recipient per event');
+    }
+
+    public function test_post_recurring_event_fires_once_per_recipient_not_per_occurrence(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+
+        $this->request('POST', '/calendar/events', [
+            'title' => 'Weekly standup',
+            'description' => '',
+            'location' => '',
+            'starts_at_local' => '2026-08-04T09:00',
+            'ends_at_local' => '2026-08-04T09:30',
+            'all_day' => '',
+            'recurrence_preset' => 'weekly',
+        ]);
+
+        // Recurring series push ONCE per non-creator at creation time. T-15
+        // per-occurrence event_reminder is push:scan's job, not this controller.
+        $jobCount = 0;
+        while (($job = $this->queue->pop()) !== null) {
+            $jobCount++;
+        }
+        self::assertSame(1, $jobCount, 'Recurring series should push once per non-creator at creation, not per occurrence');
+    }
+
     /** @return array{0: int, 1: int} */
     private function signInAsHouseholdOwner(): array
     {

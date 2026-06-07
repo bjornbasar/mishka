@@ -406,6 +406,102 @@ final class ChoresControllerTest extends AppTestCase
         self::assertSame(0, $stillGone);
     }
 
+    // ============================================================
+    // v0.6.6 — new_chore_assigned push (creation-time, opt-out-able)
+    // ============================================================
+    //
+    // POST /chores enqueues a SendPushNotification job for the assignee iff:
+    //   - assigned_to is non-null AND not the creator
+    //   - assignee has new_chore_assigned_enabled = true (default)
+    //
+    // Recurring-schedule-generated chores skip this entirely (they go via
+    // ChoreRepository::createGenerated, NOT handleCreate). Edit-path (POST
+    // /chores/{id}) does NOT push (out of scope for v0.6.6).
+    //
+    // Note: non-member assignee is covered transitively by the null-assignee
+    // test below — resolveAssignee returns null when the supplied id isn't a
+    // current household member, so the push branch is skipped identically.
+
+    public function test_post_chore_assigned_to_other_member_enqueues_push(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+
+        $this->request('POST', '/chores', [
+            'title' => 'Empty bins',
+            'description' => '',
+            'points' => '5',
+            'due_at_local' => '',
+            'assigned_to' => (string) $bob,
+        ]);
+
+        $job = $this->queue->pop();
+        self::assertNotNull($job);
+        self::assertSame('SendPushNotification', $job['job']);
+        self::assertSame($bob, $job['data']['user_id']);
+        self::assertStringContainsString('New chore for you', $job['data']['title']);
+        self::assertStringContainsString('Empty bins', $job['data']['body']);
+        self::assertSame('/chores', $job['data']['url']);
+
+        // Dispatch row exists (dedup ledger).
+        $count = (int) $this->db->fetchScalar(
+            "SELECT COUNT(*) FROM notification_dispatches WHERE user_id=:uid AND kind='new_chore_assigned'",
+            ['uid' => $bob],
+        );
+        self::assertSame(1, $count);
+    }
+
+    public function test_post_chore_self_assigned_does_not_enqueue_push(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+
+        $this->request('POST', '/chores', [
+            'title' => 'Mine to do',
+            'description' => '',
+            'points' => '0',
+            'due_at_local' => '',
+            'assigned_to' => (string) $creator,
+        ]);
+
+        self::assertNull($this->queue->pop(), 'Self-assigned chore must not enqueue a push');
+    }
+
+    public function test_post_chore_null_assignee_does_not_enqueue_push(): void
+    {
+        // Also covers the non-member assignee case: resolveAssignee coerces
+        // non-members to null, so the push branch is skipped identically.
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+
+        $this->request('POST', '/chores', [
+            'title' => 'Open chore',
+            'description' => '',
+            'points' => '0',
+            'due_at_local' => '',
+            'assigned_to' => '',
+        ]);
+
+        self::assertNull($this->queue->pop(), 'Null-assignee chore must not enqueue a push');
+    }
+
+    public function test_post_chore_does_not_push_when_assignee_opted_out(): void
+    {
+        [$creator, $hid] = $this->signInAsHouseholdOwner();
+        $bob = $this->createUserWithHash('bob@example.com', self::testPassword());
+        $this->householdRepo->addMember($hid, $bob);
+        $this->notifyPrefsRepo->setFor($bob, ['new_chore_assigned_enabled' => false]);
+
+        $this->request('POST', '/chores', [
+            'title' => 'Empty bins',
+            'description' => '',
+            'points' => '5',
+            'due_at_local' => '',
+            'assigned_to' => (string) $bob,
+        ]);
+
+        self::assertNull($this->queue->pop(), 'Opted-out assignee must not receive a push');
+    }
+
     /** @return array{0: int, 1: int} */
     private function signInAsHouseholdOwner(): array
     {

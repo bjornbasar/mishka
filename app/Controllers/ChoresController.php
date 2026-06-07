@@ -11,11 +11,16 @@ use App\Chores\ChoreScheduleGenerator;
 use App\Chores\ChoreScheduleRepository;
 use App\Chores\WeekWindow;
 use App\Household\HouseholdRepository;
+use App\Jobs\SendPushNotificationJob;
+use App\Push\NotificationDispatchRepository;
+use App\Push\UserNotificationPrefsRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Db\Connection;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
+use Karhu\Queue\QueueInterface;
 use Karhu\View\TwigAdapter;
 
 /**
@@ -45,6 +50,11 @@ final class ChoresController
         private readonly TwigAdapter $view,
         private readonly ChoreScheduleRepository $schedules,
         private readonly ChoreScheduleGenerator $generator,
+        // v0.6.6 — creation-time push to the assignee (if not the creator).
+        private readonly UserNotificationPrefsRepository $notifyPrefs,
+        private readonly NotificationDispatchRepository $dispatches,
+        private readonly Connection $db,
+        private readonly QueueInterface $queue,
     ) {}
 
     #[Route('/chores', methods: ['GET'], name: 'chores.list')]
@@ -178,7 +188,8 @@ final class ChoresController
             return $this->renderFormError($input, $errors, 'create', $hid, $household);
         }
 
-        $this->chores->create([
+        $assignedTo = $this->resolveAssignee($input['assigned_to'], $hid);
+        $choreId = $this->chores->create([
             'household_id' => $hid,
             'created_by' => $userId,
             'timezone' => (string) ($household['timezone'] ?? 'Pacific/Auckland'),
@@ -186,10 +197,58 @@ final class ChoresController
             'description' => $input['description'],
             'points' => (int) $input['points'],
             'due_at_local' => $this->dueToSql($input['due_at_local']),
-            'assigned_to' => $this->resolveAssignee($input['assigned_to'], $hid),
+            'assigned_to' => $assignedTo,
         ]);
 
+        // v0.6.6: push the assignee if (a) someone was assigned, (b) it wasn't
+        // the creator self-assigning, (c) the assignee hasn't opted out. The
+        // generator-created recurring chores skip this entirely (they go
+        // through ChoreRepository::createGenerated, not handleCreate).
+        if ($assignedTo !== null && $assignedTo !== $userId) {
+            $this->enqueueNewChoreAssignedPush($assignedTo, $choreId, (string) $input['title']);
+        }
+
         return (new Response())->redirect('/chores', 303);
+    }
+
+    /**
+     * v0.6.6 — claim+enqueue inside an atomic transaction (matches the
+     * PushScanCommand B3 semantics). `resolveAssignee` returns `?int` and
+     * `$userId` is `int`, so PHP's strict `!==` at the callsite guards
+     * self-assignment safely (no string-vs-int mismatch). Throws on failure
+     * — chore stays inserted (durable), user sees 500. Consistent with
+     * PushScanCommand.
+     */
+    private function enqueueNewChoreAssignedPush(int $assigneeId, int $choreId, string $choreTitle): void
+    {
+        $prefs = $this->notifyPrefs->getFor($assigneeId);
+        if (!$prefs['new_chore_assigned_enabled']) {
+            return;
+        }
+        $pdo = $this->db->pdo();
+        $started = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $started = true;
+        }
+        try {
+            if ($this->dispatches->claim($assigneeId, 'new_chore_assigned', $choreId)) {
+                $this->queue->push(SendPushNotificationJob::NAME, SendPushNotificationJob::payload(
+                    userId: $assigneeId,
+                    title: '🐻 New chore for you',
+                    body: "You've been assigned: " . $choreTitle,
+                    url: '/chores',
+                ));
+            }
+            if ($started) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($started) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     #[Route('/chores/{id}', methods: ['GET'])]
