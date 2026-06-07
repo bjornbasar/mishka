@@ -243,6 +243,8 @@ mishka can send you push notifications when:
 
 - An event in your active household is about to start (default: 15 min before; you choose 0–120 min).
 - You have overdue chores in the morning (07:30–08:30 in your household's timezone). One push per day, summarising; not one push per chore.
+- *(v0.6.6)* A household member assigns you a new chore — fires at chore-creation time. Self-assigned chores don't push you. Edits to existing chores don't push either.
+- *(v0.6.6)* A household member adds a new event to a household calendar — fires once at event-creation time (recurring series push once at series-creation, not per occurrence). The event-creator never gets their own push.
 
 ### Enable on a device
 
@@ -278,9 +280,11 @@ Click **Send test push** on /me/notifications. A notification with "🐻 Mishka 
 
 ### Tune the timing
 
-Two prefs on /me/notifications:
+Four prefs on /me/notifications:
 - **Event reminder** — off, 5/10/15/30 min, 1 h, 2 h before. Applies to every event in every household you belong to.
 - **Daily 7:30–8:30am digest if I have overdue chores** — checkbox. Single push at the start of your morning; nothing if all chores are caught up.
+- *(v0.6.6)* **Push me when a household member assigns me a new chore** — checkbox, on by default. Untick if you'd rather find new chores yourself.
+- *(v0.6.6)* **Push me when a new event is added to a household calendar** — checkbox, on by default. Untick if you only care about reminders, not "FYI" notifications.
 
 ### Stop notifications
 

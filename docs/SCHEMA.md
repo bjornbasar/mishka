@@ -344,17 +344,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_push_subscriptions_user_endpoint
     ON push_subscriptions(user_id, endpoint);
 
 CREATE TABLE IF NOT EXISTS user_notification_prefs (
-    user_id                INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    event_reminder_minutes INTEGER NOT NULL DEFAULT 15
-                            CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
-    overdue_chore_digest   BOOLEAN NOT NULL DEFAULT TRUE,
-    updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    user_id                    INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    event_reminder_minutes     INTEGER NOT NULL DEFAULT 15
+                                CHECK (event_reminder_minutes >= 0 AND event_reminder_minutes <= 1440),
+    overdue_chore_digest       BOOLEAN NOT NULL DEFAULT TRUE,
+    new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE,   -- v0.6.6
+    new_event_enabled          BOOLEAN NOT NULL DEFAULT TRUE,   -- v0.6.6
+    updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS notification_dispatches (
     id            SERIAL PRIMARY KEY,
     user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('event_reminder', 'overdue_digest')),
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN (
+                    'event_reminder', 'overdue_digest',
+                    'new_chore_assigned', 'new_event'  -- v0.6.6
+                  )),
     ref_id        INTEGER NOT NULL,
     dispatched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -381,9 +386,11 @@ CREATE INDEX IF NOT EXISTS idx_jobs_queue_status_id ON jobs(queue, status, id);
 
 **`push_subscriptions`** stores the three values the browser hands back from `pushManager.subscribe()` — endpoint, p256dh, auth. Soft-delete via `revoked_at`; the worker marks revoked on HTTP 410 (subscription expired) and the UI marks revoked on user click. UNIQUE(user_id, endpoint) makes re-register idempotent — the same browser subscribing twice wakes the revoked row instead of creating a duplicate.
 
-**`user_notification_prefs`** is one row per user, defaults to `event_reminder_minutes=15` + `overdue_chore_digest=true`. The CHECK rejects out-of-range minutes. Per-user; per-household customisation deferred to v0.7+ if anyone asks.
+**`user_notification_prefs`** is one row per user. v0.6.6 widened it from 2 to 4 prefs; defaults are `event_reminder_minutes=15`, `overdue_chore_digest=true`, `new_chore_assigned_enabled=true`, `new_event_enabled=true`. The CHECK rejects out-of-range minutes. `UserNotificationPrefsRepository::setFor` is a **partial update** as of v0.6.6 — only keys present in the input array are written; absent keys preserve their current value (or fall to default if no row exists). This makes the v0.6.5→v0.6.6 deploy window safe for stale browser tabs. Per-user; per-household customisation deferred to v0.7+ if anyone asks.
 
-**`notification_dispatches`** is the at-most-once ledger. `claim(user_id, kind, ref_id)` returns true iff the INSERT survived the UNIQUE constraint; the caller proceeds to enqueue only on true. ref_id semantics: `event_reminder` → `events.id`; `overdue_digest` → YYYYMMDD-in-hh-tz int. Deliberately NO FK on ref_id (events get deleted, dates aren't a table). Pruned to 90 days at the top of each `push:scan` run.
+**`notification_dispatches`** is the at-most-once ledger. `claim(user_id, kind, ref_id)` returns true iff the INSERT survived the UNIQUE constraint; the caller proceeds to enqueue only on true. ref_id semantics: `event_reminder` → `events.id`; `overdue_digest` → YYYYMMDD-in-hh-tz int; `new_chore_assigned` → `chores.id` (v0.6.6); `new_event` → `events.id` (v0.6.6). Deliberately NO FK on ref_id (events/chores get deleted, dates aren't a table). Pruned to 90 days at the top of each `push:scan` run.
+
+**v0.6.6 schema migration** is mishka's first explicit ALTER. Pre-v0.6.6 the project followed an "additive-only via `CREATE TABLE IF NOT EXISTS`" convention (DOCS.md #14). Adding 2 columns to an existing table + extending a CHECK constraint can't be expressed that way. The fix lives at end-of-`db/schema.sql` in a fenced `-- BEGIN PG_ONLY ... -- END PG_ONLY` block wrapped in `BEGIN; ... COMMIT;` for atomic rollback. `tests/bootstrap.php` strips the block via regex because SQLite recreates the schema per test run and doesn't support `ALTER TABLE ADD COLUMN IF NOT EXISTS` or `DROP/ADD CONSTRAINT`. See DOCS.md decision #47 for the full rationale.
 
 **`jobs`** is karhu-queue's table — the worker pops `pending` rows, flips to `processing`, runs the handler, flips to `completed` or `failed`. Stuck `processing` rows after a SIGKILL are accepted as at-most-once-by-design (v0.6.1 candidate: `karhu jobs:unstick`).
 

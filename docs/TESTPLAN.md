@@ -1,6 +1,6 @@
-# Mishka Den — Test Plan (v0.6.4)
+# Mishka Den — Test Plan (v0.6.6)
 
-Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.4 (hamburger nav for narrow viewports landed 2026-06-05).
+Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.6 (creation-time push categories — chore_assigned + new_event — landed 2026-06-07).
 
 > **Known issue deferred to v0.6.5:** the household-switcher dropdown (only visible to users in 2+ households) misbehaves inside the open hamburger drawer — the dropdown's `position: fixed` + inline `top: 1.5rem` causes it to float at viewport-top instead of below its trigger. Pre-existing bug, only reachable now that the drawer makes the switcher accessible on mobile. Fix in v0.6.5.
 
@@ -183,7 +183,7 @@ Use this for release-candidate verification, regression sweeps after risky chang
 ## 5. Notifications + Web Push (P1 — v0.6.0)
 
 ### 5.1 Preferences
-- **NOTIF-01** Default `event_reminder_minutes = 15`, `overdue_chore_digest = true`
+- **NOTIF-01** Default `event_reminder_minutes = 15`, `overdue_chore_digest = true`, `new_chore_assigned_enabled = true`, `new_event_enabled = true` *(v0.6.6: 4 defaults)*
 - **NOTIF-02** Save preferences — change to 30 min + digest off → persists, reloaded form reflects change
 - **NOTIF-03** Reminder = "Off" (0 min) → no event reminders fire
 - **NOTIF-04** Out-of-range (negative / >1440) — server validation rejects (form select gates this client-side too)
@@ -227,6 +227,24 @@ Use this for release-candidate verification, regression sweeps after risky chang
 - **PUSH-50** `docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu push:scan` runs cleanly
 - **PUSH-51** `mishka-worker` container restart picks up where it left off
 - **PUSH-52** `notification_dispatches` rows older than 90 days pruned on each scan (B4)
+
+### 5.8 New-chore-assigned push (v0.6.6)
+Two test users in the same household (Alice = creator, Bob = assignee). Both subscribed to push from a real browser. Drain MailHog / clear jobs between cases.
+- **PUSH-70** Alice creates a chore assigned to Bob → Bob receives "🐻 New chore for you" / body contains the chore title / click → /chores. `notification_dispatches` has 1 row `(bob_id, 'new_chore_assigned', chore_id)`.
+- **PUSH-71** Alice self-assigns a chore (assigned_to = Alice) → no push to anyone. `notification_dispatches` unchanged.
+- **PUSH-72** Alice creates a chore with null assignee (open pool) → no push to anyone.
+- **PUSH-73** Bob toggles "new chore assigned" off on /me/notifications → Alice creates another chore assigned to Bob → no push for Bob.
+- **PUSH-74** Edit-path doesn't push: Alice creates chore (null assignee), then edits to assign to Bob → no push (edits are out of scope in v0.6.6).
+- **PUSH-75** Schedule-generated recurring chores don't push: create a daily recurring chore schedule assigned to Bob → schedule generator materialises occurrences via push:scan / page-view → none of those generated occurrences push Bob.
+
+### 5.9 New-event-added fan-out push (v0.6.6)
+Three test users: Alice (creator), Bob, Carol — all in the same household, all push-subscribed.
+- **PUSH-80** Alice creates a one-off event → Bob and Carol each receive "🐻 New event added" / body = event title / click → /calendar. Alice does NOT receive. `notification_dispatches` has 2 rows `(bob, 'new_event', eid)` and `(carol, 'new_event', eid)`.
+- **PUSH-81** Solo household (Alice only) creates event → no pushes at all.
+- **PUSH-82** Carol toggles "new event" off → Alice creates another event → only Bob pushed; Carol skipped.
+- **PUSH-83** Alice creates a weekly recurring event → Bob receives exactly ONE push (not one per occurrence). T-15 event reminders still fire per occurrence via push:scan (verify PUSH-20 still works).
+- **PUSH-84** Override-occurrence edit: Alice edits a single occurrence of a recurring event → no `new_event` push (override route is separate from `handleCreate`).
+- **PUSH-85** Edit-path doesn't push: Alice edits the title of an existing event → no `new_event` push.
 
 ---
 
