@@ -24,4 +24,6 @@ return [
     App\Controllers\HelpController::class,
     // v0.6.0 — push notifications
     App\Controllers\NotificationsController::class,
+    // v0.6.7 — /offline shell precached by the service worker
+    App\Controllers\OfflineController::class,
 ];

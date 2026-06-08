@@ -1,0 +1,9 @@
+{% extends 'layout.twig' %}
+
+{% block title %}Offline — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>You're offline</h1>
+    <p>Mishka needs a network connection to load this page. Pages you've already visited should still load from your device.</p>
+    <p><button type="button" onclick="location.reload()">Try again</button></p>
+{% endblock %}

@@ -479,11 +479,14 @@
         · <a href="/help" style="color: var(--accent);">Help</a>
     </footer>
 
-    {# v0.6.0: register the service worker (covers / scope). The SW only
-       listens for `push` events; no fetch interception, no caching. Loads on
-       every page including pre-login — harmless because the SW can't receive
-       a push without a corresponding server-side dispatch authenticated by
-       VAPID. Browsers that don't support service workers silently skip. #}
+    {# v0.6.7: register the service worker (covers / scope). The SW now
+       precaches the app shell (manifest, icons, push-subscribe.js, /offline
+       fallback) and runs cache-first on static assets + network-first on HTML
+       pages with a 3s timeout race. Silent updates: skipWaiting + clients.claim
+       inside the SW mean a deploy lands on the next page navigation with no
+       banner and no mid-action reload. The push handler from v0.6.0 is
+       preserved. See public/service-worker.js + DOCS.md #48 + docs/RELEASE.md.
+       Browsers without SW support silently skip. #}
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/service-worker.js').catch(function (err) {
