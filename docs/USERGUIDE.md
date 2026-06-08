@@ -292,6 +292,18 @@ Four prefs on /me/notifications:
 - Or turn off notification permission in your browser entirely for `mishka.minified.work`.
 - Or set Event reminder to "Off" and uncheck the digest — pushes stop without unsubscribing the device.
 
+### Offline (v0.6.7)
+
+Mishka caches a small set of static assets (manifest, icons, push-subscribe.js) and a session-state-free `/offline` shell. What you'll see offline:
+
+- Pages you've already visited may load from the cache (briefly — Mishka prefers a fresh network response and falls back to cache only on network failure, so most pages still show "loading" until either the network responds or the 3-second timeout fires).
+- Navigating to an uncached route while offline falls back to the `/offline` shell — a tiny "you're offline" page that doesn't show any household data.
+- Form submissions (marking a chore done, creating an event, saving prefs) require a live network. Mishka does NOT queue writes for later — try again once you're back online.
+
+Mishka updates its offline cache silently on every release; there's no "update available" banner to dismiss.
+
+**If you submit a form and the page shows "CSRF token mismatch" as plain black text on a white background**, your session changed in another tab while this page was sitting open. Press your browser back button and reload the form. (v0.6.8 may add a smoother recovery for this edge case.)
+
 ## 8. Troubleshooting
 
 ### "Please verify your email" won't go away

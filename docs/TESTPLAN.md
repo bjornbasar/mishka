@@ -1,6 +1,6 @@
-# Mishka Den — Test Plan (v0.6.6)
+# Mishka Den — Test Plan (v0.6.7)
 
-Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.6 (creation-time push categories — chore_assigned + new_event — landed 2026-06-07).
+Manual test plan covering every feature published to https://mishka.minified.work as of v0.6.7 (PWA-grade service worker — versioned cache + network-first HTML + silent updates + /offline shell — landed 2026-06-07).
 
 > **Known issue deferred to v0.6.5:** the household-switcher dropdown (only visible to users in 2+ households) misbehaves inside the open hamburger drawer — the dropdown's `position: fixed` + inline `top: 1.5rem` causes it to float at viewport-top instead of below its trigger. Pre-existing bug, only reachable now that the drawer makes the switcher accessible on mobile. Fix in v0.6.5.
 
@@ -245,6 +245,22 @@ Three test users: Alice (creator), Bob, Carol — all in the same household, all
 - **PUSH-83** Alice creates a weekly recurring event → Bob receives exactly ONE push (not one per occurrence). T-15 event reminders still fire per occurrence via push:scan (verify PUSH-20 still works).
 - **PUSH-84** Override-occurrence edit: Alice edits a single occurrence of a recurring event → no `new_event` push (override route is separate from `handleCreate`).
 - **PUSH-85** Edit-path doesn't push: Alice edits the title of an existing event → no `new_event` push.
+
+### 5.10 Service worker lifecycle + offline (v0.6.7)
+Real browser only — DevTools → Application → Service Workers + Cache Storage are the load-bearing surfaces. Use Chrome or Firefox + DevTools throttling (Offline / Slow 3G).
+- **SW-01** Fresh load (no prior SW): DevTools → Application → Service Workers shows `mishka-v0.6.7` activated. Cache Storage shows `mishka-cache-mishka-v0.6.7` containing the 7 precache URLs (`/offline`, manifest, 4 icons, push-subscribe.js).
+- **SW-02** Online reload: HTML and statics served from SW (DevTools → Network → "(ServiceWorker)" annotation).
+- **SW-03** Offline (DevTools → Throttling → Offline) + reload a previously-visited page → renders from cache.
+- **SW-04** Offline + load an icon URL directly (e.g. `/icon-192.png`) → cached icon served, no broken-image.
+- **SW-05** Offline + submit a POST form (mark a chore done) → request fails (POSTs bypass cache); flash message or browser error visible.
+- **SW-06** Offline + cross-origin Google Fonts URL → request fails (we don't cache cross-origin); page still renders using system-font fallback chain (`Computed font` in DevTools should show a sans-serif system font, not Electrolize).
+- **SW-07** Version-bump cycle: bump `SW_VERSION` to `mishka-v0.6.8-test` locally, reload twice. After second load: DevTools shows new version activated; old `mishka-cache-mishka-v0.6.7` cache deleted; new `mishka-cache-mishka-v0.6.8-test` populated.
+- **SW-08** Network-first refresh: edit the home page route's HTML server-side (toggle a flash message); reload → see the FRESH version on first paint (network-first, not SWR — no stale paint of identity-bound HTML).
+- **SW-09** Offline navigation to uncached route: visit `/calendar` while logged in (caches), log out, go offline, navigate to `/chores` (never visited) → falls back to precached `/offline` shell showing "You're offline" + "Sign in / Register" anonymous nav (NOT the previously-logged-in user's email or household).
+- **SW-10** Dev escape hatch: load mishka from `http://localhost:8080` or `http://192.168.4.9:5180` → DevTools shows SW activated but Cache Storage stays empty / fetch routes always go to network.
+- **SW-11** Push regression: PUSH-10 test push still fires + arrives. v0.6.7 SW preserves v0.6.0 push handler.
+- **SW-12** Critical cross-user privacy test (the C1 fix validation): log in as user A on the family iPad PWA, navigate to /calendar, log out. Log in as user B. Navigate to /calendar — user B's HTML appears on first paint (network-first guaranteed), NOT user A's stale chrome. Go offline, navigate to /household (uncached) → /offline shell renders WITHOUT user A's email or households visible.
+- **SW-13** Cloudflare deploy simulation: bump SW_VERSION, push, wait for CF purge (auto). Visit on a phone with v0.6.6 SW already installed → after first nav, new SW takes over silently; second nav serves from new cache.
 
 ---
 
