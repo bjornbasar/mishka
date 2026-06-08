@@ -270,4 +270,49 @@ final class MishkaUserRepositoryTest extends TestCase
     {
         self::assertFalse($this->repo->isEmailVerified(0));
     }
+
+    public function test_apply_email_swap_updates_email_and_marks_verified(): void
+    {
+        // The user starts unverified; swap should set both fields.
+        $id = $this->repo->create('old@example.com', $this->hasher->hash('x'), 'User');
+        self::assertFalse($this->repo->isEmailVerified($id));
+
+        $ok = $this->repo->applyEmailSwap($id, 'new@example.com');
+
+        self::assertTrue($ok);
+        $row = $this->db->fetchOne(
+            'SELECT email, email_verified_at FROM users WHERE id = :id',
+            ['id' => $id],
+        );
+        self::assertNotNull($row);
+        self::assertSame('new@example.com', $row['email']);
+        self::assertNotNull($row['email_verified_at']);
+    }
+
+    public function test_apply_email_swap_normalises_new_email(): void
+    {
+        $id = $this->repo->create('old@example.com', $this->hasher->hash('x'), 'User');
+
+        $this->repo->applyEmailSwap($id, '  Mixed@Case.Example.Com  ');
+
+        $stored = $this->db->fetchScalar('SELECT email FROM users WHERE id = :id', ['id' => $id]);
+        self::assertSame('mixed@case.example.com', $stored);
+    }
+
+    public function test_apply_email_swap_returns_false_for_sentinel(): void
+    {
+        // Sentinel ids skip the UPDATE entirely (no false-positive row update).
+        self::assertFalse($this->repo->applyEmailSwap(0, 'new@example.com'));
+    }
+
+    public function test_apply_email_swap_raises_on_unique_conflict(): void
+    {
+        // Set up two users; attempting to swap one's email to the other's
+        // raises a PDOException (caught by the controller as a 422 conflict).
+        $a = $this->repo->create('a@example.com', $this->hasher->hash('x'), 'A');
+        $this->repo->create('b@example.com', $this->hasher->hash('x'), 'B');
+
+        $this->expectException(\PDOException::class);
+        $this->repo->applyEmailSwap($a, 'b@example.com');
+    }
 }

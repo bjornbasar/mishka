@@ -301,6 +301,41 @@ final class MishkaUserRepository implements UserRepositoryInterface
         );
     }
 
+    /**
+     * v0.6.11 — atomic email-swap, applied inside the caller's transaction.
+     *
+     * The caller is responsible for opening and committing the surrounding
+     * transaction (the `/me/email-change/{token}` controller does this so the
+     * token redemption + swap + pending-token invalidations are all atomic).
+     * This method is a single UPDATE; no nested-txn guard.
+     *
+     * Sets `email_verified_at = CURRENT_TIMESTAMP` unconditionally: the user
+     * just clicked through to the new address, which IS the verification
+     * event (decision #52). Pre-existing verification of the OLD email is
+     * irrelevant — it's a different mailbox now.
+     *
+     * Throws `\PDOException` with SQLSTATE 23505 (PG) or 23000+UNIQUE (SQLite)
+     * if `new_email` is already taken by another user (the race-with-another-
+     * user case). Caller catches and surfaces as a 422 conflict page.
+     *
+     * Returns true iff exactly one row was updated (i.e. the user exists).
+     */
+    public function applyEmailSwap(int $userId, string $newEmail): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+        $newEmail = $this->normaliseEmail($newEmail);
+        $rows = $this->db->run(
+            'UPDATE users SET email = :e,
+                              email_verified_at = CURRENT_TIMESTAMP,
+                              updated_at = CURRENT_TIMESTAMP
+             WHERE id = :id',
+            ['e' => $newEmail, 'id' => $userId],
+        );
+        return $rows === 1;
+    }
+
     /** Returns true iff the user has a non-null email_verified_at stamp. */
     public function isEmailVerified(int $userId): bool
     {
