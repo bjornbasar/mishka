@@ -9,6 +9,7 @@
 -- v0.4.2: chore_points_ledger + chore_schedule_pauses + chore_schedule_participants
 -- v0.5.0: email_verification_tokens + password_reset_tokens + user_password_changes + email_send_attempts
 -- v0.6.0: push_subscriptions + user_notification_prefs + notification_dispatches
+-- v0.6.11: email_change_tokens; email_send_attempts.kind CHECK extended for change_email_request
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -447,6 +448,40 @@ CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_pending
     ON password_reset_tokens(user_id) WHERE used_at IS NULL;
 
 -- ============================================================
+-- v0.6.11: email_change_tokens — confirm new-email ownership
+-- ============================================================
+--
+-- Same shape as email_verification_tokens (decision #37): 64-hex raw token
+-- shown once via email link; SHA-256 hashed in token_hash (UNIQUE). Single-
+-- use atomic redeem via guarded UPDATE on (used_at IS NULL AND expires_at > :now).
+--
+-- The NEW email lives in the token row; on POST /me/email-change/{token},
+-- the controller atomically UPDATEs users.email + email_verified_at = NOW
+-- and invalidates pending password_reset_tokens + email_verification_tokens
+-- (mailbox-compromise hardening). UNIQUE conflict on the users UPDATE
+-- (another user took the email mid-flow) is caught and surfaced as 422.
+--
+-- `sent_at NULL` is the ops signal that SMTP failed for this issuance.
+-- The user-facing flash IS surfaced asymmetric to /password-reset (decision
+-- #52 — change-email send-failure is loud since user explicitly initiated),
+-- but the column persists SMTP-success state for ops observability — mirrors
+-- email_verification_tokens.sent_at.
+
+CREATE TABLE IF NOT EXISTS email_change_tokens (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash  CHAR(64) NOT NULL UNIQUE,
+    new_email   VARCHAR(320) NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    used_at     TIMESTAMPTZ NULL,
+    sent_at     TIMESTAMPTZ NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_change_tokens_user_pending
+    ON email_change_tokens(user_id) WHERE used_at IS NULL;
+
+-- ============================================================
 -- v0.5.0: user_password_changes — session revocation stamp (H1)
 -- ============================================================
 --
@@ -497,7 +532,7 @@ CREATE TABLE IF NOT EXISTS email_send_attempts (
     id            SERIAL PRIMARY KEY,
     ip_address    VARCHAR(45) NULL,                  -- NULL for user-keyed; IPv4 + IPv6 both fit 45
     user_id       INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('password_reset_request', 'verify_resend')),
+    kind          VARCHAR(32) NOT NULL CHECK (kind IN ('password_reset_request', 'verify_resend', 'change_email_request')),
     attempted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -680,5 +715,10 @@ ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_event_enabled B
 ALTER TABLE notification_dispatches DROP CONSTRAINT IF EXISTS notification_dispatches_kind_check;
 ALTER TABLE notification_dispatches ADD CONSTRAINT notification_dispatches_kind_check
     CHECK (kind IN ('event_reminder', 'overdue_digest', 'new_chore_assigned', 'new_event'));
+-- v0.6.11: extend email_send_attempts.kind for change_email_request.
+-- Same DROP+ADD pattern as #47 — idempotent on rerun.
+ALTER TABLE email_send_attempts DROP CONSTRAINT IF EXISTS email_send_attempts_kind_check;
+ALTER TABLE email_send_attempts ADD CONSTRAINT email_send_attempts_kind_check
+    CHECK (kind IN ('password_reset_request', 'verify_resend', 'change_email_request'));
 COMMIT;
 -- END PG_ONLY
