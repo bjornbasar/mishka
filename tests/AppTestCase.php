@@ -6,6 +6,7 @@ namespace App\Tests;
 
 use App\Account\UserPreferenceRepository;
 use App\Auth\EmailSendAttemptRepository;
+use App\Auth\EmailChangeTokenRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\HouseholdAuthorizer;
 use App\Auth\MishkaUserRepository;
@@ -89,6 +90,8 @@ abstract class AppTestCase extends TestCase
     protected UserPasswordChangeRepository $pwChangeRepo;
     protected EmailSendAttemptRepository $sendAttemptRepo;
     protected RecordingMailer $mailer;
+    // v0.6.11
+    protected EmailChangeTokenRepository $changeTokenRepo;
     // v0.6.0
     protected PushSubscriptionRepository $pushSubRepo;
     protected UserNotificationPrefsRepository $notifyPrefsRepo;
@@ -142,6 +145,8 @@ abstract class AppTestCase extends TestCase
         $this->pwChangeRepo = new UserPasswordChangeRepository($this->db);
         $this->sendAttemptRepo = new EmailSendAttemptRepository($this->db);
         $this->mailer = new RecordingMailer();
+        // v0.6.11 — email-change flow
+        $this->changeTokenRepo = new EmailChangeTokenRepository($this->db);
         $urlBuilder = new UrlBuilder('http://localhost:8080');
 
         // v0.6.0 — push notifications
@@ -192,6 +197,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(EmailSendAttemptRepository::class, $this->sendAttemptRepo);
         $app->container()->set(Mailer::class, $this->mailer);
         $app->container()->set(UrlBuilder::class, $urlBuilder);
+        // v0.6.11 container bindings
+        $app->container()->set(EmailChangeTokenRepository::class, $this->changeTokenRepo);
         // v0.6.0 container bindings
         $app->container()->set(PushSubscriptionRepository::class, $this->pushSubRepo);
         $app->container()->set(UserNotificationPrefsRepository::class, $this->notifyPrefsRepo);
