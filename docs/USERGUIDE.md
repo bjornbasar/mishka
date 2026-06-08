@@ -302,7 +302,7 @@ Mishka caches a small set of static assets (manifest, icons, push-subscribe.js) 
 
 Mishka updates its offline cache silently on every release; there's no "update available" banner to dismiss.
 
-**If you submit a form and the page shows "CSRF token mismatch" as plain black text on a white background**, your session changed in another tab while this page was sitting open. Press your browser back button and reload the form. (v0.6.8 may add a smoother recovery for this edge case.)
+**If you ever see "CSRF token mismatch" as plain black text on a white background** (rare — v0.6.8 auto-refreshes the form's token on every page load and on Safari/Chrome back-navigation, so the cross-tab case is closed; only true offline-cached pages can still hit this), press your browser back button and reload the page.
 
 ## 8. Troubleshooting
 

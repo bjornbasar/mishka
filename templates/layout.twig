@@ -528,5 +528,44 @@
             });
         })();
     </script>
+    {# v0.6.8: refresh the in-page CSRF token after every successful page load.
+       Closes the stale-token gap when a session rotated in another tab (login,
+       logout, password change, ownership transfer, household delete — anywhere
+       Csrf::regenerate() fires) or when the network-first SW served a cached
+       HTML page whose embedded token predates the current session. Best-effort:
+       on fetch failure we leave the existing tokens alone — worst case the user
+       sees the same "CSRF token mismatch" page they would have seen pre-v0.6.8.
+       See DOCS.md #49 + docs/USERGUIDE.md §7 Offline. #}
+    <script>
+        (function () {
+            if (!('fetch' in window)) return;
+            function refresh() {
+                fetch('/csrf-token', {
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                    cache: 'no-store',
+                }).then(function (res) {
+                    if (!res.ok) return;
+                    return res.json();
+                }).then(function (data) {
+                    if (!data || typeof data.token !== 'string' || data.token === '') return;
+                    var meta = document.querySelector('meta[name="csrf-token"]');
+                    if (meta) meta.setAttribute('content', data.token);
+                    var inputs = document.querySelectorAll('input[name="_csrf_token"]');
+                    for (var i = 0; i < inputs.length; i++) inputs[i].value = data.token;
+                }).catch(function () { /* offline or 5xx — leave existing tokens */ });
+            }
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', refresh);
+            } else {
+                refresh();
+            }
+            // bfcache restore: Safari/Chrome may restore the page from the
+            // back-forward cache without firing DOMContentLoaded. Refresh
+            // the token then too so a session rotation during the round
+            // trip lands. Per adversarial round-1 S2.
+            window.addEventListener('pageshow', function (e) { if (e.persisted) refresh(); });
+        })();
+    </script>
 </body>
 </html>

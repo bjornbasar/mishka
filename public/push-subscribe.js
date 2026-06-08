@@ -17,8 +17,11 @@
     if (!wrapper || !button) return;
 
     const vapidPublicKey = wrapper.getAttribute('data-vapid-public-key') || '';
-    const csrfMeta = document.querySelector('meta[name="csrf-token"]');
-    const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
+    // v0.6.8: read the CSRF token INSIDE the click handler, not here at
+    // script-load time. The v0.6.8 inline IIFE in layout.twig refreshes
+    // the meta tag on every page load (and on bfcache restore); capturing
+    // the value here would freeze the original (potentially stale) token
+    // and defeat the refresh on this specific page.
 
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
         button.disabled = true;
@@ -61,6 +64,8 @@
             body.set('p256dh', p256dh);
             body.set('auth', auth);
 
+            const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+            const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
             const res = await fetch('/me/push/subscribe', {
                 method: 'POST',
                 body: body,

@@ -308,6 +308,7 @@ Test in Chrome devtools at 375 × 667 (iPhone SE), AND on an actual iPhone if po
 - **SEC-09** Foreign-user kick / revoke / delete attempts → 403/422, never 500
 - **SEC-10** SQL injection probes on free-text fields (title, description) → stored verbatim, no execution
 - **SEC-11** XSS probes (`<script>alert(1)</script>` in titles) → escaped on render
+- **SEC-12** *(v0.6.8)* CSRF auto-refresh cross-tab: open `/login` in tab A, `/calendar` in tab B (already logged in as user X). In tab A, sign in as user X — `Csrf::regenerate()` fires, the session-bound token rotates. Don't refresh tab B. Click any form button in tab B (mark a chore done). Expected: 200/303 success (NOT the plain-text "CSRF token mismatch" 403). Without v0.6.8 this would fail; with v0.6.8 tab B's auto-refresh on its initial page load picks up the new token. **Edge case (documented limitation)**: a SessionRevocationGuard 302 to /login on `/csrf-token` fetch returns HTML, which `res.json()` rejects, `.catch()` swallows — the user sees no error from the refresh attempt itself, but their next POST will get a redirect to login as expected.
 
 ---
 
