@@ -1,0 +1,27 @@
+{% extends "layout.twig" %}
+
+{% block title %}Confirm email change — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Confirm your new email</h1>
+
+    <p>You're about to change the email on your account from:</p>
+    <p style="font-size: 1.05rem;"><strong>{{ old_email }}</strong></p>
+    <p>to:</p>
+    <p style="font-size: 1.25rem; font-weight: 600;">{{ new_email }}</p>
+
+    <p style="color: var(--muted, #666); margin-top: 16px;">
+        Clicking <em>Confirm change</em> finalises the swap. Your old address
+        will no longer work for signing in.
+    </p>
+
+    <form method="POST" action="/me/email-change/{{ token }}" class="auth">
+        {{ csrf_field() }}
+        <button type="submit">Confirm change</button>
+    </form>
+
+    <p style="margin-top: 24px; font-size: 14px;">
+        Not what you wanted? <a href="/me/profile">Go back to your profile</a>
+        — the change won't apply until you click <em>Confirm change</em>.
+    </p>
+{% endblock %}

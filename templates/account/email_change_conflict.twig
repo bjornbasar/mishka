@@ -1,0 +1,17 @@
+{% extends "layout.twig" %}
+
+{% block title %}Email already taken — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>That email is already in use</h1>
+
+    <p>Someone else claimed that email between the moment you requested the
+       change and the moment you clicked the confirmation link. Your account
+       email hasn't changed.</p>
+
+    <p style="margin-top: 24px;">
+        <a href="/me/email">Try a different address</a>
+        — or
+        <a href="/me/profile">go back to your profile</a>.
+    </p>
+{% endblock %}

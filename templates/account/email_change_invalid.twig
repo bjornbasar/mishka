@@ -1,0 +1,15 @@
+{% extends "layout.twig" %}
+
+{% block title %}Link expired — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>This link doesn't work</h1>
+
+    <p>Email-change links work once and expire after 24 hours. The link you
+       clicked is either already used, expired, or wasn't a valid link.</p>
+
+    <p style="margin-top: 24px;">
+        If you still want to change your email,
+        <a href="/login">sign in</a> and try again from your profile.
+    </p>
+{% endblock %}

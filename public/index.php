@@ -13,6 +13,7 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use App\Account\UserPreferenceRepository;
+use App\Auth\EmailChangeTokenRepository;
 use App\Auth\EmailSendAttemptRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\HouseholdAuthorizer;
@@ -159,6 +160,8 @@ $resetTokenRepo = new PasswordResetTokenRepository($db);
 $pwChangeRepo = new UserPasswordChangeRepository($db);
 $sendAttemptRepo = new EmailSendAttemptRepository($db);
 $urlBuilder = new UrlBuilder($appUrl);
+// v0.6.11 — email-change flow
+$changeTokenRepo = new EmailChangeTokenRepository($db);
 
 // Symfony Mailer transport. `?timeout=5` in the DSN keeps a request from
 // hanging 60s when MailHog/Postmark/SMTP is unreachable. Mailer catches
@@ -205,6 +208,9 @@ $app->container()->set(UserPasswordChangeRepository::class, $pwChangeRepo);
 $app->container()->set(EmailSendAttemptRepository::class, $sendAttemptRepo);
 $app->container()->set(Mailer::class, $mailer);
 $app->container()->set(UrlBuilder::class, $urlBuilder);
+
+// v0.6.11 bindings — email change
+$app->container()->set(EmailChangeTokenRepository::class, $changeTokenRepo);
 
 // v0.6.0 bindings — web push + clock + queue
 $app->container()->set(VapidConfig::class, $vapid);
