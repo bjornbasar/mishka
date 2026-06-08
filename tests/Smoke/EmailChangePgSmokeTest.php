@@ -131,12 +131,17 @@ final class EmailChangePgSmokeTest extends TestCase
     public function test_unique_violation_on_email_swap_raises_sqlstate_23505(): void
     {
         // Two users; swapping one's email to the other's must raise UNIQUE
-        // violation with PG's documented SQLSTATE.
+        // violation with PG's documented SQLSTATE. We capture B's actual
+        // post-insertion email (the helper prepends a random suffix for cross-
+        // test uniqueness) and target it explicitly.
         $a = $this->insertUser('a-swap@example.com');
-        $this->insertUser('b-swap@example.com');
+        $bId = $this->insertUser('b-swap@example.com');
+        $bRow = $this->users->findById($bId);
+        self::assertNotNull($bRow);
+        $bEmail = $bRow['email'];
 
         try {
-            $this->users->applyEmailSwap($a, 'b-swap@example.com');
+            $this->users->applyEmailSwap($a, $bEmail);
             self::fail('expected PDOException to be raised on UNIQUE violation');
         } catch (\PDOException $e) {
             self::assertSame('23505', $e->getCode());
