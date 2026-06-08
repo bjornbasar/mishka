@@ -73,6 +73,48 @@ class Mailer
     }
 
     /**
+     * v0.6.11 — send the email-change confirmation link to the NEW address.
+     * Asymmetric with sendVerification: send-failure here surfaces as a
+     * flash_error in the controller (the user explicitly initiated, needs to
+     * retry — decision #52). The token row still records sent_at on success.
+     */
+    public function sendEmailChange(string $toEmail, string $confirmUrl, string $displayName): bool
+    {
+        return $this->send(
+            $toEmail,
+            'Confirm your new email — Mishka Den',
+            'mail/change_email.txt.twig',
+            'mail/change_email.html.twig',
+            ['url' => $confirmUrl, 'display_name' => $displayName],
+        );
+    }
+
+    /**
+     * v0.6.11 — send the security-alert notification to the OLD email when
+     * the user requests an email change. Defence against session-hijack
+     * silently changing the address: legitimate user sees the alert in their
+     * OLD inbox even if attacker has the session.
+     *
+     * Deliberately minimal: NO token, NO full new-email (masked elsewhere),
+     * NO cancel link. If the OLD mailbox is compromised, the attacker should
+     * not gain leverage to complete or cancel the swap — remediation goes
+     * through /me/password (force-PW-change kicks the session).
+     */
+    public function sendEmailChangeNotification(
+        string $toOldEmail,
+        string $newEmailMasked,
+        string $displayName,
+    ): bool {
+        return $this->send(
+            $toOldEmail,
+            'Security alert: email change requested — Mishka Den',
+            'mail/change_email_notification.txt.twig',
+            'mail/change_email_notification.html.twig',
+            ['new_email_masked' => $newEmailMasked, 'display_name' => $displayName],
+        );
+    }
+
+    /**
      * Single send path. Builds the multipart message and dispatches; catches
      * any TransportException and logs it via `error_log` (good enough for v0.5;
      * a real logger DI lands in v0.6+ when the LoggerInterface is plumbed).

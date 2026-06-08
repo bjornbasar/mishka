@@ -31,8 +31,11 @@ class RecordingMailer extends Mailer
 {
     /**
      * Recorded calls, in order. Each entry is one of:
-     *   ['kind' => 'verification'|'password_reset', 'to' => string,
-     *    'url' => string, 'display_name' => string]
+     *   ['kind' => 'verification'|'password_reset'|'email_change'|'email_change_notification',
+     *    'to' => string, 'url' => string, 'display_name' => string]
+     *
+     * For 'email_change_notification', 'url' holds the masked new email
+     * (e.g. 'j***@example.com'); the kind disambiguates.
      *
      * @var list<array{kind: string, to: string, url: string, display_name: string}>
      */
@@ -60,6 +63,32 @@ class RecordingMailer extends Mailer
             'kind' => 'password_reset',
             'to' => $toEmail,
             'url' => $resetUrl,
+            'display_name' => $displayName,
+        ];
+        return true;
+    }
+
+    public function sendEmailChange(string $toEmail, string $confirmUrl, string $displayName): bool
+    {
+        $this->sent[] = [
+            'kind' => 'email_change',
+            'to' => $toEmail,
+            'url' => $confirmUrl,
+            'display_name' => $displayName,
+        ];
+        return true;
+    }
+
+    public function sendEmailChangeNotification(
+        string $toOldEmail,
+        string $newEmailMasked,
+        string $displayName,
+    ): bool {
+        // 'url' holds the masked new email here — the kind disambiguates.
+        $this->sent[] = [
+            'kind' => 'email_change_notification',
+            'to' => $toOldEmail,
+            'url' => $newEmailMasked,
             'display_name' => $displayName,
         ];
         return true;
