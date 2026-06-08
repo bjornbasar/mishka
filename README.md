@@ -6,6 +6,8 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
+**v0.6.11** — Email change. Closes the v0.5.0 deferral. Two-step flow: POST `/me/email` (with current-password re-auth + 3/10min/user rate limit) issues a 24h confirmation token sent to the NEW address; clicking the link renders a GET confirmation page (which defends against email-client link prefetching burning the token), and POSTing that page atomically swaps `users.email`, marks the new address verified, and invalidates pending `password_reset_tokens` + `email_verification_tokens` (mailbox-compromise hardening). An immediate notification to the OLD address surfaces the request (with the new email masked, no token, no cancel link — old-mailbox compromise must go through password-change for remediation). UNIQUE conflict on the swap (another user took the email mid-flow) surfaces as a 422 conflict page, never 500. Email change is NOT a credential change — no `user_password_changes` write, no `Session::regenerate()`. New `email_change_tokens` table mirrors v0.5.0's token shape; `email_send_attempts.kind` CHECK extended via the PG_ONLY ALTER pattern (decision #47).
+
 **v0.6.10** — SW-version discipline correction. v0.6.7 introduced a `test_sw_version_matches_release` CI gate that asserts `SW_VERSION` in `public/service-worker.js` always matches the README `## Status` version. The v0.6.7 release-checklist wording, however, said to bump `SW_VERSION` only "if the release changes any precached asset" — a conditional rule that the test does NOT honour. v0.6.9 didn't touch any precached asset, didn't bump `SW_VERSION`, and CI flagged the gap. v0.6.10 syncs `SW_VERSION` to `mishka-v0.6.10`, tightens `docs/RELEASE.md` to "always bump on every release regardless of asset changes" (matches the test reality), and documents the corrected discipline as DOCS.md decision #51. No user-facing behavioural change other than the SW cache invalidating once on update — clients pick up no new assets because none changed since v0.6.9.
 
 **v0.6.9** — Stuck-job recovery. The `mishka-worker` container's try/catch only catches handler exceptions; SIGKILL (OOM, host reboot, manual `docker kill`) leaves the job row stuck in `processing` forever. New `php bin/karhu jobs:unstick` command (cron-wired to `*/10 * * * *` on Nalle) resets rows that have been processing for >5 min back to pending so the worker picks them up again. The UPDATE's WHERE clause is the dedup — a live worker that completes a row mid-cron flips status='completed' so the unstick row simply no longer matches; no race window. Closes the v0.6.0 plan's deferred `B9 — v0.6.1 candidate`. Bumps `bjornbasar/karhu-queue` to v0.2.0 (adds `QueueInterface::unstick` + bumps `updated_at` on every status transition + status-guards `complete()`/`fail()`). The push handler's existing dedup ledger means at-most-once recovers cleanly to at-least-once.
@@ -74,7 +76,7 @@ Carried forward from v0.1–v0.4.3: registration + login, households (N:M member
 
 ## Roadmap
 
-- **v0.6+ candidates:** email change (FK touchpoints), account delete (FK RESTRICT chain on `events.created_by` / `chores.created_by`), per-device session revoke (sessions-list UI), persistent badge history, daily streaks alongside weekly, subscribe-to-external-calendar.
+- **v0.6+ candidates:** account delete (FK RESTRICT chain on `events.created_by` / `chores.created_by`), per-device session revoke (sessions-list UI), persistent badge history, daily streaks alongside weekly, subscribe-to-external-calendar.
 
 ## Docs
 
