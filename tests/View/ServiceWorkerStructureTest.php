@@ -170,6 +170,20 @@ final class ServiceWorkerStructureTest extends TestCase
         self::assertMatchesRegularExpression('/if\s*\(\s*IS_DEV\s*\)\s*return/', $sw);
     }
 
+    public function test_sw_iscacheable_rejects_no_store(): void
+    {
+        // v0.6.8: the /csrf-token endpoint relies on Cache-Control: no-store
+        // to defeat SW caching. isCacheable() must keep that check; a
+        // "simplification" PR that removes it would silently start caching
+        // CSRF tokens client-side.
+        $sw = (string) file_get_contents(self::SW_PATH);
+        self::assertMatchesRegularExpression(
+            '/no-store/',
+            $sw,
+            'isCacheable() must reject responses with Cache-Control: no-store',
+        );
+    }
+
     public function test_manifest_icons_match_precache(): void
     {
         // Per adversarial round-1 S2: every manifest icon src must appear in

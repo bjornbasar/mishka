@@ -26,4 +26,6 @@ return [
     App\Controllers\NotificationsController::class,
     // v0.6.7 — /offline shell precached by the service worker
     App\Controllers\OfflineController::class,
+    // v0.6.8 — /csrf-token JSON endpoint for inline refresh script
+    App\Controllers\CsrfTokenController::class,
 ];

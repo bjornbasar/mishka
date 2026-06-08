@@ -169,3 +169,9 @@ Served by the front-end (PHP `-S` in current prod, Apache in any future deploy) 
 | GET | /icon-512-maskable.png | 512×512 PNG with 80% safe zone (manifest `maskable` icon for Android adaptive launchers) |
 | GET | /apple-touch-icon.png | 180×180 PNG (iOS home-screen icon — referenced by `<link rel="apple-touch-icon">` in layout.twig) |
 | GET | /favicon.ico | Browser tab favicon |
+
+## CSRF token endpoint (v0.6.8)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | /csrf-token | Returns `{"token": "..."}` JSON with `Cache-Control: no-store`. Unauthenticated (works for anonymous + logged-in alike via karhu's session/cookie token storage). Powers the inline IIFE in `layout.twig` that refreshes the in-page CSRF token on every page load — closes the cross-tab session-rotation gap (login in tab A invalidates tab B's CSRF token; old behaviour was a plain-text "CSRF token mismatch" 403; new behaviour is silent refresh on tab B's next nav). Consumed only by `layout.twig`'s inline script; not part of any external API contract. GET-safelisted by Csrf middleware so the endpoint doesn't require a token to call itself. |

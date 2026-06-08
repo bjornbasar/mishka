@@ -27,12 +27,14 @@ use App\Controllers\AuthController;
 use App\Controllers\CalendarController;
 use App\Controllers\ChoresController;
 use App\Controllers\ChoreSchedulesController;
+use App\Controllers\CsrfTokenController;
 use App\Controllers\HomeController;
 use App\Controllers\HouseholdController;
 use App\Controllers\IcalFeedController;
 use App\Controllers\EmailVerificationController;
 use App\Controllers\HelpController;
 use App\Controllers\NotificationsController;
+use App\Controllers\OfflineController;
 use App\Controllers\PasswordResetController;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
@@ -236,6 +238,10 @@ abstract class AppTestCase extends TestCase
             HelpController::class,
             // v0.6.0 — push notifications
             NotificationsController::class,
+            // v0.6.7 — /offline shell precached by service worker
+            OfflineController::class,
+            // v0.6.8 — /csrf-token JSON endpoint
+            CsrfTokenController::class,
         ]);
 
         return $app;
