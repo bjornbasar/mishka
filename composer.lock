@@ -99,16 +99,20 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/bjornbasar/karhu-queue.git",
-                "reference": "c786f71dbe38a05f1ffa8ed1bd524587224a92b1"
+                "reference": "387922b3e7dc6b77b73efe1949a6366f17929bcd"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bjornbasar/karhu-queue/zipball/c786f71dbe38a05f1ffa8ed1bd524587224a92b1",
-                "reference": "c786f71dbe38a05f1ffa8ed1bd524587224a92b1",
+                "url": "https://api.github.com/repos/bjornbasar/karhu-queue/zipball/387922b3e7dc6b77b73efe1949a6366f17929bcd",
+                "reference": "387922b3e7dc6b77b73efe1949a6366f17929bcd",
                 "shasum": ""
             },
             "require": {
                 "php": ">=8.3"
+            },
+            "require-dev": {
+                "bjornbasar/karhu-db": "^0.1",
+                "phpunit/phpunit": "^11.0"
             },
             "suggest": {
                 "bjornbasar/karhu-db": "For the database-backed queue driver"
@@ -129,7 +133,7 @@
                 "issues": "https://github.com/bjornbasar/karhu-queue/issues",
                 "source": "https://github.com/bjornbasar/karhu-queue/tree/main"
             },
-            "time": "2026-04-28T02:04:19+00:00"
+            "time": "2026-06-08T04:10:34+00:00"
         },
         {
             "name": "bjornbasar/karhu-view",

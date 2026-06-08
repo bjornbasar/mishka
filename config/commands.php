@@ -12,4 +12,6 @@ return [
     App\Commands\PushGenerateKeysCommand::class,
     App\Commands\PushScanCommand::class,
     App\Commands\PushWorkerCommand::class,
+    // v0.6.9 — SIGKILL recovery
+    App\Commands\JobsUnstickCommand::class,
 ];
