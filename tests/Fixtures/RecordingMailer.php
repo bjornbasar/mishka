@@ -93,4 +93,19 @@ class RecordingMailer extends Mailer
         ];
         return true;
     }
+
+    public function sendAccountDeletedNotification(
+        string $toEmail,
+        string $displayName,
+        string $deletedAt,
+    ): bool {
+        // 'url' holds the deleted_at timestamp; the kind disambiguates.
+        $this->sent[] = [
+            'kind' => 'account_deleted',
+            'to' => $toEmail,
+            'url' => $deletedAt,
+            'display_name' => $displayName,
+        ];
+        return true;
+    }
 }

@@ -115,6 +115,36 @@ class Mailer
     }
 
     /**
+     * v0.6.12 — courtesy notification AFTER an account is deleted.
+     *
+     * Fire-and-forget: the user row is already gone, so SMTP failure can't
+     * unwind. This is a detection signal for unauthorised deletion — the
+     * legitimate user receives this and can react via support, even though
+     * the account itself cannot be restored (no soft-delete; decision #53).
+     *
+     * Takes $deletedAt as a pre-formatted UTC string so the body can render
+     * the exact moment of deletion — useful if the user re-registers with
+     * the same email post-delete and receives this courtesy email about
+     * the OLD account (round-2 R22 / decision #53).
+     *
+     * Deliberately minimal: no link, no token, no "click to recover" path.
+     * The subject + body are the audit trail.
+     */
+    public function sendAccountDeletedNotification(
+        string $toEmail,
+        string $displayName,
+        string $deletedAt,
+    ): bool {
+        return $this->send(
+            $toEmail,
+            'Your account was deleted — Mishka Den',
+            'mail/account_deleted.txt.twig',
+            'mail/account_deleted.html.twig',
+            ['display_name' => $displayName, 'deleted_at' => $deletedAt],
+        );
+    }
+
+    /**
      * Single send path. Builds the multipart message and dispatches; catches
      * any TransportException and logs it via `error_log` (good enough for v0.5;
      * a real logger DI lands in v0.6+ when the LoggerInterface is plumbed).
