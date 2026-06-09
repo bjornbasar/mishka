@@ -20,6 +20,8 @@ use App\Calendar\IcalFeedTokenRepository;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
+use App\Chores\BadgeAwardRepository;
+use App\Chores\BadgeAwarder;
 use App\Chores\ChoreRepository;
 use App\Chores\ChoreScheduleGenerator;
 use App\Chores\ChoreScheduleRepository;
@@ -82,6 +84,9 @@ abstract class AppTestCase extends TestCase
     protected EventRepository $eventRepo;
     protected IcalFeedTokenRepository $tokenRepo;
     protected ChoreRepository $choreRepo;
+    // v0.6.13
+    protected BadgeAwardRepository $badgeAwardRepo;
+    protected BadgeAwarder $badgeAwarder;
     protected ChoreScheduleRepository $scheduleRepo;
     protected PasswordHasher $hasher;
     // v0.5.0
@@ -132,6 +137,8 @@ abstract class AppTestCase extends TestCase
         $this->tokenRepo = new IcalFeedTokenRepository($this->db);
         $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo);
         $this->choreRepo = new ChoreRepository($this->db);
+        $this->badgeAwardRepo = new BadgeAwardRepository($this->db);
+        $this->badgeAwarder = new BadgeAwarder($this->badgeAwardRepo, $this->choreRepo);
         $this->scheduleRepo = new ChoreScheduleRepository($this->db);
         $choreScheduleGenerator = new ChoreScheduleGenerator($this->scheduleRepo, $this->choreRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
@@ -185,6 +192,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(IcalFeedTokenRepository::class, $this->tokenRepo);
         $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
         $app->container()->set(ChoreRepository::class, $this->choreRepo);
+        $app->container()->set(BadgeAwardRepository::class, $this->badgeAwardRepo);
+        $app->container()->set(BadgeAwarder::class, $this->badgeAwarder);
         $app->container()->set(ChoreScheduleRepository::class, $this->scheduleRepo);
         $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
         $app->container()->set(PasswordHasher::class, $this->hasher);
@@ -249,6 +258,8 @@ abstract class AppTestCase extends TestCase
             OfflineController::class,
             // v0.6.8 — /csrf-token JSON endpoint
             CsrfTokenController::class,
+            // v0.6.13 — /badges page
+            \App\Controllers\BadgesController::class,
         ]);
 
         return $app;
