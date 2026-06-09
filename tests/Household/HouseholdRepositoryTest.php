@@ -301,6 +301,51 @@ final class HouseholdRepositoryTest extends TestCase
         self::assertNull($this->repo->findById(999_999));
     }
 
+    // ============================================================
+    // v0.6.12 — ownership-count + list for /me/delete pre-check
+    // ============================================================
+
+    public function test_count_owned_by_user_returns_zero_for_user_with_no_ownerships(): void
+    {
+        $uid = $this->insertUser('lonely@example.com');
+        self::assertSame(0, $this->repo->countOwnedByUser($uid));
+    }
+
+    public function test_count_owned_by_user_counts_only_owner_role_rows(): void
+    {
+        // User owns 2 households; also a member (non-owner) of a 3rd.
+        // The count should be 2, not 3.
+        $owner = $this->insertUser('owner@example.com');
+        $other = $this->insertUser('other@example.com');
+        $h1 = $this->repo->createForOwner('First', $owner);
+        $h2 = $this->repo->createForOwner('Second', $owner);
+        $h3 = $this->repo->createForOwner('Third', $other);
+        $this->repo->addMember($h3, $owner);  // owner joins as member
+
+        self::assertSame(2, $this->repo->countOwnedByUser($owner));
+        // Sanity: other user only owns h3.
+        self::assertSame(1, $this->repo->countOwnedByUser($other));
+    }
+
+    public function test_list_owned_by_user_returns_id_name_sorted_by_name(): void
+    {
+        $owner = $this->insertUser('owner@example.com');
+        $this->repo->createForOwner('Zebra', $owner);
+        $this->repo->createForOwner('Alpha', $owner);
+        $this->repo->createForOwner('Mango', $owner);
+
+        $owned = $this->repo->listOwnedByUser($owner);
+
+        self::assertCount(3, $owned);
+        self::assertSame(['Alpha', 'Mango', 'Zebra'], array_column($owned, 'name'));
+        // Each row has id + name keys only.
+        foreach ($owned as $row) {
+            self::assertArrayHasKey('id', $row);
+            self::assertArrayHasKey('name', $row);
+            self::assertIsInt($row['id']);
+        }
+    }
+
     private function insertUser(string $email): int
     {
         return (int) $this->db->fetchScalar(

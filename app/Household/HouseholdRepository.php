@@ -384,6 +384,53 @@ final class HouseholdRepository
     }
 
     /**
+     * v0.6.12 — count households this user owns. AccountController's
+     * /me/delete pre-check uses this to block account-delete when the user
+     * is the owner of >= 1 household (decision #40 analogue: owners cannot
+     * leave, owners cannot delete-self either — must transfer or delete
+     * the households first).
+     */
+    public function countOwnedByUser(int $userId): int
+    {
+        if ($userId <= 0) {
+            return 0;
+        }
+        return (int) $this->db->fetchScalar(
+            "SELECT COUNT(*) FROM household_members
+             WHERE user_id = :uid AND role = 'owner'",
+            ['uid' => $userId],
+        );
+    }
+
+    /**
+     * v0.6.12 — list (id, name) of households this user owns. Used to render
+     * the /me/delete blocker UI with per-row action links so the user can
+     * Transfer ownership or Delete the household before retrying the
+     * account-delete.
+     *
+     * @return list<array{id: int, name: string}>
+     */
+    public function listOwnedByUser(int $userId): array
+    {
+        if ($userId <= 0) {
+            return [];
+        }
+        $rows = $this->db->fetchAll(
+            "SELECT h.id, h.name
+             FROM household_members m
+             JOIN households h ON h.id = m.household_id
+             WHERE m.user_id = :uid AND m.role = 'owner'
+             ORDER BY h.name ASC",
+            ['uid' => $userId],
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = ['id' => (int) $r['id'], 'name' => (string) $r['name']];
+        }
+        return $out;
+    }
+
+    /**
      * Generate an 8-char join code from the restricted alphabet, with
      * collision retry. ~5 attempts ceiling — in practice will never iterate
      * (32^8 = 1.1 trillion codes).
