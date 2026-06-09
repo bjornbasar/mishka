@@ -259,6 +259,47 @@ final class ChoresControllerTest extends AppTestCase
         self::assertTrue($this->choreRepo->findById($id)['is_done']);
     }
 
+    public function test_post_chores_done_writes_badge_awards_for_first_chore(): void
+    {
+        // v0.6.13 eager-award: a fresh user marking their FIRST chore done
+        // should get a badge_awards row for 'first_chore' written synchronously.
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $id = $this->choreRepo->create($this->choreData($hid, $uid, [
+            'title' => 'Dishes', 'points' => 5, 'assigned_to' => $uid,
+        ]));
+
+        $this->request('POST', "/chores/{$id}/done");
+
+        self::assertContains('first_chore', $this->badgeAwardRepo->listCodesForUser($hid, $uid));
+    }
+
+    public function test_post_chores_done_idempotent_on_reopen_redo(): void
+    {
+        // Mark done → reopen → mark done again. UNIQUE prevents a second
+        // first_chore award; earned_at is preserved from the FIRST earn.
+        [$uid, $hid] = $this->signInAsHouseholdOwner();
+        $id = $this->choreRepo->create($this->choreData($hid, $uid, [
+            'title' => 'Dishes', 'points' => 5, 'assigned_to' => $uid,
+        ]));
+
+        $this->request('POST', "/chores/{$id}/done");
+        $rows1 = $this->badgeAwardRepo->listForUser($hid, $uid);
+        $firstEarn1 = array_values(array_filter($rows1, static fn($r) => $r['badge_code'] === 'first_chore'));
+        self::assertCount(1, $firstEarn1);
+        $originalEarnedAt = $firstEarn1[0]['earned_at'];
+
+        // Sleep so a second markDone would produce a DIFFERENT timestamp if it
+        // overwrote. Then reopen + redo. Verified non-overwrite by comparison.
+        usleep(1_100_000);
+        $this->request('POST', "/chores/{$id}/reopen");
+        $this->request('POST', "/chores/{$id}/done");
+
+        $rows2 = $this->badgeAwardRepo->listForUser($hid, $uid);
+        $firstEarn2 = array_values(array_filter($rows2, static fn($r) => $r['badge_code'] === 'first_chore'));
+        self::assertCount(1, $firstEarn2);
+        self::assertSame($originalEarnedAt, $firstEarn2[0]['earned_at']);
+    }
+
     public function test_reopen_moves_chore_back_to_open(): void
     {
         [$uid, $hid] = $this->signInAsHouseholdOwner();

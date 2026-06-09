@@ -149,6 +149,9 @@ $icalBuilder = new IcalFeedBuilder($eventRepo, $exceptionRepo, $householdRepo);
 $choreRepo = new ChoreRepository($db);
 $choreScheduleRepo = new ChoreScheduleRepository($db);
 $choreScheduleGenerator = new ChoreScheduleGenerator($choreScheduleRepo, $choreRepo, $householdRepo);
+// v0.6.13 — persistent badges
+$badgeAwardRepo = new App\Chores\BadgeAwardRepository($db);
+$badgeAwarder = new App\Chores\BadgeAwarder($badgeAwardRepo, $choreRepo);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);
@@ -193,6 +196,8 @@ $app->container()->set(EventService::class, $eventService);
 $app->container()->set(IcalFeedTokenRepository::class, $tokenRepo);
 $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
 $app->container()->set(ChoreRepository::class, $choreRepo);
+$app->container()->set(App\Chores\BadgeAwardRepository::class, $badgeAwardRepo);
+$app->container()->set(App\Chores\BadgeAwarder::class, $badgeAwarder);
 $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
 $app->container()->set(HouseholdAuthorizer::class, $authz);

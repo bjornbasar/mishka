@@ -252,9 +252,12 @@ final class ChoreRepository
      * (`$byUserId`, also stored as completed_by) is credited the chore's points
      * captured AT completion; one UTC timestamp is written to both rows.
      *
-     * @return bool whether this call actually transitioned the chore (vs no-op)
+     * @return ?string the pinned UTC `Y-m-d H:i:s` timestamp on transition,
+     *                 null on no-op. v0.6.13 changed the return from bool to
+     *                 ?string so BadgeAwarder can use the same timestamp as
+     *                 the ledger row's earned_at without a re-SELECT.
      */
-    public function markDone(int $choreId, int $byUserId): bool
+    public function markDone(int $choreId, int $byUserId): ?string
     {
         $ts = gmdate('Y-m-d H:i:s');
 
@@ -296,7 +299,7 @@ final class ChoreRepository
             if ($transactionStarted) {
                 $pdo->commit();
             }
-            return $transitioned;
+            return $transitioned ? $ts : null;
         } catch (\Throwable $e) {
             if ($transactionStarted) {
                 $pdo->rollBack();

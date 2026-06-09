@@ -498,7 +498,9 @@ final class ChoreRepositoryTest extends TestCase
 
         $transitioned = $this->repo->markDone($id, $uid);
 
-        self::assertTrue($transitioned);
+        // v0.6.13: markDone returns ?string (UTC timestamp on transition, null on no-op).
+        self::assertNotNull($transitioned);
+        self::assertMatchesRegularExpression('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $transitioned);
         $rows = $this->ledgerRows($id);
         self::assertCount(1, $rows);
         self::assertSame($uid, (int) $rows[0]['credited_user_id']);
@@ -513,8 +515,9 @@ final class ChoreRepositoryTest extends TestCase
         $hid = $this->insertHousehold('Den');
         $id = $this->repo->create($this->minimalChoreData($hid, $first, ['points' => 10]));
 
-        self::assertTrue($this->repo->markDone($id, $first));
-        self::assertFalse($this->repo->markDone($id, $second));  // no-op, already done
+        // v0.6.13: markDone returns ?string — assertNotNull/assertNull.
+        self::assertNotNull($this->repo->markDone($id, $first));
+        self::assertNull($this->repo->markDone($id, $second));  // no-op, already done
 
         $rows = $this->ledgerRows($id);
         self::assertCount(1, $rows);

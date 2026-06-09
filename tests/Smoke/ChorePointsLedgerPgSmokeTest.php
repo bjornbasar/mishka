@@ -54,7 +54,7 @@ final class ChorePointsLedgerPgSmokeTest extends TestCase
         $hid = $this->households->createForOwner('Den', $uid);
         $id = $this->makeChore($hid, $uid, 10);
 
-        self::assertTrue($this->chores->markDone($id, $uid));
+        self::assertNotNull($this->chores->markDone($id, $uid));
 
         $row = $this->db->fetchOne('SELECT * FROM chore_points_ledger WHERE chore_id = :c', ['c' => $id]);
         self::assertNotNull($row);

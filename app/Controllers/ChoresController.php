@@ -6,6 +6,8 @@ namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
 use App\Chores\Achievements;
+use App\Chores\BadgeAwardRepository;
+use App\Chores\BadgeAwarder;
 use App\Chores\ChoreRepository;
 use App\Chores\ChoreScheduleGenerator;
 use App\Chores\ChoreScheduleRepository;
@@ -55,6 +57,9 @@ final class ChoresController
         private readonly NotificationDispatchRepository $dispatches,
         private readonly Connection $db,
         private readonly QueueInterface $queue,
+        // v0.6.13 — persistent badges
+        private readonly BadgeAwarder $awarder,
+        private readonly BadgeAwardRepository $awards,
     ) {}
 
     #[Route('/chores', methods: ['GET'], name: 'chores.list')]
@@ -318,8 +323,25 @@ final class ChoresController
         if ($resolved instanceof Response) {
             return $resolved;
         }
-        [$chore] = $resolved;
-        $this->chores->markDone((int) $chore['id'], (int) Session::get('user_id'));
+        [$chore, $hid] = $resolved;
+        $uid = (int) Session::get('user_id');
+        $completedAt = $this->chores->markDone((int) $chore['id'], $uid);
+
+        // v0.6.13 — best-effort eager badge-award. A failure here MUST NOT
+        // roll back the chore-complete (the user marked it done; that's
+        // durable). The `badges:backfill` CLI repairs missed awards.
+        if ($completedAt !== null) {
+            try {
+                $hh = $this->households->findById($hid);
+                $tz = new \DateTimeZone((string) ($hh['timezone'] ?? 'Pacific/Auckland'));
+                $this->awarder->evaluateAndGrant(
+                    $hid, $uid, $completedAt, $tz, new \DateTimeImmutable('now'),
+                );
+            } catch (\Throwable $e) {
+                error_log('badges: eager-award failed for user ' . $uid . ': ' . $e->getMessage());
+            }
+        }
+
         return (new Response())->redirect('/chores', 303);
     }
 
@@ -504,10 +526,20 @@ final class ChoresController
         $nowLocal = $now->setTimezone($tz)->format('Y-m-d H:i:s');
         $missed = $this->chores->missedCountsForHousehold($hid, $nowLocal);
 
+        // v0.6.13 — badges are now persistent (badge_awards table) and read
+        // bulk for the household. The Achievements::compute() 'badges' field
+        // is overwritten below by the persistent source; only 'streak' (a
+        // live current-state value) is still sourced from Achievements.
+        // array_merge is RIGHT-WINS (PHP's `+` is LEFT-WINS — round-2 C6).
+        $badgesByUser = $this->awards->listByUserForHousehold($hid);
+
         return array_map(
-            static fn(array $row): array => $row
-                + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0])
-                + ['missed_count' => $missed[(int) $row['user_id']] ?? 0],
+            static fn(array $row): array => array_merge(
+                $row,
+                ['streak' => $achievements[(int) $row['user_id']]['streak'] ?? 0],
+                ['missed_count' => $missed[(int) $row['user_id']] ?? 0],
+                ['badges' => $badgesByUser[(int) $row['user_id']] ?? []],
+            ),
             $board,
         );
     }
