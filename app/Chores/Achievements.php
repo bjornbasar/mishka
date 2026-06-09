@@ -36,7 +36,7 @@ final class Achievements
         // latter can't smuggle in a member who isn't on the current board.
         foreach ($board as $row) {
             $userId = (int) $row['user_id'];
-            $streak = $this->computeStreak(
+            $streak = self::computeStreak(
                 $recentCompletionsByUser[$userId] ?? [],
                 $householdTz,
                 $weekNow,
@@ -63,7 +63,7 @@ final class Achievements
      *
      * @param list<string> $completedAtsUtc
      */
-    private function computeStreak(
+    public static function computeStreak(
         array $completedAtsUtc,
         \DateTimeZone $tz,
         string $weekNow,
