@@ -11,6 +11,7 @@
 -- v0.6.0: push_subscriptions + user_notification_prefs + notification_dispatches
 -- v0.6.11: email_change_tokens; email_send_attempts.kind CHECK extended for change_email_request
 -- v0.6.12: events/chores/chore_schedules.created_by → NULLABLE + SET NULL (account-delete support)
+-- v0.6.13: badge_awards (persistent badge history; reverses #35)
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -714,6 +715,41 @@ CREATE INDEX IF NOT EXISTS idx_jobs_queue_status_id
 -- because SQLite doesn't support ALTER TABLE ADD COLUMN IF NOT EXISTS nor
 -- ALTER TABLE DROP/ADD CONSTRAINT. Fresh SQLite test runs get the new
 -- columns + CHECK directly from the CREATE TABLE statements above.
+
+-- ============================================================
+-- v0.6.13: badge_awards — persistent badge-earn history
+-- ============================================================
+--
+-- Reverses decision #35 (stateless badges, v0.4.3). The 6 badges that
+-- Achievements::badges() returned via runtime compute now persist with
+-- the moment the threshold was crossed (pinned by the controller as the
+-- triggering ledger row's completed_at).
+--
+-- Idempotency: UNIQUE(household_id, user_id, badge_code) — "earned once
+-- forever". The eager-award path INSERTs with ON CONFLICT DO NOTHING (PG)
+-- / INSERT OR IGNORE (SQLite) so a double-complete-then-reopen-then-
+-- complete sequence never produces a second row (and never re-stamps
+-- earned_at backwards).
+--
+-- user_id is ON DELETE SET NULL (mirrors decision #31 chore_points_ledger
+-- + decision #53 events/chores.created_by). Award history per-household
+-- survives the author's account deletion as a "Deleted user" badge.
+-- household_id CASCADEs (scope root).
+
+CREATE TABLE IF NOT EXISTS badge_awards (
+    id           SERIAL PRIMARY KEY,
+    household_id INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    user_id      INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    badge_code   VARCHAR(64) NOT NULL,
+    earned_at    TIMESTAMPTZ NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_badge_awards_unique_per_user_badge
+    ON badge_awards(household_id, user_id, badge_code);
+
+CREATE INDEX IF NOT EXISTS idx_badge_awards_user_earned
+    ON badge_awards(user_id, earned_at);
 
 -- BEGIN PG_ONLY
 BEGIN;
