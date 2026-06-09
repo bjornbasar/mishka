@@ -14,4 +14,6 @@ return [
     App\Commands\PushWorkerCommand::class,
     // v0.6.9 — SIGKILL recovery
     App\Commands\JobsUnstickCommand::class,
+    // v0.6.13 — badge persistence
+    App\Commands\BadgesBackfillCommand::class,
 ];
