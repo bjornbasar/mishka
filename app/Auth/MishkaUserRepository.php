@@ -336,6 +336,40 @@ final class MishkaUserRepository implements UserRepositoryInterface
         return $rows === 1;
     }
 
+    /**
+     * v0.6.12 — delete a user.
+     *
+     * Caller owns ALL pre-checks: re-auth (current_password match),
+     * confirm_email hash_equals, and countOwnedByUser($uid) === 0 via
+     * HouseholdRepository. Caller also owns the surrounding transaction
+     * so the 12-table CASCADE chain + 7 SET NULL columns fire atomically
+     * with the users-row DELETE.
+     *
+     * This method is a single DELETE statement — no nested-txn guard
+     * (caller's responsibility). Sentinel guard refuses id <= 0 to keep
+     * the system role / sentinel user safe.
+     *
+     * Returns true iff exactly one row was deleted (false is idempotent
+     * for a stale id; a race-loser sees this and treats it as success
+     * because the row is gone either way).
+     *
+     * Throws \PDOException on FK violation — if the caller failed the
+     * ownership pre-check AND another transaction added an owner role
+     * between the pre-check and the DELETE (round-2 R9 ownerless race).
+     * Should not fire because all FKs are CASCADE or SET NULL post-v0.6.12.
+     */
+    public function delete(int $userId): bool
+    {
+        if ($userId <= 0) {
+            return false;
+        }
+        $rows = $this->db->run(
+            'DELETE FROM users WHERE id = :id',
+            ['id' => $userId],
+        );
+        return $rows === 1;
+    }
+
     /** Returns true iff the user has a non-null email_verified_at stamp. */
     public function isEmailVerified(int $userId): bool
     {
