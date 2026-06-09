@@ -9,6 +9,7 @@ use App\Auth\EmailSendAttemptRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\MishkaUserRepository;
 use App\Auth\PasswordResetTokenRepository;
+use App\Household\HouseholdRepository;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
 use App\View\NavContext;
@@ -57,6 +58,8 @@ final class AccountController
     private const TOKEN_REGEX = '/^[0-9a-f]{64}$/';
     private const RATE_LIMIT_REQUESTS = 3;
     private const RATE_LIMIT_WINDOW_MIN = 10;
+    // v0.6.12
+    private const CONFIRM_EMAIL_MAX = 320;
 
     public function __construct(
         private readonly MishkaUserRepository $users,
@@ -71,6 +74,8 @@ final class AccountController
         private readonly Mailer $mailer,
         private readonly UrlBuilder $urls,
         private readonly Connection $db,
+        // v0.6.12 — account-delete deps
+        private readonly HouseholdRepository $households,
     ) {}
 
     // ============================================================
@@ -633,5 +638,161 @@ final class AccountController
             return true;   // unparseable → treat as expired (defensive)
         }
         return $exp <= time();
+    }
+
+    // ============================================================
+    // v0.6.12 — /me/delete (account deletion)
+    // ============================================================
+
+    #[Route('/me/delete', methods: ['GET'], name: 'me.delete')]
+    public function showDelete(Request $request): Response
+    {
+        $uid = $this->requireLogin();
+        if ($uid === null) {
+            return $this->redirectToLogin();
+        }
+        $user = $this->users->findById($uid);
+        if ($user === null) {
+            Session::destroy();
+            return $this->redirectToLogin();
+        }
+        return $this->renderDelete($user, errors: []);
+    }
+
+    #[Route('/me/delete', methods: ['POST'])]
+    public function handleDelete(Request $request): Response
+    {
+        $uid = $this->requireLogin();
+        if ($uid === null) {
+            return $this->redirectToLogin();
+        }
+        $user = $this->users->findById($uid);
+        if ($user === null) {
+            Session::destroy();
+            return $this->redirectToLogin();
+        }
+
+        // Normalise input at the controller boundary (round-2 C6) — same
+        // strtolower+trim normalisation that MishkaUserRepository::normaliseEmail
+        // applies to the DB-side. Without this, hash_equals against the
+        // canonical column value would case-mismatch on uppercase input.
+        $confirmEmail = strtolower(trim((string) $this->readInputField($request, 'confirm_email')));
+        $currentPassword = (string) $this->readInputField($request, 'current_password');
+
+        // M1 always-verify: hasher::verify regardless of subsequent validation
+        // outcomes, defends against password-length / "is this my current pw"
+        // timing oracle. Same pattern as handlePasswordPost + handleEmailPost.
+        $currentMatches = $this->hasher->verify($currentPassword, $user['password_hash']);
+
+        // Owned-households pre-check (read-only, runs OUTSIDE the txn).
+        $ownedCount = $this->households->countOwnedByUser($uid);
+
+        $errors = $this->validateDelete($confirmEmail, $user['email'], $currentMatches, $ownedCount);
+
+        if ($errors !== []) {
+            return $this->renderDelete($user, $errors, status: 422);
+        }
+
+        // Snapshot user-facing fields BEFORE delete so the courtesy email can
+        // use them. $deletedAt as explicit-UTC literal (decision #50 pattern)
+        // so the email body's timestamp is unambiguous (R22).
+        $toEmail = $user['email'];
+        $displayName = $user['display_name'];
+        $deletedAt = gmdate('Y-m-d H:i:s\Z');
+
+        // Single transaction wrapping the destructive DELETE. The 12-table
+        // CASCADE chain + 7 SET NULL columns all fire atomically. Nested-txn
+        // guard so an outer caller's txn isn't double-committed.
+        $pdo = $this->db->pdo();
+        $started = false;
+        if (!$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+            $started = true;
+        }
+        try {
+            $this->users->delete($uid);
+            if ($started) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            // @phpstan-ignore-next-line booleanAnd.rightAlwaysFalse
+            if ($started && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        // Fire-and-forget courtesy email. Mailer::send catches SMTP failure
+        // internally and returns false; we ignore the return value because
+        // the user row is already gone (no path to surface a flash to a
+        // user that no longer exists).
+        $this->mailer->sendAccountDeletedNotification($toEmail, $displayName, $deletedAt);
+
+        // Wipe the session AND explicitly clear the session cookie (round-2 C1
+        // — karhu's Session::destroy() wipes $_SESSION but does NOT touch the
+        // browser cookie; without the setcookie() call, the next request would
+        // try to re-attach to a now-dead session id). Mirrors AuthController's
+        // logout flow.
+        Session::destroy();
+        if (PHP_SAPI !== 'cli') {
+            $name = session_name() ?: 'PHPSESSID';
+            setcookie($name, '', [
+                'expires' => time() - 3600,
+                'path' => '/',
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
+        }
+
+        return (new Response())->redirect('/login?deleted=1', 302);
+    }
+
+    // ------------------------------------------------------------
+    // /me/delete render + validation helpers
+    // ------------------------------------------------------------
+
+    /**
+     * @param array{id: int, email: string, display_name: string, password_hash: string,
+     *              roles: list<string>} $user
+     * @param list<string> $errors
+     */
+    private function renderDelete(array $user, array $errors, int $status = 200): Response
+    {
+        return (new Response($status))
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withBody($this->view->render('account/delete.twig', [
+                'errors' => $errors,
+                'current_email' => $user['email'],
+                'display_name' => $user['display_name'],
+                'owned_households' => $this->households->listOwnedByUser($user['id']),
+            ] + $this->nav->forCurrentUser()));
+    }
+
+    /** @return list<string> */
+    private function validateDelete(
+        string $confirmEmail,
+        string $currentEmail,
+        bool $currentMatches,
+        int $ownedCount,
+    ): array {
+        $errors = [];
+        if (!$currentMatches) {
+            $errors[] = 'Current password is incorrect.';
+        }
+        if ($confirmEmail === '') {
+            $errors[] = 'Type your email to confirm deletion.';
+        } elseif (strlen($confirmEmail) > self::CONFIRM_EMAIL_MAX) {
+            $errors[] = 'Confirmation email is too long.';
+        } elseif (!hash_equals(strtolower(trim($currentEmail)), $confirmEmail)) {
+            $errors[] = 'Confirmation email does not match your current email.';
+        }
+        if ($ownedCount > 0) {
+            $errors[] = 'You own ' . $ownedCount . ' household'
+                . ($ownedCount === 1 ? '' : 's')
+                . '. Transfer ownership or delete '
+                . ($ownedCount === 1 ? 'it' : 'them')
+                . ' first.';
+        }
+        return $errors;
     }
 }

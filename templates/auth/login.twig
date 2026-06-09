@@ -8,11 +8,16 @@
     {# v0.5.0 flash query params (passed from AuthController::showLogin):
        - ?reset=ok               PasswordResetController after a successful reset (no auto-login).
        - ?reason=password_changed SessionRevocationGuard bounce when a session's auth_time
-                                  predates the user's password_changed_at stamp. #}
+                                  predates the user's password_changed_at stamp.
+       v0.6.12 adds:
+       - ?deleted=1              AccountController::handleDelete after a successful account
+                                  delete (session is destroyed; can't use a session-flash). #}
     {% if reset|default('') == 'ok' %}
         <div class="flash">Password reset — sign in with your new password.</div>
     {% elseif reason|default('') == 'password_changed' %}
         <div class="flash">Your password was changed elsewhere. Please sign in again.</div>
+    {% elseif deleted|default('') == '1' %}
+        <div class="flash">Your account has been deleted.</div>
     {% endif %}
 
     {% if errors %}

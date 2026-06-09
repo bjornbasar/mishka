@@ -1,0 +1,54 @@
+{% extends "layout.twig" %}
+
+{% block title %}Delete account — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Delete your account</h1>
+
+    <div style="background: #fff4f4; border: 2px solid #c00; padding: 16px; margin: 16px 0;">
+        <p style="margin: 0 0 8px 0;"><strong>This will delete the account for {{ display_name }} ({{ current_email }}).</strong></p>
+        <p style="margin: 0;">This action cannot be undone. Your household memberships, push subscriptions, and personal data are permanently removed. Events and chores you created in shared households remain (as <em>Deleted user</em>) so other family members keep their calendar and chore history.</p>
+    </div>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for error in errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    {% if owned_households|length > 0 %}
+        <h2>You own these households</h2>
+        <p style="color: var(--muted, #666);">
+            You can't delete your account while you own households. Transfer
+            ownership (or delete each household) from the list below first.
+        </p>
+        <ul>
+            {% for h in owned_households %}
+                <li>
+                    <strong>{{ h.name }}</strong> —
+                    <a href="/household">manage</a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="/me/delete" class="auth" style="margin-top: 24px;">
+        {{ csrf_field() }}
+        <label>
+            Current password (to confirm it's really you)
+            <input type="password" name="current_password" required>
+        </label>
+        <label>
+            To confirm, retype your email: <strong>{{ current_email }}</strong>
+            <input type="email" name="confirm_email" required maxlength="320"
+                   autocomplete="off" placeholder="{{ current_email }}">
+        </label>
+        <button type="submit"{% if owned_households|length > 0 %} disabled{% endif %}>
+            Permanently delete my account
+        </button>
+    </form>
+
+    <p style="margin-top: 24px;">
+        <a href="/me/profile">← Cancel and go back to profile</a>
+    </p>
+{% endblock %}

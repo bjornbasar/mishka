@@ -129,6 +129,9 @@ final class AuthController
         // v0.5.0 flash query params: ?reset=ok (post-password-reset) and
         // ?reason=password_changed (SessionRevocationGuard bounce). Both are
         // single-string GET keys; the template branches on the value.
+        // v0.6.12 adds ?deleted=1 (post-account-delete) for the courtesy
+        // notice — session is destroyed at that point so we can't use a
+        // session-flash; query-param flash is the workaround.
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('auth/login.twig', [
@@ -136,6 +139,7 @@ final class AuthController
                 'old' => [],
                 'reset' => $request->query('reset'),
                 'reason' => $request->query('reason'),
+                'deleted' => $request->query('deleted'),
             ] + $this->nav->forCurrentUser()));
     }
 
