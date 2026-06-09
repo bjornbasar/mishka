@@ -24,7 +24,8 @@
         {% endif %}
         {% if member.badges is defined %}
             {% for code in member.badges %}
-                <span title="{{ badge_meta[code].title }}" style="margin-left:0.25rem;">{{ badge_meta[code].emoji }}</span>
+                {# v0.6.13: badge emoji is a link to /badges (no nested anchors — the leaderboard row has no outer <a>). #}
+                <a href="/badges" title="{{ badge_meta[code].title }}" style="margin-left:0.25rem; text-decoration:none;">{{ badge_meta[code].emoji }}</a>
             {% endfor %}
         {% endif %}
         {% if member.missed_count is defined and member.missed_count > 0 %}

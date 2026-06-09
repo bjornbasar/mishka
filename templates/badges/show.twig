@@ -1,0 +1,87 @@
+{% extends "layout.twig" %}
+
+{% block title %}Badges — {{ brand.name }}{% endblock %}
+
+{% block content %}
+<style>
+    .badge-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+        gap: 0.75rem;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        max-width: 720px;
+    }
+    .badge-card {
+        border: 1px solid var(--border, #ccc);
+        border-radius: 8px;
+        padding: 1rem;
+        text-align: center;
+        background: var(--card-bg, #fafafa);
+    }
+    .badge-card.is-locked {
+        opacity: 0.5;
+    }
+    .badge-emoji {
+        display: block;
+        font-size: 2.5rem;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+    }
+    .badge-card strong {
+        display: block;
+        font-size: 0.95rem;
+        margin-bottom: 0.25rem;
+    }
+    .badge-card small {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--muted, #666);
+    }
+    @media (max-width: 700px) {
+        .badge-grid { grid-template-columns: 1fr; }
+    }
+</style>
+
+<h1>🏆 Your badges</h1>
+<p style="color: var(--muted, #666);">
+    {{ earned_codes|length }} of {{ all_codes|length }} earned
+</p>
+
+<ul class="badge-grid">
+    {% for code in all_codes %}
+        {% set meta = badge_meta[code] %}
+        {% set is_earned = code in earned_codes %}
+        {% set earned_row = earned|filter(r => r.badge_code == code)|first %}
+        <li class="badge-card {{ is_earned ? 'is-earned' : 'is-locked' }}">
+            <span class="badge-emoji" aria-hidden="true">{{ is_earned ? meta.emoji : '🔒' }}</span>
+            <strong>{{ meta.title }}</strong>
+            {% if is_earned %}
+                <small>Earned {{ earned_row.earned_at|slice(0, 10) }}</small>
+            {% else %}
+                <small>Locked</small>
+            {% endif %}
+        </li>
+    {% endfor %}
+</ul>
+
+{% if roster %}
+    <h2 style="margin-top: 2rem;">Household roster</h2>
+    <ul style="list-style: none; padding: 0;">
+        {% for member in roster %}
+            <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border, #eee);">
+                <strong>{{ member.display_name ?: member.email }}</strong>
+                — {{ member.badge_count }} badge{{ member.badge_count == 1 ? '' : 's' }}
+                {% for code in member.badge_codes %}
+                    <span title="{{ badge_meta[code].title }}" style="margin-left: 0.25rem;">{{ badge_meta[code].emoji }}</span>
+                {% endfor %}
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+<p style="margin-top: 2rem;">
+    <a href="/me/profile">← Back to profile</a>
+</p>
+{% endblock %}

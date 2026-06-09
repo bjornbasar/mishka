@@ -28,4 +28,6 @@ return [
     App\Controllers\OfflineController::class,
     // v0.6.8 — /csrf-token JSON endpoint for inline refresh script
     App\Controllers\CsrfTokenController::class,
+    // v0.6.13 — persistent badges + /badges page
+    App\Controllers\BadgesController::class,
 ];
