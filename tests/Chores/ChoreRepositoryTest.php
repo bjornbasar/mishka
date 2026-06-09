@@ -399,7 +399,11 @@ final class ChoreRepositoryTest extends TestCase
         $hid = $this->insertHousehold('Den');
         $id = $this->repo->create($this->minimalChoreData($hid, $owner, ['assigned_to' => $helper]));
 
-        // Helper's account is deleted — created_by is owner (RESTRICT) so this is allowed.
+        // Helper's account is deleted — created_by is owner so SET NULL on the
+        // helper's user-id doesn't touch this row's created_by. (Pre-v0.6.12
+        // this test relied on the RESTRICT FK protecting owner-as-creator;
+        // post-v0.6.12 the FK is SET NULL but the row is created with owner
+        // as author, so the helper's delete still doesn't NULL the author.)
         $this->db->run('DELETE FROM household_members WHERE user_id = :u', ['u' => $helper]);
         $this->db->run('DELETE FROM users WHERE id = :u', ['u' => $helper]);
 

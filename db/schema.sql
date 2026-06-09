@@ -10,6 +10,7 @@
 -- v0.5.0: email_verification_tokens + password_reset_tokens + user_password_changes + email_send_attempts
 -- v0.6.0: push_subscriptions + user_notification_prefs + notification_dispatches
 -- v0.6.11: email_change_tokens; email_send_attempts.kind CHECK extended for change_email_request
+-- v0.6.12: events/chores/chore_schedules.created_by → NULLABLE + SET NULL (account-delete support)
 -- Email policy: lowercased on write, queried as-is. UNIQUE constraint is sufficient.
 
 CREATE TABLE IF NOT EXISTS users (
@@ -110,10 +111,14 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 -- recurrence + single-occurrence-override feature doesn't need an ALTER TABLE.
 -- The schema stays append-only, matching v0.1/v0.2 idempotent migration semantics.
 
+-- v0.6.12: created_by is NULLABLE + ON DELETE SET NULL — authored content
+-- survives the author's account deletion as "Deleted user" (mirrors decision
+-- #31 chore_points_ledger.credited_user_id pattern). PG_ONLY ALTER at EOF
+-- handles the migration on existing prod data.
 CREATE TABLE IF NOT EXISTS events (
     id              SERIAL PRIMARY KEY,
     household_id    INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_by      INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     title           VARCHAR(200) NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     location        VARCHAR(200) NOT NULL DEFAULT '',
@@ -222,10 +227,10 @@ CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
 -- editing/deleting a completed chore or removing a member adjusts the tally,
 -- a documented v0.4.0 limitation).
 --
--- FK matrix: household_id CASCADE (scope root); created_by RESTRICT (matches
--- events — block account-delete that orphans authorship); assigned_to /
--- completed_by SET NULL (member/account gone → chore survives as unassigned,
--- never blocks a delete).
+-- FK matrix: household_id CASCADE (scope root); created_by SET NULL as of
+-- v0.6.12 (matches events + chore_schedules — authored content survives the
+-- author's account deletion as "Deleted user"); assigned_to / completed_by
+-- SET NULL (member/account gone → chore survives as unassigned).
 --
 -- `schedule_id` + `occurrence_date` ship INERT for v0.4.1 (a generated
 -- recurring instance is a chores row back-linking its chore_schedules template
@@ -237,7 +242,7 @@ CREATE INDEX IF NOT EXISTS idx_ical_feed_tokens_user_active
 CREATE TABLE IF NOT EXISTS chores (
     id              SERIAL PRIMARY KEY,
     household_id    INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    created_by      INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_by      INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     assigned_to     INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     completed_by    INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     title           VARCHAR(200) NOT NULL,
@@ -282,15 +287,17 @@ CREATE INDEX IF NOT EXISTS idx_chores_assigned_to
 -- race because it's advanced only inside the same txn as a successful insert.
 -- `assignment_mode='fixed'` pins every occurrence to `fixed_user_id` instead.
 --
--- FK matrix mirrors chores: household_id CASCADE; created_by RESTRICT; the user
--- pointers SET NULL (self-heal when an account is deleted). `chores.schedule_id`
--- stays a bare INTEGER with NO DB FK (no-ALTER convention) — so deleting a
--- schedule does NOT cascade; ChoreSchedulesController coordinates that.
+-- FK matrix mirrors chores: household_id CASCADE; created_by SET NULL as of
+-- v0.6.12 (authored content survives the author's account deletion); the user
+-- pointers (fixed_user_id, last_assigned_user_id) already SET NULL (self-heal
+-- when an account is deleted). `chores.schedule_id` stays a bare INTEGER with
+-- NO DB FK (no-ALTER convention) — so deleting a schedule does NOT cascade;
+-- ChoreSchedulesController coordinates that.
 
 CREATE TABLE IF NOT EXISTS chore_schedules (
     id                    SERIAL PRIMARY KEY,
     household_id          INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
-    created_by            INTEGER NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_by            INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     title                 VARCHAR(200) NOT NULL,
     description           TEXT NOT NULL DEFAULT '',
     points                INTEGER NOT NULL DEFAULT 0 CHECK (points >= 0),
@@ -720,5 +727,25 @@ ALTER TABLE notification_dispatches ADD CONSTRAINT notification_dispatches_kind_
 ALTER TABLE email_send_attempts DROP CONSTRAINT IF EXISTS email_send_attempts_kind_check;
 ALTER TABLE email_send_attempts ADD CONSTRAINT email_send_attempts_kind_check
     CHECK (kind IN ('password_reset_request', 'verify_resend', 'change_email_request'));
+-- v0.6.12: relax events/chores/chore_schedules.created_by from NOT NULL + ON
+-- DELETE RESTRICT to NULL + ON DELETE SET NULL so account delete can fire the
+-- cascade chain cleanly. See DOCS.md decision #53. All three blocks use
+-- DROP CONSTRAINT IF EXISTS + DROP NOT NULL + ADD CONSTRAINT — idempotent on
+-- rerun. DROP NOT NULL is a no-op when already nullable; ADD after DROP lands
+-- the same final state every time.
+ALTER TABLE events DROP CONSTRAINT IF EXISTS events_created_by_fkey;
+ALTER TABLE events ALTER COLUMN created_by DROP NOT NULL;
+ALTER TABLE events ADD CONSTRAINT events_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE chores DROP CONSTRAINT IF EXISTS chores_created_by_fkey;
+ALTER TABLE chores ALTER COLUMN created_by DROP NOT NULL;
+ALTER TABLE chores ADD CONSTRAINT chores_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
+
+ALTER TABLE chore_schedules DROP CONSTRAINT IF EXISTS chore_schedules_created_by_fkey;
+ALTER TABLE chore_schedules ALTER COLUMN created_by DROP NOT NULL;
+ALTER TABLE chore_schedules ADD CONSTRAINT chore_schedules_created_by_fkey
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL;
 COMMIT;
 -- END PG_ONLY
