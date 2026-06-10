@@ -200,4 +200,112 @@ final class BadgeAwarderTest extends TestCase
 
         self::assertSame([], $this->awards->listCodesForUser($this->hid, $this->uid));
     }
+
+    // ============================================================
+    // v0.6.14 — daily-streak badges (7-day + 30-day)
+    // ============================================================
+
+    /**
+     * Helper for the daily-streak tests: seed N ledger rows on N distinct
+     * consecutive NZ-days walking back from $now. Each row is at 09:00 NZ
+     * (well inside the day boundary, robust to DST flips).
+     */
+    private function seedConsecutiveDays(int $days, \DateTimeImmutable $now): void
+    {
+        for ($dayOffset = 0; $dayOffset < $days; $dayOffset++) {
+            $dayBack = $now->setTimezone($this->tz)
+                ->modify('-' . $dayOffset . ' days')
+                ->setTime(9, 0, 0);
+            $ts = $dayBack->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+            $this->db->run(
+                "INSERT INTO chore_points_ledger (household_id, chore_id, credited_user_id, points, completed_at)
+                 VALUES (:h, NULL, :u, 1, :ts)",
+                ['h' => $this->hid, 'u' => $this->uid, 'ts' => $ts],
+            );
+        }
+    }
+
+    public function test_evaluateAndGrant_writes_seven_day_streak_when_7_consecutive_days(): void
+    {
+        $now = new \DateTimeImmutable('2026-06-08 10:00:00', new \DateTimeZone('UTC'));
+        $this->seedConsecutiveDays(7, $now);
+
+        $this->awarder->evaluateAndGrant(
+            $this->hid, $this->uid, gmdate('Y-m-d H:i:s'), $this->tz, $now,
+        );
+
+        $codes = $this->awards->listCodesForUser($this->hid, $this->uid);
+        self::assertContains('seven_day_streak', $codes);
+        self::assertNotContains('thirty_day_streak', $codes);
+    }
+
+    public function test_evaluateAndGrant_writes_both_daily_badges_when_30_consecutive_days(): void
+    {
+        // At 30 days, BOTH thresholds fire in the same eager-award pass.
+        $now = new \DateTimeImmutable('2026-06-08 10:00:00', new \DateTimeZone('UTC'));
+        $this->seedConsecutiveDays(30, $now);
+
+        $this->awarder->evaluateAndGrant(
+            $this->hid, $this->uid, gmdate('Y-m-d H:i:s'), $this->tz, $now,
+        );
+
+        $codes = $this->awards->listCodesForUser($this->hid, $this->uid);
+        self::assertContains('seven_day_streak', $codes);
+        self::assertContains('thirty_day_streak', $codes);
+    }
+
+    public function test_evaluateAndGrant_does_NOT_write_seven_day_streak_for_6_consecutive_days(): void
+    {
+        // Boundary check at strict ≥7. 6 days → seven_day_streak is NOT granted.
+        $now = new \DateTimeImmutable('2026-06-08 10:00:00', new \DateTimeZone('UTC'));
+        $this->seedConsecutiveDays(6, $now);
+
+        $this->awarder->evaluateAndGrant(
+            $this->hid, $this->uid, gmdate('Y-m-d H:i:s'), $this->tz, $now,
+        );
+
+        $codes = $this->awards->listCodesForUser($this->hid, $this->uid);
+        self::assertNotContains('seven_day_streak', $codes);
+    }
+
+    public function test_evaluateAndGrant_does_NOT_write_thirty_day_streak_for_29_consecutive_days(): void
+    {
+        // Boundary check at strict ≥30. 29 days → thirty_day_streak is NOT granted
+        // (but seven_day_streak IS, since 29 >= 7).
+        $now = new \DateTimeImmutable('2026-06-08 10:00:00', new \DateTimeZone('UTC'));
+        $this->seedConsecutiveDays(29, $now);
+
+        $this->awarder->evaluateAndGrant(
+            $this->hid, $this->uid, gmdate('Y-m-d H:i:s'), $this->tz, $now,
+        );
+
+        $codes = $this->awards->listCodesForUser($this->hid, $this->uid);
+        self::assertContains('seven_day_streak', $codes);
+        self::assertNotContains('thirty_day_streak', $codes);
+    }
+
+    public function test_evaluateAndGrant_thirty_day_streak_is_idempotent_on_repeated_call(): void
+    {
+        // First call writes thirty_day_streak with the original $now's earned_at.
+        // Second call (after usleep so $now would differ) must NOT overwrite earned_at.
+        $now1 = new \DateTimeImmutable('2026-06-08 10:00:00', new \DateTimeZone('UTC'));
+        $this->seedConsecutiveDays(30, $now1);
+        $earnedAt1 = '2026-06-08 10:00:00';
+        $this->awarder->evaluateAndGrant($this->hid, $this->uid, $earnedAt1, $this->tz, $now1);
+
+        $rows1 = $this->awards->listForUser($this->hid, $this->uid);
+        $thirty1 = array_values(array_filter($rows1, static fn($r) => $r['badge_code'] === 'thirty_day_streak'));
+        self::assertCount(1, $thirty1);
+
+        // Sleep so a hypothetical overwrite would produce a distinguishable timestamp.
+        usleep(1_100_000);
+        $earnedAt2 = gmdate('Y-m-d H:i:s');
+        $this->awarder->evaluateAndGrant($this->hid, $this->uid, $earnedAt2, $this->tz, $now1);
+
+        $rows2 = $this->awards->listForUser($this->hid, $this->uid);
+        $thirty2 = array_values(array_filter($rows2, static fn($r) => $r['badge_code'] === 'thirty_day_streak'));
+        self::assertCount(1, $thirty2);
+        // earned_at preserved from the first call (NOT overwritten to $earnedAt2).
+        self::assertSame($thirty1[0]['earned_at'], $thirty2[0]['earned_at']);
+    }
 }

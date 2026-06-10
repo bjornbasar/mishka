@@ -21,12 +21,19 @@ namespace App\Chores;
  * roll back the chore-completion (the user marked it done; that's
  * durable). The `badges:backfill` CLI repairs missed awards.
  *
- * Decision #35 reversal: BadgeAwarder owns the COUNT/POINTS threshold
- * table (canonical for the persistence side). Achievements::computeStreak
- * stays the single source of truth for streak math (called statically
- * here, since v0.6.13 promoted it from private instance to public static).
- * Adding a new badge requires updating BOTH config/badges.php AND
- * BadgeAwarder constants AND the badges:backfill walker.
+ * Decision #35 reversal: BadgeAwarder owns the COUNT/POINTS/streak
+ * threshold tables (canonical for the persistence side).
+ * Achievements::computeStreak + computeDailyStreak stay the single
+ * sources of truth for streak math (both public static, both called by
+ * name here — v0.6.13 promoted computeStreak, v0.6.14 added the daily
+ * sibling).
+ *
+ * Adding a new badge requires updating:
+ *   - config/badges.php (presentation)
+ *   - BadgeAwarder constants + grant call (persistence + threshold)
+ *   - For count/points badges: the badges:backfill walker too
+ *   - For streak badges: backfill is skipped (eager-evaluation only;
+ *     see DOCS.md decisions #54 four_week_streak + #55 thirty_day_streak)
  */
 final class BadgeAwarder
 {
@@ -48,6 +55,18 @@ final class BadgeAwarder
 
     /** Look back 52 weeks for streak computation — matches Achievements::compute. */
     private const STREAK_LOOKBACK_WEEKS = 52;
+
+    /**
+     * v0.6.14 — daily-streak thresholds (consecutive household-tz days with ≥1 completion).
+     * No separate lookback constant — the 52-week weekly lookback (>=364 days) already
+     * covers the 30-day window, so `$userCompletions` is reused without a second fetch.
+     *
+     * @var array<string, int>
+     */
+    private const DAILY_STREAK_THRESHOLDS = [
+        'seven_day_streak'  => 7,
+        'thirty_day_streak' => 30,
+    ];
 
     public function __construct(
         private readonly BadgeAwardRepository $awards,
@@ -116,6 +135,19 @@ final class BadgeAwarder
         $streak = Achievements::computeStreak($userCompletions, $householdTz, $weekNow, $weekPrev);
         if ($streak >= self::STREAK_THRESHOLD) {
             $this->awards->grant($householdId, $userId, 'four_week_streak', $completedAt);
+        }
+
+        // 5. v0.6.14 — daily-streak badges (7-day + 30-day). Reuses the same
+        //    $userCompletions; the 52-week lookback (>=364 days) is wider than
+        //    the 30-day window so no second recentCompletionsForHousehold
+        //    fetch is needed.
+        $dayNow = DayWindow::dayStartUtc($householdTz, $now);
+        $dayPrev = DayWindow::previousDayStartUtc($householdTz, $dayNow);
+        $dailyStreak = Achievements::computeDailyStreak($userCompletions, $householdTz, $dayNow, $dayPrev);
+        foreach (self::DAILY_STREAK_THRESHOLDS as $code => $threshold) {
+            if ($dailyStreak >= $threshold) {
+                $this->awards->grant($householdId, $userId, $code, $completedAt);
+            }
         }
     }
 }
