@@ -5,7 +5,8 @@
 
     Expects each `member` row to carry:
       display_name, email, week_points, total_points,
-      badges (list<string>),  streak (int),  missed_count (int, v0.5.1)
+      badges (list<string>),  streak (int),  daily_streak (int, v0.6.14),
+      missed_count (int, v0.5.1)
 
     The badge presentation (emoji + title) is looked up from the `badge_meta`
     Twig global registered in public/index.php (config/badges.php).
@@ -21,6 +22,9 @@
         <small style="color:var(--muted);">· {{ member.total_points }} all-time</small>
         {% if member.streak is defined and member.streak >= 2 %}
             <span title="{{ member.streak }}-week streak" style="margin-left:0.4rem;">🔥 {{ member.streak }}</span>
+        {% endif %}
+        {% if member.daily_streak is defined and member.daily_streak >= 2 %}
+            <span title="{{ member.daily_streak }}-day streak" style="margin-left:0.4rem;">📅 {{ member.daily_streak }}</span>
         {% endif %}
         {% if member.badges is defined %}
             {% for code in member.badges %}

@@ -27,9 +27,9 @@ use Karhu\Db\Connection;
  * low (streak badge is recent-state-aware anyway) and the implementation
  * cost is high.
  *
- * Output format (round-2 S5 — exact match for the assertion in
- * BadgesBackfillCommandTest):
- *   badges:backfill: note: four_week_streak skipped — eager evaluation on next chore completion will fill it.
+ * Output format (documented for downstream tooling; not asserted by tests).
+ * v0.6.14 extends the streak-skip note to mention the new daily-streak badges:
+ *   badges:backfill: note: four_week_streak + seven_day_streak + thirty_day_streak skipped — eager evaluation on next chore completion will fill them.
  *   badges:backfill: wrote N awards across M users (skipped K existing).
  */
 final class BadgesBackfillCommand
@@ -139,7 +139,7 @@ final class BadgesBackfillCommand
             return 1;
         }
 
-        fwrite(\STDOUT, "badges:backfill: note: four_week_streak skipped — eager evaluation on next chore completion will fill it.\n");
+        fwrite(\STDOUT, "badges:backfill: note: four_week_streak + seven_day_streak + thirty_day_streak skipped — eager evaluation on next chore completion will fill them.\n");
         fwrite(\STDOUT, sprintf(
             "badges:backfill: wrote %d awards across %d users (skipped %d existing).\n",
             $written, count($usersTouched), $skipped,

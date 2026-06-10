@@ -115,7 +115,11 @@ final class HomeController
         $achievements = (new Achievements())->compute($board, $recent, $tz, $now);
 
         return array_map(
-            static fn(array $row): array => $row + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0]),
+            // v0.6.14 — fallback default must include daily_streak so missing-from-
+            // $achievements users render identically on / and /chores (the chores
+            // path uses array_merge with explicit daily_streak; this `+` path
+            // would otherwise be missing the key when $achievements has no entry).
+            static fn(array $row): array => $row + ($achievements[(int) $row['user_id']] ?? ['badges' => [], 'streak' => 0, 'daily_streak' => 0]),
             $board,
         );
     }

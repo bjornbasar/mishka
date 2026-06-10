@@ -537,6 +537,7 @@ final class ChoresController
             static fn(array $row): array => array_merge(
                 $row,
                 ['streak' => $achievements[(int) $row['user_id']]['streak'] ?? 0],
+                ['daily_streak' => $achievements[(int) $row['user_id']]['daily_streak'] ?? 0],
                 ['missed_count' => $missed[(int) $row['user_id']] ?? 0],
                 ['badges' => $badgesByUser[(int) $row['user_id']] ?? []],
             ),
