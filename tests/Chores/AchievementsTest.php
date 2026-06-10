@@ -33,7 +33,7 @@ final class AchievementsTest extends TestCase
 
         $out = (new Achievements())->compute($board, [], $tz, $this->now('2026-06-15 09:00'));
 
-        self::assertSame(['badges' => [], 'streak' => 0], $out[1]);
+        self::assertSame(['badges' => [], 'streak' => 0, 'daily_streak' => 0], $out[1]);
     }
 
     public function test_one_completion_this_week_earns_first_chore_and_streak_one(): void
@@ -202,6 +202,106 @@ final class AchievementsTest extends TestCase
         $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 09:00'));
 
         self::assertSame([1], array_keys($out));
+    }
+
+    // ============================================================
+    // v0.6.14 — daily-streak coverage
+    // ============================================================
+
+    public function test_today_only_is_daily_streak_one(): void
+    {
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 5, completions: 1)];
+        $recent = [1 => [$this->utc('2026-06-18 09:00')]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 12:00'));
+
+        self::assertSame(1, $out[1]['daily_streak']);
+    }
+
+    public function test_today_plus_yesterday_is_daily_streak_two(): void
+    {
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 10, completions: 2)];
+        $recent = [1 => [
+            $this->utc('2026-06-18 09:00'),   // today
+            $this->utc('2026-06-17 09:00'),   // yesterday
+        ]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 12:00'));
+
+        self::assertSame(2, $out[1]['daily_streak']);
+    }
+
+    public function test_consecutive_seven_days_is_daily_streak_seven(): void
+    {
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 35, completions: 7)];
+        $recent = [1 => [
+            $this->utc('2026-06-18 09:00'),
+            $this->utc('2026-06-17 09:00'),
+            $this->utc('2026-06-16 09:00'),
+            $this->utc('2026-06-15 09:00'),
+            $this->utc('2026-06-14 09:00'),
+            $this->utc('2026-06-13 09:00'),
+            $this->utc('2026-06-12 09:00'),
+        ]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 12:00'));
+
+        self::assertSame(7, $out[1]['daily_streak']);
+    }
+
+    public function test_gap_breaks_daily_streak_at_the_gap(): void
+    {
+        // today + yesterday + skip-a-day + 3-days-ago. Streak = 2 (today +
+        // yesterday only; the gap breaks the walk).
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 15, completions: 3)];
+        $recent = [1 => [
+            $this->utc('2026-06-18 09:00'),
+            $this->utc('2026-06-17 09:00'),
+            // 2026-06-16 skipped
+            $this->utc('2026-06-15 09:00'),
+        ]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 12:00'));
+
+        self::assertSame(2, $out[1]['daily_streak']);
+    }
+
+    public function test_last_activity_2_days_ago_daily_streak_is_zero(): void
+    {
+        // Latest completion was 2 days ago; today + yesterday both empty
+        // → streak broken (latest < yesterday-marker).
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 5, completions: 1)];
+        $recent = [1 => [$this->utc('2026-06-16 09:00')]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-06-18 12:00'));
+
+        self::assertSame(0, $out[1]['daily_streak']);
+    }
+
+    public function test_dst_end_consecutive_days_across_the_flip_daily_streak_correct(): void
+    {
+        // 5 NZ days bracketing the 2026-04-05 NZDT→NZST flip. Naive UTC arithmetic
+        // would drift across the transition; DayWindow handles it. Walking days
+        // Sat Apr 4 (NZDT) → Sun Apr 5 (NZDT/NZST transition) → Mon Apr 6 (NZST)
+        // → Tue Apr 7 (NZST) → Wed Apr 8 (NZST), all distinct day-start markers.
+        $tz = new \DateTimeZone(self::TZ);
+        $board = [$this->boardRow(1, points: 25, completions: 5)];
+        $recent = [1 => [
+            $this->utc('2026-04-08 09:00'),   // Wed (NZST)
+            $this->utc('2026-04-07 09:00'),   // Tue (NZST)
+            $this->utc('2026-04-06 09:00'),   // Mon (NZST) — first day of NZST
+            $this->utc('2026-04-05 09:00'),   // Sun (NZDT→NZST transition day)
+            $this->utc('2026-04-04 09:00'),   // Sat (NZDT)
+        ]];
+
+        $out = (new Achievements())->compute($board, $recent, $tz, $this->now('2026-04-08 12:00'));
+
+        self::assertSame(5, $out[1]['daily_streak']);
     }
 
     // --- helpers ---

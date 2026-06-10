@@ -20,7 +20,7 @@ final class Achievements
     /**
      * @param list<array{user_id: int, total_points: int, week_points: int, total_completions: int, ...}> $board
      * @param array<int, list<string>> $recentCompletionsByUser  user_id → UTC completed_at strings (DESC)
-     * @return array<int, array{badges: list<string>, streak: int}>  keyed by user_id
+     * @return array<int, array{badges: list<string>, streak: int, daily_streak: int}>  keyed by user_id
      */
     public function compute(
         array $board,
@@ -30,27 +30,31 @@ final class Achievements
     ): array {
         $weekNow = WeekWindow::weekStartUtc($householdTz, $now);
         $weekPrev = WeekWindow::previousWeekStartUtc($householdTz, $weekNow);
+        // v0.6.14 — daily-streak markers, parallel to weekly.
+        $dayNow = DayWindow::dayStartUtc($householdTz, $now);
+        $dayPrev = DayWindow::previousDayStartUtc($householdTz, $dayNow);
 
         $out = [];
         // Iterate $board (NOT $recentCompletionsByUser) so a stray key in the
         // latter can't smuggle in a member who isn't on the current board.
         foreach ($board as $row) {
             $userId = (int) $row['user_id'];
-            $streak = self::computeStreak(
-                $recentCompletionsByUser[$userId] ?? [],
-                $householdTz,
-                $weekNow,
-                $weekPrev,
-            );
+            $userCompletions = $recentCompletionsByUser[$userId] ?? [];
+            $streak = self::computeStreak($userCompletions, $householdTz, $weekNow, $weekPrev);
+            $dailyStreak = self::computeDailyStreak($userCompletions, $householdTz, $dayNow, $dayPrev);
             $stats = [
                 'total_points' => (int) $row['total_points'],
                 'total_completions' => (int) $row['total_completions'],
                 'week_points' => (int) $row['week_points'],
                 'streak' => $streak,
             ];
+            // NOTE: $stats does NOT include 'daily_streak' — badgesFor() is
+            // vestigial post-v0.6.13 (BadgeAwarder owns persistence-side
+            // thresholds, decision #54). Don't expand the dead surface.
             $out[$userId] = [
                 'badges' => $this->badgesFor($stats),
                 'streak' => $streak,
+                'daily_streak' => $dailyStreak,
             ];
         }
         return $out;
@@ -100,6 +104,59 @@ final class Achievements
             if ($activeWeeks[$i] === $expected) {
                 $streak++;
                 $cursor = $activeWeeks[$i];
+            } else {
+                break;
+            }
+        }
+        return $streak;
+    }
+
+    /**
+     * v0.6.14 — sibling of computeStreak for day granularity.
+     *
+     * Daily streak = consecutive days (midnight 00:00 in $tz) with ≥1
+     * completion, walked back from the most recent activity day. Broken
+     * if the latest activity is older than yesterday — i.e. a full
+     * missed day. DST-safe via DayWindow (mirrors decision #34).
+     *
+     * @param list<string> $completedAtsUtc
+     */
+    public static function computeDailyStreak(
+        array $completedAtsUtc,
+        \DateTimeZone $tz,
+        string $dayNow,
+        string $dayPrev,
+    ): int {
+        if ($completedAtsUtc === []) {
+            return 0;
+        }
+
+        // Distinct UTC day-start markers (each computed in $tz).
+        $utc = new \DateTimeZone('UTC');
+        $set = [];
+        foreach ($completedAtsUtc as $ts) {
+            $instant = new \DateTimeImmutable($ts, $utc);
+            $dayStart = $instant->setTimezone($tz)
+                ->setTime(0, 0, 0)
+                ->setTimezone($utc)
+                ->format('Y-m-d H:i:s');
+            $set[$dayStart] = true;
+        }
+        $activeDays = array_keys($set);
+        rsort($activeDays);  // DESC
+
+        // Streak is broken if the latest activity day is older than yesterday.
+        if ($activeDays[0] < $dayPrev) {
+            return 0;
+        }
+
+        $streak = 1;
+        $cursor = $activeDays[0];
+        for ($i = 1, $n = count($activeDays); $i < $n; $i++) {
+            $expected = DayWindow::previousDayStartUtc($tz, $cursor);
+            if ($activeDays[$i] === $expected) {
+                $streak++;
+                $cursor = $activeDays[$i];
             } else {
                 break;
             }
