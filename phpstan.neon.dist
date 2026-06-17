@@ -3,4 +3,5 @@ parameters:
     paths:
         - app
         - config
+        - public
     tmpDir: .phpstan-cache

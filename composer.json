@@ -34,7 +34,7 @@
     "scripts": {
         "serve": "php -S localhost:8080 -t public",
         "test": "phpunit",
-        "analyse": "phpstan analyse",
+        "analyse": "phpstan analyse --memory-limit=512M",
         "karhu": "karhu"
     }
 }
