@@ -70,20 +70,44 @@ final class BootstrapSmokeTest extends TestCase
         $_ENV['VAPID_PRIVATE_KEY'] = self::TEST_VAPID_PRIVATE_KEY;
         $_ENV['VAPID_SUBJECT'] = 'mailto:test@example.com';
 
-        // The require returns whatever bootstrap.php returns — that is,
-        // the configured Karhu\App after all 31 container bindings +
-        // middleware pipe + route scan. If the require throws (e.g.
-        // namespace collision at the `new` site, env validation fail,
-        // VAPID validation fail, scanControllers reflection fail), the
-        // test fails with the original error message.
-        $app = require dirname(__DIR__, 2) . '/public/bootstrap.php';
+        // Touch a stub .env if none exists. bootstrap.php registers the
+        // karhu ExceptionHandler at line 84 BEFORE calling
+        // `Dotenv::createImmutable(...)->safeLoad()` at line 90. safeLoad
+        // catches `InvalidPathException` for missing files BUT the
+        // underlying `file_get_contents` still emits an E_WARNING, which
+        // the karhu handler promotes to ErrorException — bypassing
+        // safeLoad's catch. Production always has .env (provisioned by
+        // deploy env); local dev has .env; GitHub-hosted CI runners do
+        // NOT (correctly — secrets aren't committed). A stub empty .env
+        // satisfies `file_get_contents`; the pre-seeded $_ENV above wins
+        // anyway (immutable semantics).
+        $envPath = dirname(__DIR__, 2) . '/.env';
+        $envWeCreated = false;
+        if (!file_exists($envPath)) {
+            touch($envPath);
+            $envWeCreated = true;
+        }
 
-        self::assertInstanceOf(App::class, $app);
-        self::assertNotNull($app->router(), 'router should be non-null after scanControllers');
-        self::assertInstanceOf(
-            Connection::class,
-            $app->container()->get(Connection::class),
-            'Connection should be pre-set in the container — proves DB-wiring section completed',
-        );
+        try {
+            // The require returns whatever bootstrap.php returns — that
+            // is, the configured Karhu\App after all 31 container
+            // bindings + middleware pipe + route scan. If the require
+            // throws (namespace collision at the `new` site, env
+            // validation fail, VAPID validation fail, scanControllers
+            // reflection fail), the test fails with the original message.
+            $app = require dirname(__DIR__, 2) . '/public/bootstrap.php';
+
+            self::assertInstanceOf(App::class, $app);
+            self::assertNotNull($app->router(), 'router should be non-null after scanControllers');
+            self::assertInstanceOf(
+                Connection::class,
+                $app->container()->get(Connection::class),
+                'Connection should be pre-set in the container — proves DB-wiring section completed',
+            );
+        } finally {
+            if ($envWeCreated && file_exists($envPath)) {
+                unlink($envPath);
+            }
+        }
     }
 }
