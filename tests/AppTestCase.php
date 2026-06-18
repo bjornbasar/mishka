@@ -346,6 +346,22 @@ abstract class AppTestCase extends TestCase
     }
 
     /**
+     * v0.6.19 — directly seed a system_roles admin grant for tests that need
+     * a multi-admin or non-first-user-admin state. The first user gets admin
+     * via the sentinel claim in MishkaUserRepository::create; this helper is
+     * for adding a SECOND admin (e.g. testing "two admins exist, either may
+     * self-delete") without depending on commit ordering between the
+     * SystemRoleRepository commit and the delete-flow tests.
+     */
+    protected function grantSystemAdmin(int $userId): void
+    {
+        $this->db->run(
+            'INSERT OR IGNORE INTO system_roles (user_id, role) VALUES (:uid, :role)',
+            ['uid' => $userId, 'role' => 'admin'],
+        );
+    }
+
+    /**
      * Test helper — set the user's active household session keys + last_household_id pref.
      */
     protected function activateHouseholdInSession(int $userId, int $householdId, string $role = 'member'): void
