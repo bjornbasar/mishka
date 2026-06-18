@@ -49,7 +49,10 @@ abstract class MiddlewareIntegrationTestCase extends AppTestCase
         // verify its (stale) CSRF token. We don't pipe the Session middleware
         // itself because PHPUnit can't set the secure cookie cleanly; we
         // initialise the session manually above.
-        $this->app->pipe(new SessionRevocationGuard($this->pwChangeRepo));
+        // v0.7.0 — guard now also takes SessionRepository for per-session
+        // revoke + lazy backfill (DOCS #62).
+        $sessionRepo = new \App\Auth\SessionRepository($this->db);
+        $this->app->pipe(new SessionRevocationGuard($this->pwChangeRepo, $sessionRepo));
         $this->app->pipe(new Csrf());
     }
 

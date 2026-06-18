@@ -33,6 +33,7 @@ use App\Auth\HouseholdAuthorizer;
 use App\Auth\SystemRoleRepository;
 use App\Auth\MishkaUserRepository;
 use App\Auth\PasswordResetTokenRepository;
+use App\Auth\SessionRepository;
 use App\Auth\SessionRevocationGuard;
 use App\Auth\UserPasswordChangeRepository;
 use App\Calendar\EventExceptionRepository;
@@ -177,6 +178,9 @@ $authz = new HouseholdAuthorizer($householdRepo);
 // v0.6.19 — system-level admin lookups (used by AccountController for the
 // only-admin pre-check on /me/delete + the /me/admin/promote endpoint).
 $systemRoleRepo = new SystemRoleRepository($db);
+// v0.7.0 — per-device session tracking (used by SessionRevocationGuard,
+// AuthController, AccountController, SessionsController — DOCS #62).
+$sessionRepo = new SessionRepository($db);
 $nav = new NavContext($householdRepo);
 
 // v0.5.0 — account / email lifecycle + revocation
@@ -235,6 +239,7 @@ $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
 $app->container()->set(HouseholdAuthorizer::class, $authz);
 $app->container()->set(SystemRoleRepository::class, $systemRoleRepo);
+$app->container()->set(SessionRepository::class, $sessionRepo);
 $app->container()->set(NavContext::class, $nav);
 $app->container()->set(PasswordHasher::class, $hasher);
 $app->container()->set(Rbac::class, $rbac);
@@ -300,7 +305,7 @@ $app->container()->factory(
 // $_SESSION['user_id'] + ['auth_time'] and revokes stale sessions before
 // CSRF would let them act on the request.
 $app->pipe(new Session());
-$app->pipe(new SessionRevocationGuard($pwChangeRepo));
+$app->pipe(new SessionRevocationGuard($pwChangeRepo, $sessionRepo));
 $app->pipe(new Csrf());
 
 $app->router()->scanControllers(require __DIR__ . '/../config/controllers.php');
