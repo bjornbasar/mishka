@@ -751,6 +751,23 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_badge_awards_unique_per_user_badge
 CREATE INDEX IF NOT EXISTS idx_badge_awards_user_earned
     ON badge_awards(user_id, earned_at);
 
+-- v0.6.19: user_deletions — account-delete audit (DOCS #60).
+-- Written INSIDE the delete txn BEFORE the user DELETE so the audit row
+-- and the destruction are atomic. No FK to users(id) — the user row is
+-- destroyed in the same txn; FK would either fail at INSERT or CASCADE
+-- the audit row away on the DELETE (both wrong). Same no-FK posture as
+-- chore_points_ledger.credited_user_id (decision #31).
+CREATE TABLE IF NOT EXISTS user_deletions (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL,
+    deleted_at    TIMESTAMPTZ NOT NULL,
+    household_ids TEXT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_deletions_deleted_at
+    ON user_deletions(deleted_at);
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
