@@ -7,6 +7,7 @@ namespace App\Controllers;
 use App\Account\UserPreferenceRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\MishkaUserRepository;
+use App\Auth\SessionRepository;
 use App\Household\HouseholdRepository;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
@@ -42,6 +43,8 @@ final class AuthController
         private readonly EmailVerificationTokenRepository $verifyTokens,
         private readonly Mailer $mailer,
         private readonly UrlBuilder $urls,
+        // v0.7.0 — per-device session tracking (DOCS #62).
+        private readonly SessionRepository $sessions,
     ) {}
 
     #[Route('/register', methods: ['GET'], name: 'register')]
@@ -230,6 +233,16 @@ final class AuthController
     #[Route('/logout', methods: ['POST'], name: 'logout')]
     public function logout(Request $request): Response
     {
+        // v0.7.0 — mark the current session revoked in user_sessions for
+        // UI consistency BEFORE Session::destroy wipes $_SESSION (DOCS #62).
+        // Per user-confirmed scope: logout revokes ONLY the current session;
+        // users wanting all-device logout use /me/sessions "Revoke all
+        // other sessions" + /logout.
+        $uuid = Session::get('session_uuid');
+        if (is_string($uuid) && $uuid !== '') {
+            $this->sessions->revokeByUuid($uuid);
+        }
+
         Session::destroy();
 
         // Karhu's Session::destroy doesn't delete the cookie — the browser
@@ -350,6 +363,17 @@ final class AuthController
         Session::set('roles', $roles);
         Session::set('auth_time', gmdate('Y-m-d H:i:s'));
         Session::set('email_verified_at', $emailVerifiedAt);
+
+        // v0.7.0 — write app-level session UUID + INSERT user_sessions row
+        // for the /me/sessions UI. The UUID survives Session::regenerate()
+        // calls (login + password change) because $_SESSION keys persist
+        // across regenerate. NOT PHP session_id() — that rotates.
+        $sessionUuid = bin2hex(random_bytes(16));
+        Session::set('session_uuid', $sessionUuid);
+        $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $this->sessions->register($userId, $sessionUuid, $ua, $ip);
+
         Csrf::regenerate();
     }
 

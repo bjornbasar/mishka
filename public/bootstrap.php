@@ -282,6 +282,8 @@ $app->container()->factory(
         // /register POST. Mailer.sendVerification returns false on SMTP fail —
         // the user-facing banner is "Please verify your email" regardless.
         $verifyTokenRepo, $mailer, $urlBuilder,
+        // v0.7.0 — per-device session tracking (DOCS #62).
+        $sessionRepo,
     ),
 );
 

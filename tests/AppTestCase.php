@@ -228,11 +228,17 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(QueueInterface::class, $this->queue);
 
         $dummyHash = $this->hasher->hash('test-dummy-' . bin2hex(random_bytes(8)));
+        // v0.7.0 — SessionRepository for per-device session tracking.
+        $sessionRepo = new \App\Auth\SessionRepository($this->db);
+        $app->container()->set(\App\Auth\SessionRepository::class, $sessionRepo);
+
         $app->container()->factory(AuthController::class, fn() => new AuthController(
             $this->userRepo, $this->hasher, $twig, $dummyHash,
             $this->householdRepo, $this->prefsRepo, $nav,
             // v0.5.0 register-hook deps
             $this->verifyTokenRepo, $this->mailer, $urlBuilder,
+            // v0.7.0 per-device session tracking
+            $sessionRepo,
         ));
 
         // PasswordResetController takes scalar ctor params (timing floor +
