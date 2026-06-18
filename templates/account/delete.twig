@@ -16,6 +16,13 @@
         </ul>
     {% endif %}
 
+    {% if only_admin %}
+        <p class="error-help" style="margin-top: 8px;">
+            <a href="/me/admin/promote">Promote another user to system administrator</a>
+            before deleting your account.
+        </p>
+    {% endif %}
+
     {% if owned_households|length > 0 %}
         <h2>You own these households</h2>
         <p style="color: var(--muted, #666);">
@@ -43,7 +50,7 @@
             <input type="email" name="confirm_email" required maxlength="320"
                    autocomplete="off" placeholder="{{ current_email }}">
         </label>
-        <button type="submit"{% if owned_households|length > 0 %} disabled{% endif %}>
+        <button type="submit"{% if owned_households|length > 0 or only_admin %} disabled{% endif %}>
             Permanently delete my account
         </button>
     </form>

@@ -111,11 +111,24 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
         self::assertNotNull($this->userRepo->findById($uid));
     }
 
+    /**
+     * v0.6.19 — seed a deputy admin so a self-delete test isn't blocked by
+     * the only-admin pre-check. The deputy is `deputy@example.com` (a
+     * fresh user, granted admin via the AppTestCase fixture helper).
+     */
+    private function seedDeputyAdmin(): int
+    {
+        $deputy = $this->createUserWithHash('deputy@example.com', self::VALID_PASSWORD);
+        $this->grantSystemAdmin($deputy);
+        return $deputy;
+    }
+
     public function test_post_delete_with_uppercase_confirm_email_normalises_and_succeeds(): void
     {
         // Controller-side normalisation: input goes through strtolower+trim
         // before hash_equals against the DB-canonical (lowercase) email.
         $uid = $this->createUserWithHash('me@example.com', self::VALID_PASSWORD);
+        $this->seedDeputyAdmin();
         $this->loginAs($uid, 'me@example.com');
 
         $response = $this->request('POST', '/me/delete', [
@@ -151,6 +164,7 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
     public function test_post_delete_success_deletes_user_row(): void
     {
         $uid = $this->createUserWithHash('me@example.com', self::VALID_PASSWORD);
+        $this->seedDeputyAdmin();
         $this->loginAs($uid, 'me@example.com');
 
         $response = $this->request('POST', '/me/delete', [
@@ -165,6 +179,7 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
     public function test_post_delete_success_destroys_session(): void
     {
         $uid = $this->createUserWithHash('me@example.com', self::VALID_PASSWORD);
+        $this->seedDeputyAdmin();
         $this->loginAs($uid, 'me@example.com');
 
         $this->request('POST', '/me/delete', [
@@ -179,6 +194,7 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
     public function test_post_delete_success_redirects_to_login_with_deleted_flag(): void
     {
         $uid = $this->createUserWithHash('me@example.com', self::VALID_PASSWORD);
+        $this->seedDeputyAdmin();
         $this->loginAs($uid, 'me@example.com');
 
         $response = $this->request('POST', '/me/delete', [
@@ -193,6 +209,7 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
     public function test_post_delete_success_sends_courtesy_email_to_old_address(): void
     {
         $uid = $this->createUserWithHash('me@example.com', self::VALID_PASSWORD, 'Me Bear');
+        $this->seedDeputyAdmin();
         $this->loginAs($uid, 'me@example.com');
 
         $this->request('POST', '/me/delete', [
@@ -311,5 +328,104 @@ final class AccountControllerDeleteFlowTest extends AppTestCase
         $rowCount = (int) $this->db->fetchScalar('SELECT COUNT(*) FROM user_password_changes');
         self::assertSame(0, $rowCount,
             'account delete must NOT write user_password_changes (SessionRevocationGuard invariant)');
+    }
+
+    // ============================================================
+    // v0.6.19 — admin-presence pre-check + user_deletions audit
+    // ============================================================
+
+    public function test_post_delete_blocks_only_admin_with_422_and_promote_link(): void
+    {
+        // First user gets admin via the sentinel claim in MishkaUserRepository::create.
+        $uid = $this->createUserWithHash('admin@example.com', self::VALID_PASSWORD);
+        $this->loginAs($uid, 'admin@example.com');
+
+        $response = $this->request('POST', '/me/delete', [
+            'current_password' => self::VALID_PASSWORD,
+            'confirm_email' => 'admin@example.com',
+        ]);
+
+        self::assertSame(422, $response->status());
+        self::assertNotNull($this->userRepo->findById($uid));
+        self::assertStringContainsString('only system administrator', $response->body());
+        // The escape-hatch link to /me/admin/promote is rendered as a real
+        // anchor (NOT escaped inside the errors list — round-2 C4 XSS guard).
+        self::assertStringContainsString('href="/me/admin/promote"', $response->body());
+    }
+
+    public function test_post_delete_succeeds_when_a_second_admin_exists(): void
+    {
+        // First user (sentinel admin) + second user explicitly granted admin
+        // via the AppTestCase fixture helper. Either can self-delete because
+        // the post-delete admin count stays >= 1.
+        $alice = $this->createUserWithHash('alice@example.com', self::VALID_PASSWORD);
+        $bob = $this->createUserWithHash('bob@example.com', self::VALID_PASSWORD);
+        $this->grantSystemAdmin($bob);
+
+        $this->loginAs($alice, 'alice@example.com');
+
+        $response = $this->request('POST', '/me/delete', [
+            'current_password' => self::VALID_PASSWORD,
+            'confirm_email' => 'alice@example.com',
+        ]);
+
+        self::assertSame(302, $response->status());
+        self::assertNull($this->userRepo->findById($alice));
+        // CASCADE removed alice's system_roles row; bob remains.
+        self::assertNotNull($this->userRepo->findById($bob));
+    }
+
+    public function test_post_delete_writes_user_deletions_audit_row(): void
+    {
+        $alice = $this->createUserWithHash('alice@example.com', self::VALID_PASSWORD);
+        // Create a household member so household_ids has something in it.
+        // (alice is the first user, so she's the sentinel admin already; the
+        // owned-households check would otherwise block deletion if she owned
+        // any households — keep her as just a member of bob's household.)
+        $bob = $this->createUserWithHash('bob@example.com', self::VALID_PASSWORD);
+        $this->grantSystemAdmin($bob);  // alice can self-delete
+        $hid = $this->householdRepo->createForOwner('Bob House', $bob);
+        $this->householdRepo->addMember($hid, $alice);
+
+        $this->loginAs($alice, 'alice@example.com');
+
+        $response = $this->request('POST', '/me/delete', [
+            'current_password' => self::VALID_PASSWORD,
+            'confirm_email' => 'alice@example.com',
+        ]);
+
+        self::assertSame(302, $response->status());
+
+        $row = $this->db->fetchOne(
+            'SELECT user_id, deleted_at, household_ids FROM user_deletions WHERE user_id = :uid',
+            ['uid' => $alice],
+        );
+        self::assertNotNull($row, 'user_deletions row should be written atomically with the user DELETE');
+        self::assertSame($alice, (int) $row['user_id']);
+        self::assertNotEmpty($row['deleted_at']);
+        self::assertSame(json_encode([$hid]), $row['household_ids']);
+    }
+
+    public function test_post_delete_writes_user_deletions_with_empty_array_when_no_memberships(): void
+    {
+        // First user is sentinel admin; second user is also admin (so alice
+        // can self-delete) but alice has no household memberships.
+        $alice = $this->createUserWithHash('alice@example.com', self::VALID_PASSWORD);
+        $bob = $this->createUserWithHash('bob@example.com', self::VALID_PASSWORD);
+        $this->grantSystemAdmin($bob);
+
+        $this->loginAs($alice, 'alice@example.com');
+
+        $this->request('POST', '/me/delete', [
+            'current_password' => self::VALID_PASSWORD,
+            'confirm_email' => 'alice@example.com',
+        ]);
+
+        $row = $this->db->fetchOne(
+            'SELECT household_ids FROM user_deletions WHERE user_id = :uid',
+            ['uid' => $alice],
+        );
+        self::assertNotNull($row);
+        self::assertSame('[]', $row['household_ids']);
     }
 }

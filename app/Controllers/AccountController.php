@@ -9,6 +9,7 @@ use App\Auth\EmailSendAttemptRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\MishkaUserRepository;
 use App\Auth\PasswordResetTokenRepository;
+use App\Auth\SystemRoleRepository;
 use App\Household\HouseholdRepository;
 use App\Mail\Mailer;
 use App\Mail\UrlBuilder;
@@ -76,6 +77,8 @@ final class AccountController
         private readonly Connection $db,
         // v0.6.12 — account-delete deps
         private readonly HouseholdRepository $households,
+        // v0.6.19 — admin-presence + audit deps
+        private readonly SystemRoleRepository $systemRoles,
     ) {}
 
     // ============================================================
@@ -687,10 +690,18 @@ final class AccountController
         // Owned-households pre-check (read-only, runs OUTSIDE the txn).
         $ownedCount = $this->households->countOwnedByUser($uid);
 
-        $errors = $this->validateDelete($confirmEmail, $user['email'], $currentMatches, $ownedCount);
+        // v0.6.19 — admin-presence pre-check. If this user is the only system
+        // admin, the FK CASCADE on system_roles would leave the system
+        // admin-less post-delete (DOCS #53 v0.6.13-candidate gap). Block with
+        // a 422 + escape-hatch link to /me/admin/promote (rendered as a
+        // separate Twig block to avoid HTML-in-error-string XSS — round-2 C4).
+        $onlyAdmin = $this->systemRoles->countSystemAdmins() === 1
+            && $this->systemRoles->isSystemAdmin($uid);
+
+        $errors = $this->validateDelete($confirmEmail, $user['email'], $currentMatches, $ownedCount, $onlyAdmin);
 
         if ($errors !== []) {
-            return $this->renderDelete($user, $errors, status: 422);
+            return $this->renderDelete($user, $errors, status: 422, onlyAdmin: $onlyAdmin);
         }
 
         // Snapshot user-facing fields BEFORE delete so the courtesy email can
@@ -710,6 +721,22 @@ final class AccountController
             $started = true;
         }
         try {
+            // v0.6.19 — write user_deletions audit row INSIDE the txn,
+            // BEFORE the user DELETE. The membership list must be SELECTed
+            // before delete because household_members.user_id CASCADEs.
+            // sort() ensures deterministic JSON for test assertions
+            // (round-2 M5).
+            $householdIds = array_column($this->households->listForUser($uid), 'id');
+            sort($householdIds);
+            $this->db->run(
+                'INSERT INTO user_deletions (user_id, deleted_at, household_ids)
+                 VALUES (:uid, :deleted_at, :household_ids)',
+                [
+                    'uid' => $uid,
+                    'deleted_at' => $deletedAt,
+                    'household_ids' => json_encode($householdIds, JSON_THROW_ON_ERROR),
+                ],
+            );
             $this->users->delete($uid);
             if ($started) {
                 $pdo->commit();
@@ -756,7 +783,7 @@ final class AccountController
      *              roles: list<string>} $user
      * @param list<string> $errors
      */
-    private function renderDelete(array $user, array $errors, int $status = 200): Response
+    private function renderDelete(array $user, array $errors, int $status = 200, bool $onlyAdmin = false): Response
     {
         return (new Response($status))
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
@@ -765,6 +792,10 @@ final class AccountController
                 'current_email' => $user['email'],
                 'display_name' => $user['display_name'],
                 'owned_households' => $this->households->listOwnedByUser($user['id']),
+                // v0.6.19 — separate flag (NOT in errors list) so the template
+                // can render a real <a href="/me/admin/promote"> instead of
+                // letting Twig auto-escape an HTML-in-string (round-2 C4 XSS).
+                'only_admin' => $onlyAdmin,
             ] + $this->nav->forCurrentUser()));
     }
 
@@ -774,6 +805,7 @@ final class AccountController
         string $currentEmail,
         bool $currentMatches,
         int $ownedCount,
+        bool $onlyAdmin = false,
     ): array {
         $errors = [];
         if (!$currentMatches) {
@@ -792,6 +824,9 @@ final class AccountController
                 . '. Transfer ownership or delete '
                 . ($ownedCount === 1 ? 'it' : 'them')
                 . ' first.';
+        }
+        if ($onlyAdmin) {
+            $errors[] = 'You are the only system administrator.';
         }
         return $errors;
     }

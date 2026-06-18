@@ -29,6 +29,7 @@ use App\Auth\EmailChangeTokenRepository;
 use App\Auth\EmailSendAttemptRepository;
 use App\Auth\EmailVerificationTokenRepository;
 use App\Auth\HouseholdAuthorizer;
+use App\Auth\SystemRoleRepository;
 use App\Auth\MishkaUserRepository;
 use App\Auth\PasswordResetTokenRepository;
 use App\Auth\SessionRevocationGuard;
@@ -172,6 +173,9 @@ $badgeAwarder = new BadgeAwarder($badgeAwardRepo, $choreRepo);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);
+// v0.6.19 — system-level admin lookups (used by AccountController for the
+// only-admin pre-check on /me/delete + the /me/admin/promote endpoint).
+$systemRoleRepo = new SystemRoleRepository($db);
 $nav = new NavContext($householdRepo);
 
 // v0.5.0 — account / email lifecycle + revocation
@@ -218,6 +222,7 @@ $app->container()->set(BadgeAwarder::class, $badgeAwarder);
 $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
 $app->container()->set(HouseholdAuthorizer::class, $authz);
+$app->container()->set(SystemRoleRepository::class, $systemRoleRepo);
 $app->container()->set(NavContext::class, $nav);
 $app->container()->set(PasswordHasher::class, $hasher);
 $app->container()->set(Rbac::class, $rbac);
