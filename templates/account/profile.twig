@@ -30,6 +30,11 @@
     <p>
         <a href="/badges">🏆 Your badges</a>
     </p>
+    {% if is_system_admin %}
+        <p>
+            <a href="/me/admin/promote">Promote another user to system admin →</a>
+        </p>
+    {% endif %}
     <p style="margin-top: 32px;">
         <a href="/me/delete" style="color: #c00;">Delete account →</a>
     </p>

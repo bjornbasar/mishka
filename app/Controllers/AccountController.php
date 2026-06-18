@@ -206,11 +206,14 @@ final class AccountController
      */
     private function renderProfile(string $displayName, array $errors, int $status = 200): Response
     {
+        $uid = $this->requireLogin();
         return (new Response($status))
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('account/profile.twig', [
                 'errors' => $errors,
                 'display_name' => $displayName,
+                // v0.6.19 — gates the /me/admin/promote link in profile.twig
+                'is_system_admin' => $uid !== null && $this->systemRoles->isSystemAdmin($uid),
             ] + $this->nav->forCurrentUser()));
     }
 
@@ -829,5 +832,74 @@ final class AccountController
             $errors[] = 'You are the only system administrator.';
         }
         return $errors;
+    }
+
+    // ============================================================
+    // v0.6.19 — /me/admin/promote (system-admin escape hatch)
+    // ============================================================
+    //
+    // GET renders the form (dropdown of candidate users).
+    // POST grants 'admin' to the selected user via SystemRoleRepository.
+    // Auth: existing system admin only (403 with templates/account/
+    // forbidden.twig for non-admins). Anonymous → 302 /login per existing
+    // AccountController convention. Promote-only semantics: the granter
+    // keeps their admin role; the receiving user gains admin. The only-
+    // admin can then self-delete via /me/delete (CASCADE removes their
+    // admin row).
+
+    #[Route('/me/admin/promote', methods: ['GET'], name: 'me.admin.promote')]
+    public function showPromoteAdmin(Request $request): Response
+    {
+        $uid = $this->requireLogin();
+        if ($uid === null) {
+            return $this->redirectToLogin();
+        }
+        if (!$this->systemRoles->isSystemAdmin($uid)) {
+            return $this->renderForbidden();
+        }
+        return $this->renderPromoteAdmin($uid, errors: []);
+    }
+
+    #[Route('/me/admin/promote', methods: ['POST'])]
+    public function handlePromoteAdmin(Request $request): Response
+    {
+        $uid = $this->requireLogin();
+        if ($uid === null) {
+            return $this->redirectToLogin();
+        }
+        if (!$this->systemRoles->isSystemAdmin($uid)) {
+            return $this->renderForbidden();
+        }
+
+        $targetId = (int) $this->readInputField($request, 'target_user_id');
+        $target = $targetId > 0 ? $this->users->findById($targetId) : null;
+        if ($target === null || $targetId === $uid) {
+            return $this->renderPromoteAdmin($uid, ['Invalid target user.'], status: 422);
+        }
+
+        $this->systemRoles->grantSystemAdmin($targetId);
+        Session::set('flash_success', 'Granted admin role to ' . $target['display_name'] . '.');
+        return (new Response())->redirect('/me/profile', 303);
+    }
+
+    /**
+     * @param list<string> $errors
+     */
+    private function renderPromoteAdmin(int $uid, array $errors, int $status = 200): Response
+    {
+        return (new Response($status))
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withBody($this->view->render('account/admin_promote.twig', [
+                'errors' => $errors,
+                'candidates' => $this->systemRoles->listPromotionCandidates($uid),
+                'is_only_admin' => $this->systemRoles->countSystemAdmins() === 1,
+            ] + $this->nav->forCurrentUser()));
+    }
+
+    private function renderForbidden(): Response
+    {
+        return (new Response(403))
+            ->withHeader('Content-Type', 'text/html; charset=utf-8')
+            ->withBody($this->view->render('account/forbidden.twig', $this->nav->forCurrentUser()));
     }
 }
