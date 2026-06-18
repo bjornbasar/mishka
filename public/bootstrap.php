@@ -24,6 +24,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use App\Account\AccountEmailFlow;
 use App\Account\UserPreferenceRepository;
 use App\Auth\EmailChangeTokenRepository;
 use App\Auth\EmailSendAttemptRepository;
@@ -187,6 +188,17 @@ $urlBuilder = new UrlBuilder($appUrl);
 // v0.6.11 — email-change flow
 $changeTokenRepo = new EmailChangeTokenRepository($db);
 
+// v0.6.20 — bundle the 5 email-change-specific deps into one value-object
+// for AccountController (DOCS #61). The individual repos remain available
+// for other consumers (AuthController, PasswordResetController factories).
+$accountEmailFlow = new AccountEmailFlow(
+    $changeTokenRepo,
+    $sendAttemptRepo,
+    $resetTokenRepo,
+    $verifyTokenRepo,
+    $urlBuilder,
+);
+
 // Symfony Mailer transport. `?timeout=5` in the DSN keeps a request from
 // hanging 60s when MailHog/Postmark/SMTP is unreachable. Mailer catches
 // TransportExceptionInterface internally and returns false — never throws.
@@ -238,6 +250,8 @@ $app->container()->set(UrlBuilder::class, $urlBuilder);
 
 // v0.6.11 bindings — email change
 $app->container()->set(EmailChangeTokenRepository::class, $changeTokenRepo);
+// v0.6.20 — the bundle used by AccountController
+$app->container()->set(AccountEmailFlow::class, $accountEmailFlow);
 
 // v0.6.0 bindings — web push + clock + queue
 $app->container()->set(VapidConfig::class, $vapid);

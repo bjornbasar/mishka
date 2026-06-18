@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests;
 
+use App\Account\AccountEmailFlow;
 use App\Account\UserPreferenceRepository;
 use App\Auth\EmailSendAttemptRepository;
 use App\Auth\EmailChangeTokenRepository;
@@ -155,6 +156,14 @@ abstract class AppTestCase extends TestCase
         // v0.6.11 — email-change flow
         $this->changeTokenRepo = new EmailChangeTokenRepository($this->db);
         $urlBuilder = new UrlBuilder('http://localhost:8080');
+        // v0.6.20 — bundle the 5 email-change-specific deps for AccountController
+        $accountEmailFlow = new AccountEmailFlow(
+            $this->changeTokenRepo,
+            $this->sendAttemptRepo,
+            $this->resetTokenRepo,
+            $this->verifyTokenRepo,
+            $urlBuilder,
+        );
 
         // v0.6.0 — push notifications
         $this->pushSubRepo = new PushSubscriptionRepository($this->db);
@@ -208,6 +217,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(UrlBuilder::class, $urlBuilder);
         // v0.6.11 container bindings
         $app->container()->set(EmailChangeTokenRepository::class, $this->changeTokenRepo);
+        // v0.6.20 — the bundle used by AccountController
+        $app->container()->set(AccountEmailFlow::class, $accountEmailFlow);
         // v0.6.0 container bindings
         $app->container()->set(PushSubscriptionRepository::class, $this->pushSubRepo);
         $app->container()->set(UserNotificationPrefsRepository::class, $this->notifyPrefsRepo);

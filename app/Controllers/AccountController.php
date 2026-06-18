@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
-use App\Auth\EmailChangeTokenRepository;
-use App\Auth\EmailSendAttemptRepository;
-use App\Auth\EmailVerificationTokenRepository;
+use App\Account\AccountEmailFlow;
 use App\Auth\MishkaUserRepository;
-use App\Auth\PasswordResetTokenRepository;
 use App\Auth\SystemRoleRepository;
 use App\Household\HouseholdRepository;
 use App\Mail\Mailer;
-use App\Mail\UrlBuilder;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Auth\PasswordHasher;
@@ -67,18 +63,14 @@ final class AccountController
         private readonly PasswordHasher $hasher,
         private readonly TwigAdapter $view,
         private readonly NavContext $nav,
-        // v0.6.11 — email-change deps
-        private readonly EmailChangeTokenRepository $changeTokens,
-        private readonly EmailSendAttemptRepository $attempts,
-        private readonly PasswordResetTokenRepository $resetTokens,
-        private readonly EmailVerificationTokenRepository $verifyTokens,
         private readonly Mailer $mailer,
-        private readonly UrlBuilder $urls,
         private readonly Connection $db,
         // v0.6.12 — account-delete deps
         private readonly HouseholdRepository $households,
         // v0.6.19 — admin-presence + audit deps
         private readonly SystemRoleRepository $systemRoles,
+        // v0.6.20 — email-change-specific deps bundled (DOCS #61)
+        private readonly AccountEmailFlow $emailFlow,
     ) {}
 
     // ============================================================
@@ -354,8 +346,8 @@ final class AccountController
 
         // App-layer rate limit (H4 analogue). Pre-record so this attempt
         // counts toward the cap (matches PasswordResetController pattern).
-        $this->attempts->record('change_email_request', null, $uid);
-        $recentCount = $this->attempts->countRecentByUser(
+        $this->emailFlow->attempts->record('change_email_request', null, $uid);
+        $recentCount = $this->emailFlow->attempts->countRecentByUser(
             'change_email_request',
             $uid,
             self::RATE_LIMIT_WINDOW_MIN,
@@ -366,8 +358,8 @@ final class AccountController
         }
 
         // Issue token; find back the row id for markSent later.
-        $rawToken = $this->changeTokens->issue($uid, $newEmail);
-        $tokenRow = $this->changeTokens->findByRawToken($rawToken);
+        $rawToken = $this->emailFlow->changeTokens->issue($uid, $newEmail);
+        $tokenRow = $this->emailFlow->changeTokens->findByRawToken($rawToken);
         if ($tokenRow === null) {
             // Should never happen: we just issued. Defensive log + flash.
             error_log('account: just-issued change-token not findable for uid=' . $uid);
@@ -375,7 +367,7 @@ final class AccountController
             return $this->renderEmail($user['email'], $newEmail, errors: [], status: 500);
         }
 
-        $confirmUrl = $this->urls->absoluteUrl('/me/email-change/' . $rawToken);
+        $confirmUrl = $this->emailFlow->urls->absoluteUrl('/me/email-change/' . $rawToken);
 
         // Asymmetric mailer behaviour (decision #52): the confirm link is the
         // load-bearing send — surface flash_error on failure, do NOT call
@@ -387,7 +379,7 @@ final class AccountController
             return $this->renderEmail($user['email'], $newEmail, errors: [], status: 500);
         }
 
-        $this->changeTokens->markSent($tokenRow['id']);
+        $this->emailFlow->changeTokens->markSent($tokenRow['id']);
 
         // Old-mailbox security alert is fire-and-forget — defence in depth.
         // Mailer logs on failure; we ignore the return value.
@@ -410,7 +402,7 @@ final class AccountController
             return $this->renderEmailChangeInvalid();
         }
 
-        $row = $this->changeTokens->findByRawToken($token);
+        $row = $this->emailFlow->changeTokens->findByRawToken($token);
         if ($row === null || $row['used_at'] !== null || $this->isExpired($row['expires_at'])) {
             return $this->renderEmailChangeInvalid();
         }
@@ -431,7 +423,7 @@ final class AccountController
             return $this->renderEmailChangeInvalid();
         }
 
-        $row = $this->changeTokens->findByRawToken($token);
+        $row = $this->emailFlow->changeTokens->findByRawToken($token);
         if ($row === null || $row['used_at'] !== null || $this->isExpired($row['expires_at'])) {
             return $this->renderEmailChangeInvalid();
         }
@@ -446,7 +438,7 @@ final class AccountController
         try {
             // Single-use redemption guard. False → token race lost (another
             // request claimed it) or expired between findByRawToken and now.
-            if (!$this->changeTokens->redeemAtomically($row['id'])) {
+            if (!$this->emailFlow->changeTokens->redeemAtomically($row['id'])) {
                 if ($started) {
                     $pdo->rollBack();
                 }
@@ -475,8 +467,8 @@ final class AccountController
             // Invalidate any pending password-reset + email-verification tokens
             // for this user — old-mailbox-issued tokens must not be usable
             // post-swap (mailbox-compromise hardening, decision #52).
-            $this->resetTokens->invalidatePendingForUser($row['user_id']);
-            $this->verifyTokens->invalidatePendingForUser($row['user_id']);
+            $this->emailFlow->resetTokens->invalidatePendingForUser($row['user_id']);
+            $this->emailFlow->verifyTokens->invalidatePendingForUser($row['user_id']);
 
             if ($started) {
                 $pdo->commit();
