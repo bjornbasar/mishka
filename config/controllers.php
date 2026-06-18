@@ -30,4 +30,6 @@ return [
     App\Controllers\CsrfTokenController::class,
     // v0.6.13 — persistent badges + /badges page
     App\Controllers\BadgesController::class,
+    // v0.7.0 — per-device session revoke UI
+    App\Controllers\SessionsController::class,
 ];

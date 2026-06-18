@@ -1,0 +1,48 @@
+{% extends "layout.twig" %}
+
+{% block title %}Active sessions — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <h1>Active sessions</h1>
+    <p style="color: var(--muted, #666);">
+        Each device you're signed in on appears below. Revoke any session
+        you don't recognise.
+    </p>
+
+    {% if sessions|length == 0 %}
+        <p>No active sessions to display.</p>
+    {% else %}
+        <ul class="sessions-list" style="list-style: none; padding: 0;">
+            {% for s in sessions %}
+                <li style="border: 1px solid #ccc; padding: 12px; margin-bottom: 8px; border-radius: 4px;">
+                    <div>
+                        <strong>{{ s.device_label }}</strong>
+                        {% if s.is_current %}
+                            <span style="background: #b88746; color: white; padding: 2px 8px; border-radius: 3px; font-size: 0.85em; margin-left: 8px;">This device</span>
+                        {% endif %}
+                    </div>
+                    <div style="color: var(--muted, #666); font-size: 0.9em; margin-top: 4px;">
+                        {% if s.ip %}IP {{ s.ip }} · {% endif %}last seen {{ s.last_used_at }} · created {{ s.created_at }}
+                    </div>
+                    {% if not s.is_current %}
+                        <form method="POST" action="/me/sessions/{{ s.id }}/revoke" style="display: inline; margin-top: 8px;">
+                            {{ csrf_field() }}
+                            <button type="submit" style="margin-top: 8px;">Revoke this session</button>
+                        </form>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+
+        {% if sessions|length > 1 %}
+            <form method="POST" action="/me/sessions/revoke-others" style="margin-top: 24px;">
+                {{ csrf_field() }}
+                <button type="submit">Revoke all other sessions</button>
+            </form>
+        {% endif %}
+    {% endif %}
+
+    <p style="margin-top: 24px;">
+        <a href="/me/profile">← Back to profile</a>
+    </p>
+{% endblock %}

@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Account\AccountEmailFlow;
 use App\Auth\MishkaUserRepository;
+use App\Auth\SessionRepository;
 use App\Auth\SystemRoleRepository;
 use App\Household\HouseholdRepository;
 use App\Mail\Mailer;
@@ -71,6 +72,8 @@ final class AccountController
         private readonly SystemRoleRepository $systemRoles,
         // v0.6.20 — email-change-specific deps bundled (DOCS #61)
         private readonly AccountEmailFlow $emailFlow,
+        // v0.7.0 — per-device session tracking (DOCS #62)
+        private readonly SessionRepository $sessions,
     ) {}
 
     // ============================================================
@@ -170,6 +173,22 @@ final class AccountController
 
         $newHash = $this->hasher->hash($new);
         $this->users->updatePassword($uid, $newHash, $now);
+
+        // v0.7.0 — mark all OTHER user_sessions rows revoked for UI
+        // consistency with the auth_time/password_changed_at mass-revoke
+        // (DOCS #62). The current session row stays active per BL-2.
+        // Defensive null-skip (round-2 C1): AppTestCase skips the guard
+        // so the lazy-backfill doesn't run, meaning the current session
+        // may have no user_sessions row at this point. In prod, the
+        // guard always backfills first; in tests, the existing mass-revoke
+        // predicate STILL handles cross-device security regardless.
+        $currentUuid = Session::get('session_uuid');
+        if (is_string($currentUuid) && $currentUuid !== '') {
+            $currentRow = $this->sessions->findByUuid($currentUuid);
+            if ($currentRow !== null) {
+                $this->sessions->revokeAllForUserExcept($uid, (int) $currentRow['id']);
+            }
+        }
 
         // Rotate the session ID (defence against fixation post-credential-change)
         // and bind the new auth_time + CSRF token to the rotated session.

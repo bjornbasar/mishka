@@ -277,6 +277,8 @@ abstract class AppTestCase extends TestCase
             CsrfTokenController::class,
             // v0.6.13 — /badges page
             \App\Controllers\BadgesController::class,
+            // v0.7.0 — /me/sessions UI
+            \App\Controllers\SessionsController::class,
         ]);
 
         return $app;
