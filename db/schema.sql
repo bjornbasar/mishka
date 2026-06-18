@@ -768,6 +768,28 @@ CREATE TABLE IF NOT EXISTS user_deletions (
 CREATE INDEX IF NOT EXISTS idx_user_deletions_deleted_at
     ON user_deletions(deleted_at);
 
+-- v0.7.0: user_sessions — per-device session tracking (DOCS #62).
+-- One row per active web session, INSERTed at login (AuthController) or
+-- lazy-backfilled by SessionRevocationGuard on first post-deploy request
+-- from a pre-v0.7.0 session. session_uuid is an APP-LEVEL identifier
+-- (NOT PHP session_id()) so it survives Session::regenerate() on login
+-- + password change. revoked_at IS NULL = active. CASCADE on users
+-- delete handles account-delete cleanup (decision #53 chain).
+CREATE TABLE IF NOT EXISTS user_sessions (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_uuid CHAR(32) NOT NULL UNIQUE,
+    user_agent   VARCHAR(500) NOT NULL DEFAULT '',
+    ip           VARCHAR(45) NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revoked_at   TIMESTAMPTZ NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active
+    ON user_sessions(user_id, last_used_at DESC)
+    WHERE revoked_at IS NULL;
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
