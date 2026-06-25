@@ -1,0 +1,6 @@
+# v0.7.1 — pin SQL files to LF line endings so SHA-256(schema.sql) is
+# stable across runners + filesystems. MigrateCommand hashes the file
+# byte-exact (DOCS #63); a future Windows checkout would otherwise
+# auto-convert LF→CRLF and the hash would mismatch even though the
+# semantics didn't change.
+*.sql text eol=lf

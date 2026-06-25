@@ -790,6 +790,22 @@ CREATE INDEX IF NOT EXISTS idx_user_sessions_user_active
     ON user_sessions(user_id, last_used_at DESC)
     WHERE revoked_at IS NULL;
 
+-- v0.7.1: schema_versions — audit log of each migrate apply (DOCS #63).
+-- Append-only history. id SERIAL is the implicit "order applied".
+-- schema_hash is SHA-256(db/schema.sql) at apply time. applied_by lets
+-- the operator distinguish CI-driven (ci-deploy) vs manual runs.
+-- Closes the v0.7.0 ops gap where the manual `bin/karhu migrate` step
+-- was missed at deploy → prod 500'd until run by hand.
+CREATE TABLE IF NOT EXISTS schema_versions (
+    id          SERIAL PRIMARY KEY,
+    applied_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    schema_hash CHAR(64) NOT NULL,
+    applied_by  VARCHAR(64) NOT NULL DEFAULT 'manual'
+);
+
+CREATE INDEX IF NOT EXISTS idx_schema_versions_applied_at
+    ON schema_versions(applied_at DESC);
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
