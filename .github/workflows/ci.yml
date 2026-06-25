@@ -76,3 +76,65 @@ jobs:
           DB_USER: postgres
           DB_PASS: postgres
         run: vendor/bin/phpunit --filter 'PgSmoke'
+
+  deploy:
+    runs-on: [self-hosted, homelab]
+    needs: [test, pg-smoke]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    env:
+      NALLE: ubuntu@192.168.4.9
+      CHIDOLE: ubuntu@192.168.4.6
+      NALLE_DIR: /data/personal/mishka
+      CHIDOLE_DIR: /data/mishka
+
+    # v0.7.1 round-3 C5: don't cancel in-flight deploys — let each complete
+    # so its audit row lands in schema_versions. Sequential queue on the
+    # hurska-mishka runner.
+    concurrency:
+      group: deploy-mishka
+      cancel-in-progress: false
+
+    steps:
+      - name: Pull + composer install (no-dev) + decrypt secrets on Nalle
+        run: |
+          ssh $NALLE "cd $NALLE_DIR && \
+            git pull --ff-only && \
+            composer install --no-dev --no-interaction --prefer-dist && \
+            sops decrypt --input-type dotenv --output-type dotenv --output .env.new .env.enc && \
+            mv .env.new .env"
+
+      - name: Sync source + compose + env + vendor to Chidole
+        run: |
+          ssh $NALLE "rsync -a --delete-after \
+            --exclude='.git*' --exclude='.env.enc' --exclude='.phpstan-cache/' \
+            $NALLE_DIR/ $CHIDOLE:$CHIDOLE_DIR/"
+
+      - name: Restore Nalle dev vendor (round-3 C1)
+        # composer install --no-dev (step 1) strips phpunit/phpstan from
+        # Nalle's vendor. Since Nalle is the dev workspace per CLAUDE.md,
+        # the operator expects `composer test` to keep working after deploy.
+        # This re-installs the dev deps on Nalle ONLY (Chidole already has
+        # the no-dev tree from the rsync above). ~5s on warm cache.
+        run: |
+          ssh $NALLE "cd $NALLE_DIR && composer install --no-interaction --prefer-dist"
+
+      - name: Touch containers (no-op unless image changed)
+        run: |
+          ssh $CHIDOLE "cd $CHIDOLE_DIR && docker compose up -d"
+
+      - name: Run schema migration (idempotent + tracked)
+        run: |
+          ssh $CHIDOLE "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
+
+      - name: Notify Slack
+        if: always()
+        run: |
+          STATUS=${{ job.status }}
+          ICON=$([ "$STATUS" = "success" ] && echo ":white_check_mark:" || echo ":x:")
+          # Round-2 S1: $RUNNER_TEMP (per-runner) not /tmp/ (shared across
+          # Hurska's 5 runners).
+          MSG_FILE="$RUNNER_TEMP/slack-msg.json"
+          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Chidole)\"}" > "$MSG_FILE"
+          curl -s -X POST -H 'Content-type: application/json' -d @"$MSG_FILE" "$(cat ~/.slack-webhook)"
+          rm -f "$MSG_FILE"
