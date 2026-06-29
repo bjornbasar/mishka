@@ -98,15 +98,16 @@ jobs:
     steps:
       - name: Pull + composer install (no-dev, dockerized) + decrypt secrets on Nalle
         # composer runs via the public composer:2 image (Nalle has no host
-        # composer toolchain). -u $(id -u) so vendor is owned by ubuntu, not
-        # root; COMPOSER_HOME=/tmp gives the non-root uid a writable cache;
-        # --ignore-platform-reqs because ext-gmp/pdo_pgsql are satisfied at
-        # runtime (mishka-php image), not in the builder. \$(...) escaped so it
-        # expands on Nalle, not the Hurska runner.
+        # composer toolchain). Runs as the container's default root because
+        # Nalle's existing /app/vendor is root-owned (historical root-docker
+        # composer) — a non-root uid can't delete those files on --no-dev prune.
+        # COMPOSER_HOME=/tmp for a writable cache; --ignore-platform-reqs
+        # because ext-gmp/pdo_pgsql are satisfied at runtime (mishka-php image),
+        # not in the builder.
         run: |
           ssh $NALLE "cd $NALLE_DIR && \
             git pull --ff-only && \
-            docker run --rm -u \$(id -u):\$(id -g) -e COMPOSER_HOME=/tmp \
+            docker run --rm -e COMPOSER_HOME=/tmp \
               -v $NALLE_DIR:/app -w /app composer:2 \
               install --no-dev --no-interaction --prefer-dist --ignore-platform-reqs && \
             sops decrypt --input-type dotenv --output-type dotenv --output .env.new .env.enc && \
@@ -126,7 +127,7 @@ jobs:
         # the no-dev tree from the rsync above). ~5s on warm cache.
         run: |
           ssh $NALLE "cd $NALLE_DIR && \
-            docker run --rm -u \$(id -u):\$(id -g) -e COMPOSER_HOME=/tmp \
+            docker run --rm -e COMPOSER_HOME=/tmp \
               -v $NALLE_DIR:/app -w /app composer:2 \
               install --no-interaction --prefer-dist --ignore-platform-reqs"
 
