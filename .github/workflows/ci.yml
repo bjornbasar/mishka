@@ -84,9 +84,9 @@ jobs:
 
     env:
       NALLE: ubuntu@192.168.4.9
-      CHIDOLE: ubuntu@192.168.4.6
+      BEPO: ubuntu@192.168.4.34
       NALLE_DIR: /data/personal/mishka
-      CHIDOLE_DIR: /data/mishka
+      BEPO_DIR: /data/mishka
 
     # v0.7.1 round-3 C5: don't cancel in-flight deploys — let each complete
     # so its audit row lands in schema_versions. Sequential queue on the
@@ -96,36 +96,47 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Pull + composer install (no-dev) + decrypt secrets on Nalle
+      - name: Pull + composer install (no-dev, dockerized) + decrypt secrets on Nalle
+        # composer runs via the public composer:2 image (Nalle has no host
+        # composer toolchain). -u $(id -u) so vendor is owned by ubuntu, not
+        # root; COMPOSER_HOME=/tmp gives the non-root uid a writable cache;
+        # --ignore-platform-reqs because ext-gmp/pdo_pgsql are satisfied at
+        # runtime (mishka-php image), not in the builder. \$(...) escaped so it
+        # expands on Nalle, not the Hurska runner.
         run: |
           ssh $NALLE "cd $NALLE_DIR && \
             git pull --ff-only && \
-            composer install --no-dev --no-interaction --prefer-dist && \
+            docker run --rm -u \$(id -u):\$(id -g) -e COMPOSER_HOME=/tmp \
+              -v $NALLE_DIR:/app -w /app composer:2 \
+              install --no-dev --no-interaction --prefer-dist --ignore-platform-reqs && \
             sops decrypt --input-type dotenv --output-type dotenv --output .env.new .env.enc && \
             mv .env.new .env"
 
-      - name: Sync source + compose + env + vendor to Chidole
+      - name: Sync source + compose + env + vendor to Bepo
         run: |
           ssh $NALLE "rsync -a --delete-after \
             --exclude='.git*' --exclude='.env.enc' --exclude='.phpstan-cache/' \
-            $NALLE_DIR/ $CHIDOLE:$CHIDOLE_DIR/"
+            $NALLE_DIR/ $BEPO:$BEPO_DIR/"
 
       - name: Restore Nalle dev vendor (round-3 C1)
         # composer install --no-dev (step 1) strips phpunit/phpstan from
         # Nalle's vendor. Since Nalle is the dev workspace per CLAUDE.md,
         # the operator expects `composer test` to keep working after deploy.
-        # This re-installs the dev deps on Nalle ONLY (Chidole already has
+        # This re-installs the dev deps on Nalle ONLY (the target already has
         # the no-dev tree from the rsync above). ~5s on warm cache.
         run: |
-          ssh $NALLE "cd $NALLE_DIR && composer install --no-interaction --prefer-dist"
+          ssh $NALLE "cd $NALLE_DIR && \
+            docker run --rm -u \$(id -u):\$(id -g) -e COMPOSER_HOME=/tmp \
+              -v $NALLE_DIR:/app -w /app composer:2 \
+              install --no-interaction --prefer-dist --ignore-platform-reqs"
 
       - name: Touch containers (no-op unless image changed)
         run: |
-          ssh $CHIDOLE "cd $CHIDOLE_DIR && docker compose up -d"
+          ssh $BEPO "cd $BEPO_DIR && docker compose up -d"
 
       - name: Run schema migration (idempotent + tracked)
         run: |
-          ssh $CHIDOLE "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
+          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
 
       - name: Notify Slack
         if: always()
@@ -135,6 +146,6 @@ jobs:
           # Round-2 S1: $RUNNER_TEMP (per-runner) not /tmp/ (shared across
           # Hurska's 5 runners).
           MSG_FILE="$RUNNER_TEMP/slack-msg.json"
-          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Chidole)\"}" > "$MSG_FILE"
+          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Bepo)\"}" > "$MSG_FILE"
           curl -s -X POST -H 'Content-type: application/json' -d @"$MSG_FILE" "$(cat ~/.slack-webhook)"
           rm -f "$MSG_FILE"
