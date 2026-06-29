@@ -120,6 +120,12 @@ jobs:
             $NALLE_DIR/ $BEPO:$BEPO_DIR/"
 
       - name: Restore Nalle dev vendor (round-3 C1)
+        # Non-blocking: this only restores Nalle's local-dev deps (phpunit/
+        # phpstan) for `composer test` — it is NOT part of deploying to Bepo
+        # (which already happened in the rsync step above). A transient GitHub
+        # codeload flake here must never fail the production deploy, so it's
+        # best-effort; re-run or `composer install` manually if it's skipped.
+        continue-on-error: true
         # composer install --no-dev (step 1) strips phpunit/phpstan from
         # Nalle's vendor. Since Nalle is the dev workspace per CLAUDE.md,
         # the operator expects `composer test` to keep working after deploy.
