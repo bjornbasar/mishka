@@ -77,9 +77,76 @@ jobs:
           DB_PASS: postgres
         run: vendor/bin/phpunit --filter 'PgSmoke'
 
-  deploy:
+  # v0.7.2 — build self-contained image on Nalle, push to local registry.
+  # Runs on main pushes AND tag pushes. Deploy job depends on it.
+  build:
     runs-on: [self-hosted, homelab]
     needs: [test, pg-smoke]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+
+    # Round-2 C2 (CRITICAL): without this, two rapid main pushes race on the
+    # final `docker push :latest` and the LATER-finishing build wins,
+    # potentially writing the OLDER code's image to `:latest`. Serialize.
+    concurrency:
+      group: build-mishka
+      cancel-in-progress: false
+
+    env:
+      NALLE: ubuntu@192.168.4.9
+      NALLE_DIR: /data/personal/mishka
+      REGISTRY: 192.168.4.9:5000
+      IMAGE: mishka-php
+
+    steps:
+      - name: Pull source on Nalle
+        run: |
+          ssh $NALLE "cd $NALLE_DIR && git pull --ff-only"
+
+      - name: Compute image tags
+        id: tags
+        run: |
+          SHA="${GITHUB_SHA:0:7}"
+          TAGS="${REGISTRY}/${IMAGE}:sha-${SHA}"
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            TAGS="$TAGS ${REGISTRY}/${IMAGE}:latest"
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAGS="$TAGS ${REGISTRY}/${IMAGE}:${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
+          echo "primary=${REGISTRY}/${IMAGE}:sha-${SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image on Nalle
+        run: |
+          ssh $NALLE "cd $NALLE_DIR && docker build -t ${{ steps.tags.outputs.primary }} ."
+
+      - name: Smoke-test the built image (round-2 C9 + round-3 C5 + round-4 S3)
+        # Cheap sanity: autoloader resolves + Composer\InstalledVersions has
+        # the runtime package metadata. Round-3 C5: catches regressions in
+        # the two-step composer ceremony (--no-autoloader → dump-autoload
+        # --classmap-authoritative MUST regenerate installed.php). Round-4
+        # S3: fail loudly if InstalledVersions returns empty/null (silent
+        # empty would otherwise echo a blank line + exit 0).
+        run: |
+          ssh $NALLE "docker run --rm ${{ steps.tags.outputs.primary }} \
+            php -r '\
+              require \"/app/vendor/autoload.php\"; \
+              \$v = \Composer\InstalledVersions::getVersion(\"twig/twig\"); \
+              if (!\$v) { fwrite(STDERR, \"installed.php broken: twig version empty\n\"); exit(1); } \
+              echo \"autoload-ok twig=\$v\n\"; \
+            '"
+
+      - name: Tag + push all
+        run: |
+          for tag in ${{ steps.tags.outputs.tags }}; do
+            ssh $NALLE "docker tag ${{ steps.tags.outputs.primary }} $tag && docker push $tag"
+          done
+
+  deploy:
+    runs-on: [self-hosted, homelab]
+    needs: [test, pg-smoke, build]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     env:
@@ -96,52 +163,32 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Pull + composer install (no-dev, dockerized) + decrypt secrets on Nalle
-        # composer runs via the public composer:2 image (Nalle has no host
-        # composer toolchain). Runs as the container's default root because
-        # Nalle's existing /app/vendor is root-owned (historical root-docker
-        # composer) — a non-root uid can't delete those files on --no-dev prune.
-        # COMPOSER_HOME=/tmp for a writable cache; --ignore-platform-reqs
-        # because ext-gmp/pdo_pgsql are satisfied at runtime (mishka-php image),
-        # not in the builder.
+      - name: Decrypt .env on Nalle
+        # v0.7.2: no more composer install or vendor rsync — the image carries
+        # everything. Only .env (decrypted from .env.enc) + docker-compose.yml
+        # need to land on Bepo.
         run: |
           ssh $NALLE "cd $NALLE_DIR && \
-            git pull --ff-only && \
-            docker run --rm -e COMPOSER_HOME=/tmp \
-              -v $NALLE_DIR:/app -w /app composer:2 \
-              install --no-dev --no-interaction --prefer-dist --ignore-platform-reqs && \
             sops decrypt --input-type dotenv --output-type dotenv --output .env.new .env.enc && \
             mv .env.new .env"
 
-      - name: Sync source + compose + env + vendor to Bepo
+      - name: Sync .env + compose to Bepo (compose + env only, NO source)
         run: |
-          ssh $NALLE "rsync -a --delete-after \
-            --exclude='.git*' --exclude='.env.enc' --exclude='.phpstan-cache/' \
-            $NALLE_DIR/ $BEPO:$BEPO_DIR/"
+          ssh $NALLE "rsync -a $NALLE_DIR/.env $NALLE_DIR/docker-compose.yml $BEPO:$BEPO_DIR/"
 
-      - name: Restore Nalle dev vendor (round-3 C1)
-        # Non-blocking: this only restores Nalle's local-dev deps (phpunit/
-        # phpstan) for `composer test` — it is NOT part of deploying to Bepo
-        # (which already happened in the rsync step above). A transient GitHub
-        # codeload flake here must never fail the production deploy, so it's
-        # best-effort; re-run or `composer install` manually if it's skipped.
-        continue-on-error: true
-        # composer install --no-dev (step 1) strips phpunit/phpstan from
-        # Nalle's vendor. Since Nalle is the dev workspace per CLAUDE.md,
-        # the operator expects `composer test` to keep working after deploy.
-        # This re-installs the dev deps on Nalle ONLY (the target already has
-        # the no-dev tree from the rsync above). ~5s on warm cache.
+      - name: Pull new image + recreate containers on Bepo
+        # docker compose pull resolves :latest to the digest the build job
+        # just pushed. up -d --remove-orphans recreates app + worker with
+        # the new image (compose detects image digest change). Brief
+        # downtime during the swap — single php -S process, no graceful
+        # handoff. Acceptable for family-scale.
         run: |
-          ssh $NALLE "cd $NALLE_DIR && \
-            docker run --rm -e COMPOSER_HOME=/tmp \
-              -v $NALLE_DIR:/app -w /app composer:2 \
-              install --no-interaction --prefer-dist --ignore-platform-reqs"
-
-      - name: Touch containers (no-op unless image changed)
-        run: |
-          ssh $BEPO "cd $BEPO_DIR && docker compose up -d"
+          ssh $BEPO "cd $BEPO_DIR && docker compose pull && docker compose up -d --remove-orphans"
 
       - name: Run schema migration (idempotent + tracked)
+        # Container has been recreated with new image; vendor + schema.sql
+        # are baked in. Migrate reads the new schema.sql, hash-check skips
+        # if unchanged, INSERTs audit row otherwise.
         run: |
           ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
 
