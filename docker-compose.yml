@@ -1,7 +1,11 @@
+# v0.7.2 — self-contained image. Bind-mount removed; `:latest` is the
+# rolling tag the deploy job pushes after each main commit. Rollback by
+# pinning the image: line to a `:sha-<7chars>` and re-pulling.
+# See DOCS.md decision #64.
 name: mishka
 services:
   app:
-    image: 192.168.4.9:5000/mishka-php:dev
+    image: 192.168.4.9:5000/mishka-php:latest
     container_name: mishka-app
     working_dir: /app
     command: ["php", "-S", "0.0.0.0:8080", "-t", "public"]
@@ -9,15 +13,11 @@ services:
     ports: ["5180:8080"]
     restart: unless-stopped
     mem_limit: 256m
-    volumes:
-      - /data/mishka:/app
   worker:
-    image: 192.168.4.9:5000/mishka-php:dev
+    image: 192.168.4.9:5000/mishka-php:latest
     container_name: mishka-worker
     working_dir: /app
     command: ["php", "vendor/bjornbasar/karhu/bin/karhu", "push:worker"]
     env_file: [.env]
     restart: unless-stopped
     mem_limit: 128m
-    volumes:
-      - /data/mishka:/app

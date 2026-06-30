@@ -1,22 +1,36 @@
-# Bind-mount handles the app source at runtime; build context stays lean.
-# Excluding these keeps `docker build` fast even on the Pi-ish hosts.
+# v0.7.2 — self-contained image: build context is the source of truth.
+# These exclusions keep the image clean (no leaked secrets, no IDE noise,
+# no host-built vendor) and the docker build fast.
 
+# VCS + build metadata
 .git
 .github
-vendor
-node_modules
+.gitignore
+.gitattributes
+.dockerignore
 
-# Tests / docs / dev-only artefacts — not needed in the image.
+# Environment files — sops decrypts on Nalle, env_file mounts at runtime
+.env
+.env.*
+
+# Caches (gitignored too — kept consistent so a stale cache can't leak in)
+.phpunit-cache
+.phpstan-cache
+cache
+templates/.cache
+logs
+
+# Tests / docs / dev-only artefacts — not needed in the runtime image
 tests
 docs
+README.md
+DOCS.md
 phpunit.xml.dist
 phpstan.neon.dist
 
-# Environment + cache
-.env
-.env.*
-.phpunit-cache
-.phpstan-cache
+# Host-built vendor — image builds its own via composer install
+vendor
+node_modules
 
 # Editor / OS noise
 .idea
