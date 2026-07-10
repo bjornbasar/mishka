@@ -567,5 +567,43 @@
             window.addEventListener('pageshow', function (e) { if (e.persisted) refresh(); });
         })();
     </script>
+    {# v0.7.4: prevent duplicate POST submits. Root cause of a lingering
+       CSRF-mismatch 403 pattern on Android Chrome / PWA — the browser (or
+       a fast double-tap) fires a second submit ~1s after a successful
+       login; AuthController::establishSession has already run
+       Csrf::regenerate() so the second POST carries the now-dead token
+       from the pre-rotate render and fails hash_equals with a 403.
+       Applies to EVERY form on the site (any form is double-tap-prone;
+       login is where the failure was visible because rotation makes
+       the second POST 403 — other forms would silently double-write).
+       Capture phase so our flag lands before other listeners; disabling
+       the submit buttons synchronously blocks the second native click
+       from ever emitting a submit event on most browsers, and the
+       dataset flag + preventDefault kills any submit event that still
+       makes it through. See DOCS.md decision #66. #}
+    <script>
+        (function () {
+            document.addEventListener('submit', function (e) {
+                var form = e.target;
+                if (!form || form.tagName !== 'FORM') return;
+                if (form.dataset.mishkaSubmitting === '1') {
+                    e.preventDefault();
+                    return;
+                }
+                form.dataset.mishkaSubmitting = '1';
+                var btns = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+                for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
+                // Safety net: real successful submits navigate away, so
+                // this timer is a no-op in the happy path. It only matters
+                // if another script cancels the submit after ours runs,
+                // leaving the user stuck. 5s is comfortably longer than
+                // any legit server round-trip on this app.
+                setTimeout(function () {
+                    delete form.dataset.mishkaSubmitting;
+                    for (var i = 0; i < btns.length; i++) btns[i].disabled = false;
+                }, 5000);
+            }, true);
+        })();
+    </script>
 </body>
 </html>
