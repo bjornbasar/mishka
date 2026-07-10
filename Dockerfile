@@ -81,6 +81,19 @@ RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
 # guard in public/bootstrap.php, flagged for v0.7.3+.
 RUN touch /app/.env
 
+# v0.7.3 — persist PHP session storage across container recreates.
+# Default session.save_path is /tmp, which is container-ephemeral: every
+# `docker compose up -d` (i.e. every deploy) wipes all sessions, leaving
+# any mobile/tablet user with a saved PHPSESSID cookie + stale CSRF
+# token in their tab HTML with an empty server-side session — the
+# subsequent POST fails Csrf::validate with 403. Pinning save_path to
+# a directory the compose file volume-mounts makes sessions survive
+# container recreation. DOCS.md decision #65.
+RUN mkdir -p /var/lib/mishka/sessions \
+    && chmod 733 /var/lib/mishka/sessions \
+    && echo 'session.save_path = "/var/lib/mishka/sessions"' \
+       > /usr/local/etc/php/conf.d/mishka-sessions.ini
+
 EXPOSE 8080
 
 # mishka-app default: serve via PHP's built-in dev server on :8080.

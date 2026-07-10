@@ -13,6 +13,13 @@ services:
     ports: ["5180:8080"]
     restart: unless-stopped
     mem_limit: 256m
+    # v0.7.3 — persistent PHP session storage. Without this, every
+    # container recreate wipes /var/lib/mishka/sessions and mobile
+    # users get 403 CSRF-mismatch on their next POST (session file
+    # missing → empty $_SESSION → no _csrf_token → hash_equals fails).
+    # See DOCS.md decision #65.
+    volumes:
+      - mishka-sessions:/var/lib/mishka/sessions
   worker:
     image: 192.168.4.9:5000/mishka-php:latest
     container_name: mishka-worker
@@ -21,3 +28,11 @@ services:
     env_file: [.env]
     restart: unless-stopped
     mem_limit: 128m
+    # Worker doesn't use $_SESSION (CLI, no HTTP request) — but mounting
+    # the same volume keeps image behaviour identical (session.save_path
+    # is set at the image level; the directory must exist + be writable).
+    volumes:
+      - mishka-sessions:/var/lib/mishka/sessions
+
+volumes:
+  mishka-sessions:

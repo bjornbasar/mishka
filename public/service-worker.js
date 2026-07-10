@@ -1,4 +1,4 @@
-// mishka-sw v0.7.2 — push handler + PWA-grade cache strategy
+// mishka-sw v0.7.3 — push handler + PWA-grade cache strategy
 //
 // Three lifecycle handlers (install / activate / fetch) + push +
 // notificationclick. Versioned precache + cache-first statics +
@@ -16,7 +16,7 @@
 // tests/View/ServiceWorkerStructureTest::test_sw_version_matches_release
 // asserts SW_VERSION matches README's ## Status line — CI fails if forgot.
 
-const SW_VERSION = 'mishka-v0.7.2';
+const SW_VERSION = 'mishka-v0.7.3';
 const CACHE_NAME = 'mishka-cache-' + SW_VERSION;
 
 const PRECACHE_URLS = [
