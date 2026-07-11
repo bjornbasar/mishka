@@ -16,4 +16,6 @@ return [
     App\Commands\JobsUnstickCommand::class,
     // v0.6.13 — badge persistence
     App\Commands\BadgesBackfillCommand::class,
+    // v0.7.5 — outbound-mail smoke test
+    App\Commands\MailTestCommand::class,
 ];

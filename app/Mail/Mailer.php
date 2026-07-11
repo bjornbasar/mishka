@@ -145,6 +145,22 @@ class Mailer
     }
 
     /**
+     * v0.7.5 — outbound-transport smoke test. Not invoked by any user-facing
+     * flow; only from bin/karhu mail:test. Body includes a UTC timestamp so
+     * receivers can distinguish consecutive test sends. See DOCS.md #67.
+     */
+    public function sendTest(string $toEmail): bool
+    {
+        return $this->send(
+            $toEmail,
+            'mishka mail:test — outbound delivery smoke test',
+            'mail/test.txt.twig',
+            'mail/test.html.twig',
+            ['sent_at' => gmdate('Y-m-d\TH:i:s\Z')],
+        );
+    }
+
+    /**
      * Single send path. Builds the multipart message and dispatches; catches
      * any TransportException and logs it via `error_log` (good enough for v0.5;
      * a real logger DI lands in v0.6+ when the LoggerInterface is plumbed).
