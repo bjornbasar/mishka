@@ -1,10 +1,14 @@
-# mishka-php — self-contained runtime image (v0.7.2+).
+# mishka-php — self-contained runtime image (v0.7.6+).
 #
-# Carries app code + vendor + PHP + extensions. Bind-mount removed from
-# docker-compose.yml; the image IS the deploy artifact. See DOCS.md
-# decision #64 for the v0.6.x→v0.7.2 deploy-model shift (was: thin PHP
-# base + bind-mount source from host; now: COPY app + composer install
-# inside the image, pull-and-run on any docker host).
+# Multi-stage: builder compiles PHP extensions + runs composer install;
+# runtime carries ONLY the final app + vendor + extension .so files +
+# runtime shared libs. -dev packages, unzip, git, and composer's ZIP
+# cache never reach the deployed image.
+#
+# Historical shape:
+#   v0.6.x  — thin base + bind-mounted source from host
+#   v0.7.2  — single-stage self-contained (see DOCS #64)
+#   v0.7.6  — multi-stage builder/runtime split (see DOCS #68)
 #
 # Build with (CI does this on Nalle via the build job in ci.yml):
 #   docker build -t 192.168.4.9:5000/mishka-php:sha-$(git rev-parse --short HEAD) .
@@ -12,36 +16,38 @@
 # Used by both mishka-app (php -S) and mishka-worker (karhu push:worker).
 # Same image; different `command:` overrides per service in compose.
 
-FROM php:8.4-cli
+# ────────────────────────────────────────────────────────────────────
+# Stage 1: builder — compile extensions, install composer deps
+# ────────────────────────────────────────────────────────────────────
 
-# System libs needed for PHP extensions.
+FROM php:8.4-cli AS builder
+
+# System libs + build tools for compiling PHP extensions and running
+# `composer install --prefer-dist`. All discarded when the builder stage
+# ends — none of these reach the runtime image.
 #   libgmp-dev      → gmp (Web Push crypto fast path)
 #   libpq-dev       → pdo_pgsql (production database driver)
-#   libsqlite3-dev  → pdo_sqlite (test harness — kept so the image can
-#                                 self-test offline if ever needed)
-# -dev packages stay in the image for now; v0.7.3 multi-stage candidate
-# would split a "builder" stage from a "runtime" stage to shave 100-200MB.
+#   unzip + git     → composer install --prefer-dist (unzip extracts
+#                     ZIP archives from packagist; git clones any
+#                     source-only fallback packages)
+#
+# NOTE: pdo_sqlite is deliberately absent. It's statically compiled into
+# php:8.4-cli — `php -m` shows it before any docker-php-ext-install,
+# and docker-php-ext-enable's "already loaded" branch skips generating
+# an ini for it. libsqlite3-* packages are similarly unnecessary; the
+# base image bundles what the static compile needs. See DOCS #68.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         libgmp-dev \
         libpq-dev \
-        libsqlite3-dev \
         unzip \
         git \
     && docker-php-ext-install \
         gmp \
         pdo_pgsql \
-        pdo_sqlite \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-# unzip + git are needed by composer to install --prefer-dist packages
-# (unzip extracts ZIP archives from packagist; git clones any source-only
-# fallback packages). Without these, `composer install` fails with the
-# "zip extension and unzip/7z commands are both missing" error.
 
-# Composer binary for ops-side commands inside the running container
-# (e.g. `docker exec mishka-app composer outdated`). The binary itself
-# doesn't ship PHP — multi-stage COPY from the official composer image.
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 WORKDIR /app
@@ -59,8 +65,6 @@ RUN composer install --no-dev --no-interaction --prefer-dist --no-scripts \
     --no-autoloader
 
 # Now COPY the rest of the app source (minus .dockerignore exclusions).
-# composer.{json,lock} get re-COPYed here too but with identical content
-# (build context didn't change between the two COPYs) — no-op layer churn.
 COPY . .
 
 # Regenerate autoload with the full source tree present.
@@ -77,22 +81,66 @@ RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
 # compose's `env_file: [.env]` → process env → $_ENV; the empty file's
 # contents are ignored because Dotenv::createImmutable preserves pre-set
 # $_ENV entries. Mirrors the v0.7.1 BootstrapSmokeTest fixture pattern
-# (DOCS #58 postmortem) — the real fundamental fix would be a file_exists
-# guard in public/bootstrap.php, flagged for v0.7.3+.
+# (DOCS #58 postmortem).
 RUN touch /app/.env
 
-# v0.7.3 — persist PHP session storage across container recreates.
-# Default session.save_path is /tmp, which is container-ephemeral: every
-# `docker compose up -d` (i.e. every deploy) wipes all sessions, leaving
-# any mobile/tablet user with a saved PHPSESSID cookie + stale CSRF
-# token in their tab HTML with an empty server-side session — the
-# subsequent POST fails Csrf::validate with 403. Pinning save_path to
-# a directory the compose file volume-mounts makes sessions survive
-# container recreation. DOCS.md decision #65.
+
+# ────────────────────────────────────────────────────────────────────
+# Stage 2: runtime — the deployed image. Only runtime shared libs +
+# extension .so files copied from builder + app + vendor.
+# ────────────────────────────────────────────────────────────────────
+
+FROM php:8.4-cli AS runtime
+
+# Runtime-only apt: shared object libs the extensions link against.
+# libgmp10 / libpq5 are the Debian trixie runtime split of the -dev
+# packages the builder used. libsqlite3 runtime lib is bundled with the
+# base php:8.4-cli image (pdo_sqlite is statically compiled), no separate
+# package needed.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libgmp10 \
+        libpq5 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Extension .so files + auto-generated docker-php-ext-*.ini configs from
+# the builder. BuildKit resolves both `FROM php:8.4-cli` clauses to the
+# same image ID at graph-construction time, so the extension-API-version
+# dir path is guaranteed identical between builder + runtime for the
+# duration of one docker build invocation. Copying the whole dirs picks
+# up opcache + sodium (base-image-provided) automatically.
+COPY --from=builder /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
+COPY --from=builder /usr/local/etc/php/conf.d/     /usr/local/etc/php/conf.d/
+
+# Composer binary for ops-side commands inside the running container
+# (`docker exec mishka-app composer outdated`).
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+# v0.7.3 — persistent session storage. Must live in the runtime stage
+# because the /var/lib/mishka/sessions directory has to exist in the
+# final image for docker-compose's named volume mount to land on a
+# writable target. mode 733 = rwx / -wx / -wx — works because the
+# container runs as root. TRIPWIRE: if a future release adds a non-root
+# USER directive, this mode breaks (www-data can't stat existing session
+# files). Revisit chmod when non-root lands. See DOCS #65 + #68.
 RUN mkdir -p /var/lib/mishka/sessions \
     && chmod 733 /var/lib/mishka/sessions \
     && echo 'session.save_path = "/var/lib/mishka/sessions"' \
        > /usr/local/etc/php/conf.d/mishka-sessions.ini
+
+# v0.7.6 — pin default_socket_timeout to 5s. In practice this only
+# affects Symfony Mailer's EsmtpTransport (via stream_socket_client)
+# because libpq (pdo_pgsql) uses direct BSD sockets and Guzzle/WebPush
+# use ext-curl (CURLOPT_TIMEOUT). Closes DOCS #67's flagged v0.7.6+
+# candidate. See DOCS #68.
+RUN echo 'default_socket_timeout = 5' \
+    > /usr/local/etc/php/conf.d/mishka-socket-timeout.ini
+
+# App + vendor from builder. /app/.env stub travels with the tree.
+# Container env vars still arrive via compose's env_file: [.env].
+WORKDIR /app
+COPY --from=builder /app /app
 
 EXPOSE 8080
 
