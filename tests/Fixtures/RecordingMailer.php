@@ -11,31 +11,37 @@ use App\Mail\Mailer;
  * public array instead of dispatching through Symfony's transport.
  *
  * Round-4 H-3 made `App\Mail\Mailer` non-final specifically so this class can
- * extend it. Tests assert against `$mailer->sent` for both routes:
+ * extend it. Tests assert against `$mailer->sent` for all six routes:
  *
  *   $mailer->sent[0] === [
- *     'kind' => 'verification' | 'password_reset',
+ *     'kind' => 'verification' | 'password_reset' | 'email_change'
+ *             | 'email_change_notification' | 'account_deleted' | 'test',
  *     'to' => 'user@example.com',
  *     'url' => 'http://localhost:8080/verify-email/abc...',
  *     'display_name' => 'Bjorn',
  *   ];
  *
- * The ctor takes no args — we override both public send-* methods BEFORE they
- * touch any of the parent's private readonly properties, so it's safe to skip
- * `parent::__construct()`. The properties stay unset; nothing reads them.
+ * The ctor takes no args — we override all six public send-* methods BEFORE
+ * they touch any of the parent's private readonly properties, so it's safe
+ * to skip `parent::__construct()`. The properties stay unset; nothing reads
+ * them.
  *
  * @phpstan-ignore-next-line — intentionally skipping parent::__construct(),
- *   the parent properties are never read because we override both public methods.
+ *   the parent properties are never read because we override all six public
+ *   methods.
  */
 class RecordingMailer extends Mailer
 {
     /**
      * Recorded calls, in order. Each entry is one of:
-     *   ['kind' => 'verification'|'password_reset'|'email_change'|'email_change_notification',
+     *   ['kind' => 'verification'|'password_reset'|'email_change'
+     *           |'email_change_notification'|'account_deleted'|'test',
      *    'to' => string, 'url' => string, 'display_name' => string]
      *
      * For 'email_change_notification', 'url' holds the masked new email
-     * (e.g. 'j***@example.com'); the kind disambiguates.
+     * (e.g. 'j***@example.com'). For 'account_deleted', 'url' holds the
+     * deleted_at timestamp. For 'test', 'url' + 'display_name' are empty.
+     * The kind disambiguates.
      *
      * @var list<array{kind: string, to: string, url: string, display_name: string}>
      */
@@ -105,6 +111,20 @@ class RecordingMailer extends Mailer
             'to' => $toEmail,
             'url' => $deletedAt,
             'display_name' => $displayName,
+        ];
+        return true;
+    }
+
+    public function sendTest(string $toEmail): bool
+    {
+        // v0.7.5 — outbound-transport smoke test. Only invoked by
+        // `bin/karhu mail:test`. 'url' + 'display_name' are empty here
+        // because the test message doesn't carry either.
+        $this->sent[] = [
+            'kind' => 'test',
+            'to' => $toEmail,
+            'url' => '',
+            'display_name' => '',
         ];
         return true;
     }
