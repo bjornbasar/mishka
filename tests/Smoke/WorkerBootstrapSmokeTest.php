@@ -67,6 +67,15 @@ final class WorkerBootstrapSmokeTest extends TestCase
         $_ENV['VAPID_PUBLIC_KEY'] = self::TEST_VAPID_PUBLIC_KEY;
         $_ENV['VAPID_PRIVATE_KEY'] = self::TEST_VAPID_PRIVATE_KEY;
         $_ENV['VAPID_SUBJECT'] = 'mailto:test@example.com';
+        // v0.7.5 — the Mailer factory in config/container.php validates
+        // MAIL_FROM_ADDRESS with FILTER_VALIDATE_EMAIL at factory-call
+        // time. MailTestCommand's ctor takes Mailer, so resolving the
+        // command through the container triggers the factory. Without
+        // these stubs the smoke test errors on Mailer construction.
+        // Same pattern as BootstrapSmokeTest lines 66-68.
+        $_ENV['MAIL_FROM_ADDRESS'] = 'test@example.com';
+        $_ENV['MAIL_FROM_NAME'] = 'Mishka Den Test';
+        $_ENV['MAILER_DSN'] = 'null://null';
 
         $cwd = dirname(__DIR__, 2);
         $envPath = $cwd . '/.env';
