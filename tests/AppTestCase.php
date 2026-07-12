@@ -89,6 +89,10 @@ abstract class AppTestCase extends TestCase
     protected BadgeAwardRepository $badgeAwardRepo;
     protected BadgeAwarder $badgeAwarder;
     protected ChoreScheduleRepository $scheduleRepo;
+    // v0.8.0 — tracker
+    protected \App\Tracker\FoodRepository $foodRepo;
+    protected \App\Tracker\FoodServingRepository $foodServingRepo;
+    protected \App\Tracker\FoodLogRepository $foodLogRepo;
     protected PasswordHasher $hasher;
     // v0.5.0
     protected EmailVerificationTokenRepository $verifyTokenRepo;
@@ -140,6 +144,9 @@ abstract class AppTestCase extends TestCase
         $this->choreRepo = new ChoreRepository($this->db);
         $this->badgeAwardRepo = new BadgeAwardRepository($this->db);
         $this->badgeAwarder = new BadgeAwarder($this->badgeAwardRepo, $this->choreRepo);
+        $this->foodRepo = new \App\Tracker\FoodRepository($this->db);
+        $this->foodServingRepo = new \App\Tracker\FoodServingRepository($this->db);
+        $this->foodLogRepo = new \App\Tracker\FoodLogRepository($this->db);
         $this->scheduleRepo = new ChoreScheduleRepository($this->db);
         $choreScheduleGenerator = new ChoreScheduleGenerator($this->scheduleRepo, $this->choreRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
@@ -203,6 +210,10 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(ChoreRepository::class, $this->choreRepo);
         $app->container()->set(BadgeAwardRepository::class, $this->badgeAwardRepo);
         $app->container()->set(BadgeAwarder::class, $this->badgeAwarder);
+        // v0.8.0 — tracker
+        $app->container()->set(\App\Tracker\FoodRepository::class, $this->foodRepo);
+        $app->container()->set(\App\Tracker\FoodServingRepository::class, $this->foodServingRepo);
+        $app->container()->set(\App\Tracker\FoodLogRepository::class, $this->foodLogRepo);
         $app->container()->set(ChoreScheduleRepository::class, $this->scheduleRepo);
         $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
         $app->container()->set(PasswordHasher::class, $this->hasher);
@@ -279,6 +290,10 @@ abstract class AppTestCase extends TestCase
             \App\Controllers\BadgesController::class,
             // v0.7.0 — /me/sessions UI
             \App\Controllers\SessionsController::class,
+            // v0.8.0 — Tracker Phase 1
+            \App\Controllers\TrackerController::class,
+            \App\Controllers\FoodLogController::class,
+            \App\Controllers\FoodLibraryController::class,
         ]);
 
         return $app;

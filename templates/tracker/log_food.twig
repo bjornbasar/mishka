@@ -1,0 +1,39 @@
+{% extends "layout.twig" %}
+
+{% block title %}Log food — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Log {{ meal }}</h1>
+        <div class="calendar-nav">
+            <a href="/health" class="new-event-link">← Back</a>
+        </div>
+    </div>
+
+    <form method="POST" action="/health/log/food" class="auth">
+        {{ csrf_field() }}
+        <input type="hidden" name="meal" value="{{ meal }}">
+        <input type="hidden" name="food_id" value="">
+        <input type="hidden" name="serving_id" value="">
+
+        <div data-live-search data-search-url="/health/log/food/search">
+            <label>
+                Search for a dish
+                <input type="text" data-live-search-input autocomplete="off" placeholder="e.g. kare-kare">
+            </label>
+            <ul data-live-search-results style="list-style:none; padding:0; margin:0.25rem 0 0; max-height:16rem; overflow-y:auto; border:1px solid var(--border); border-radius:0.375rem;"></ul>
+            <p data-live-search-preview style="margin:0.5rem 0 0; color:var(--muted); font-size:0.95rem;"></p>
+        </div>
+
+        <label style="margin-top:1rem;">
+            Quantity
+            <input type="number" name="qty" value="1" step="0.5" min="0.5" required>
+        </label>
+
+        <button type="submit" style="margin-top:1rem;">Log it</button>
+    </form>
+
+    <p style="color:var(--muted); margin-top:1rem; font-size:0.9rem;">
+        Can't find your dish? <a href="/health/foods/new">Add it to the library</a>.
+    </p>
+{% endblock %}

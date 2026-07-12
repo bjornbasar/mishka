@@ -1,0 +1,82 @@
+{% extends "layout.twig" %}
+
+{% block title %}{% if food %}Edit {{ food.name }}{% else %}New dish{% endif %} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>{% if food %}Edit {{ food.name }}{% else %}New dish{% endif %}</h1>
+        <div class="calendar-nav">
+            <a href="/health/foods" class="new-event-link">← Library</a>
+        </div>
+    </div>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="{% if food %}/health/foods/{{ food.id }}{% else %}/health/foods{% endif %}" class="auth">
+        {{ csrf_field() }}
+        <label>
+            Name
+            <input type="text" name="name" value="{{ old.name|default(food.name|default('')) }}" required maxlength="200" autofocus>
+        </label>
+        <label>
+            Aliases <small style="color:var(--muted);">(comma-separated alternate names)</small>
+            <input type="text" name="aliases" value="{{ old.aliases|default(food.aliases|default('')) }}" maxlength="500">
+        </label>
+        <label>
+            Cuisine tag <small style="color:var(--muted);">(optional)</small>
+            <input type="text" name="cuisine_tag" value="{{ old.cuisine_tag|default(food.cuisine_tag|default('')) }}" maxlength="50">
+        </label>
+
+        {% if food %}
+            <h2 style="font-size:1rem; margin-top:1.5rem; margin-bottom:0.5rem;">Servings</h2>
+            {% if servings|length == 0 %}
+                <p style="color:var(--muted);">No servings yet.</p>
+            {% else %}
+                <ul style="list-style:none; padding:0; margin:0;">
+                    {% for s in servings %}
+                        <li style="border-bottom:1px solid var(--border); padding:0.5rem 0;">
+                            <strong>{{ s.label }}</strong>
+                            <small style="color:var(--muted);">— {{ s.grams }}g · {{ s.kcal }} kcal{% if s.is_default %} · default{% endif %}</small>
+                        </li>
+                    {% endfor %}
+                </ul>
+                <p style="color:var(--muted); font-size:0.9rem; margin-top:0.5rem;">
+                    Serving edits land in a later release. For now, delete + re-add to change.
+                </p>
+            {% endif %}
+        {% else %}
+            <h2 style="font-size:1rem; margin-top:1.5rem; margin-bottom:0.5rem;">First serving</h2>
+            <p style="color:var(--muted); font-size:0.9rem;">
+                Every dish needs at least one serving so it's loggable. The first is the default.
+            </p>
+            <label>
+                Label <small style="color:var(--muted);">(e.g. "1 bowl", "1 cup", "100 g")</small>
+                <input type="text" name="serving_label" required maxlength="100">
+            </label>
+            <label>
+                Grams <small style="color:var(--muted);">(portion weight)</small>
+                <input type="number" name="serving_grams" step="1" min="1" required>
+            </label>
+            <label>
+                Kcal <small style="color:var(--muted);">(rounded whole number)</small>
+                <input type="number" name="serving_kcal" step="1" min="0" required>
+            </label>
+        {% endif %}
+
+        <button type="submit" style="margin-top:1rem;">{% if food %}Save{% else %}Add dish{% endif %}</button>
+    </form>
+
+    {% if food %}
+        <form method="POST" action="/health/foods/{{ food.id }}/delete" style="margin-top:2rem;">
+            {{ csrf_field() }}
+            <button type="submit" style="background:transparent; border:1px solid var(--border); color:var(--muted);"
+                    onclick="return confirm('Delete this dish? Any log entries will show as (deleted dish).');">
+                Delete dish
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}

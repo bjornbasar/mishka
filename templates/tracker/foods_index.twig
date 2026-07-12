@@ -1,0 +1,37 @@
+{% extends "layout.twig" %}
+
+{% block title %}Food library — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Food library</h1>
+        <div class="calendar-nav">
+            <a href="/health/foods/new" class="new-event-link">+ New dish</a>
+            <a href="/health" class="new-event-link">← Today</a>
+        </div>
+    </div>
+
+    {% if foods|length == 0 %}
+        <p style="color:var(--muted);">
+            The library is empty — the tracker seed should run automatically.
+            If you're a household admin, run <code>bin/karhu tracker:seed-foods</code>.
+        </p>
+    {% else %}
+        <p style="color:var(--muted); margin:0 0 1rem;">{{ foods|length }} dishes</p>
+        <ul style="list-style:none; padding:0; margin:0;">
+            {% for f in foods %}
+                <li style="border-bottom:1px solid var(--border); padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                    <span>
+                        <a href="/health/foods/{{ f.id }}">{{ f.name }}</a>
+                        {% if f.cuisine_tag %}<small style="color:var(--muted);"> · {{ f.cuisine_tag }}</small>{% endif %}
+                        {% if f.household_id is null %}
+                            <small style="color:var(--muted);" title="Global seed">· {{ f.source }}</small>
+                        {% else %}
+                            <small style="color:var(--muted);" title="Your household added this">· custom</small>
+                        {% endif %}
+                    </span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

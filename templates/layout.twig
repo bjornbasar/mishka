@@ -437,6 +437,7 @@
                 {% if active_household is defined and active_household %}
                     <a href="/calendar">Calendar</a>
                     <a href="/chores">Chores</a>
+                    <a href="/health">Health</a>
                     <a href="/household">Household</a>
                     <a href="/me/calendar/feed">Feed</a>
                 {% endif %}
@@ -603,6 +604,68 @@
                     for (var i = 0; i < btns.length; i++) btns[i].disabled = false;
                 }, 5000);
             }, true);
+        })();
+    </script>
+    {# v0.8.0 — live dish-search for the Tracker log-food flow.
+       Only activates on pages that render a container with
+       [data-live-search][data-search-url="…"]. Debounces input at 250ms,
+       GETs the JSON endpoint, renders results via textContent (XSS-safe),
+       populates the enclosing form's hidden food_id + serving_id on
+       click. Endpoint is GET-safelisted by karhu Csrf; response is
+       Cache-Control: no-store so the service worker doesn't cache it.
+       See DOCS #70. #}
+    <script>
+        (function () {
+            if (!('fetch' in window)) return;
+            document.querySelectorAll('[data-live-search]').forEach(function (root) {
+                var input = root.querySelector('[data-live-search-input]');
+                var results = root.querySelector('[data-live-search-results]');
+                var url = root.getAttribute('data-search-url');
+                if (!input || !results || !url) return;
+                var timer = null;
+                input.addEventListener('input', function () {
+                    clearTimeout(timer);
+                    var q = input.value.trim();
+                    if (q.length < 2) { results.innerHTML = ''; return; }
+                    timer = setTimeout(function () {
+                        fetch(url + '?q=' + encodeURIComponent(q), {
+                            credentials: 'same-origin',
+                            headers: { 'Accept': 'application/json' },
+                            cache: 'no-store',
+                        }).then(function (r) { return r.ok ? r.json() : { results: [] }; })
+                          .then(function (data) { renderResults(data.results || []); })
+                          .catch(function () { /* offline — leave prior results */ });
+                    }, 250);
+                });
+                function renderResults(items) {
+                    results.innerHTML = '';
+                    items.forEach(function (item) {
+                        if (!item.default_serving) return;
+                        var li = document.createElement('li');
+                        li.style.padding = '0.5rem 0.75rem';
+                        li.style.borderBottom = '1px solid var(--border)';
+                        li.style.cursor = 'pointer';
+                        li.textContent = item.name + ' — ' + item.default_serving.label +
+                                         ' (' + item.default_serving.kcal + ' kcal)';
+                        li.dataset.foodId = item.id;
+                        li.dataset.servingId = item.default_serving.id;
+                        li.addEventListener('click', function () { onPick(item, li); });
+                        results.appendChild(li);
+                    });
+                }
+                function onPick(item, li) {
+                    var picker = root.closest('form');
+                    if (!picker) return;
+                    var foodIdInput = picker.querySelector('[name="food_id"]');
+                    var servingIdInput = picker.querySelector('[name="serving_id"]');
+                    if (foodIdInput) foodIdInput.value = item.id;
+                    if (servingIdInput) servingIdInput.value = item.default_serving.id;
+                    var preview = root.querySelector('[data-live-search-preview]');
+                    if (preview) preview.textContent = 'Picked: ' + li.textContent;
+                    results.innerHTML = '';
+                    input.value = item.name;
+                }
+            });
         })();
     </script>
 </body>

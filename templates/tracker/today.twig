@@ -1,0 +1,54 @@
+{% extends "layout.twig" %}
+
+{% block title %}Health — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Health</h1>
+        <div class="calendar-nav">
+            <a href="/health/foods" class="new-event-link">Library</a>
+        </div>
+    </div>
+
+    <p style="color:var(--muted); margin:0 0 1rem;">
+        {{ today }} · {{ day_total }} kcal so far today
+    </p>
+
+    {% set meal_labels = {'breakfast': '🍳 Breakfast', 'lunch': '🥗 Lunch', 'dinner': '🍽️ Dinner', 'snack': '🍎 Snack'} %}
+    {% set total_entries = 0 %}
+    {% for meal, entries in meal_groups %}{% set total_entries = total_entries + entries|length %}{% endfor %}
+
+    {% if total_entries == 0 %}
+        <p style="color:var(--muted);">Nothing logged yet today. Tap <strong>+ Add</strong> on any meal below to start.</p>
+    {% endif %}
+
+    {% for meal, entries in meal_groups %}
+        <section style="margin-bottom:1.5rem;">
+            <h2 style="font-size:1.1rem; margin-bottom:0.5rem;">
+                {{ meal_labels[meal] }}
+                <a href="/health/log/food?meal={{ meal }}" style="float:right; font-size:0.9rem;">+ Add</a>
+            </h2>
+            {% if entries|length == 0 %}
+                <p style="color:var(--muted); margin:0; font-size:0.9rem;">—</p>
+            {% else %}
+                <ul style="list-style:none; padding:0; margin:0;">
+                    {% for e in entries %}
+                        <li style="border-bottom:1px solid var(--border); padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                            <span>
+                                {{ e.qty }} × {{ e.food_name }}
+                                <small style="color:var(--muted);">({{ e.serving_label }})</small>
+                            </span>
+                            <span>
+                                <strong>{{ e.kcal_snapshot }} kcal</strong>
+                                <form method="POST" action="/health/log/food/{{ e.id }}/delete" style="display:inline; margin-left:0.5rem;">
+                                    {{ csrf_field() }}
+                                    <button type="submit" style="background:transparent; border:none; color:var(--muted); cursor:pointer;" title="Remove">✕</button>
+                                </form>
+                            </span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        </section>
+    {% endfor %}
+{% endblock %}

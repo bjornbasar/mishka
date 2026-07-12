@@ -32,4 +32,11 @@ return [
     App\Controllers\BadgesController::class,
     // v0.7.0 — per-device session revoke UI
     App\Controllers\SessionsController::class,
+    // v0.8.0 — Tracker Phase 1: /health (Today) + food logging + library.
+    // Intra-class route ordering (literals before {id}) is documented in
+    // each controller's class-level docblock; cross-class order here is
+    // stable because /health/log/food/* and /health/foods/* don't collide.
+    App\Controllers\TrackerController::class,
+    App\Controllers\FoodLogController::class,
+    App\Controllers\FoodLibraryController::class,
 ];

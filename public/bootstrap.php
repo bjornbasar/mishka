@@ -172,6 +172,12 @@ $choreScheduleGenerator = new ChoreScheduleGenerator($choreScheduleRepo, $choreR
 // v0.6.13 — persistent badges
 $badgeAwardRepo = new BadgeAwardRepository($db);
 $badgeAwarder = new BadgeAwarder($badgeAwardRepo, $choreRepo);
+// v0.8.0 — tracker phase 1: dish library + food logging.
+// Explicit \App\ leading backslash mandatory — bootstrap.php has
+// `use Karhu\App;` aliasing `App\...` → `Karhu\App\...` (DOCS #55).
+$foodRepo = new \App\Tracker\FoodRepository($db);
+$foodServingRepo = new \App\Tracker\FoodServingRepository($db);
+$foodLogRepo = new \App\Tracker\FoodLogRepository($db);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);
@@ -234,6 +240,10 @@ $app->container()->set(IcalFeedTokenRepository::class, $tokenRepo);
 $app->container()->set(IcalFeedBuilder::class, $icalBuilder);
 $app->container()->set(ChoreRepository::class, $choreRepo);
 $app->container()->set(BadgeAwardRepository::class, $badgeAwardRepo);
+// v0.8.0 — tracker (\App\ prefix required per DOCS #55)
+$app->container()->set(\App\Tracker\FoodRepository::class, $foodRepo);
+$app->container()->set(\App\Tracker\FoodServingRepository::class, $foodServingRepo);
+$app->container()->set(\App\Tracker\FoodLogRepository::class, $foodLogRepo);
 $app->container()->set(BadgeAwarder::class, $badgeAwarder);
 $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
