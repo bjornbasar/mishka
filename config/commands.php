@@ -18,4 +18,6 @@ return [
     App\Commands\BadgesBackfillCommand::class,
     // v0.7.5 — outbound-mail smoke test
     App\Commands\MailTestCommand::class,
+    // v0.8.0 — tracker food library seed
+    App\Commands\TrackerSeedFoodsCommand::class,
 ];

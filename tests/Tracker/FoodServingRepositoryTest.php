@@ -70,7 +70,7 @@ final class FoodServingRepositoryTest extends TestCase
         // Directly attempt a second default row bypassing the demote-then-promote path.
         $this->expectException(\PDOException::class);
         $this->db->run(
-            "INSERT INTO food_servings (food_id, label, grams, kcal, is_default) VALUES (:fid, '1 cup', 200, 275, 1)",
+            "INSERT INTO food_servings (food_id, label, grams, kcal, is_default) VALUES (:fid, '1 cup', 200, 275, TRUE)",
             ['fid' => $this->foodId],
         );
     }

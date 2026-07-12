@@ -193,6 +193,16 @@ jobs:
         run: |
           ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
 
+      - name: Seed tracker foods (idempotent, v0.8.0+)
+        # Loads db/seed/tracker_foods.json into the global (household_id
+        # IS NULL) foods table. Partial UNIQUE idx_foods_seed_unique
+        # dedups reruns. First-deploy inserts ~41 dishes; every deploy
+        # after that reports "skipped 41 existing". Non-zero exit fails
+        # CI + fires the failure Slack — half-applied deploy = incident,
+        # rollback via compose SHA-pin per DOCS #68. See DOCS #70.
+        run: |
+          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
+
       - name: Notify Slack
         if: always()
         run: |

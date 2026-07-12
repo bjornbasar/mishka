@@ -1,0 +1,349 @@
+{
+  "version": 1,
+  "_note": "v0.8.0 initial seed. kcal values are starting-point estimates derived from PhilFCT (Philippine Food Composition Tables), NZ FCD (Plant & Food Research / MoH), and USDA FoodData Central. Household-specific bowl sizes and recipe variations should be edited in the library after first-run. Editing does NOT clear the source column — kept as provenance. See DOCS #70.",
+  "foods": [
+    {
+      "name": "Chicken adobo",
+      "aliases": "adobong manok",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 250, "is_default": true},
+        {"label": "1 bowl", "grams": 320, "kcal": 400, "is_default": false}
+      ]
+    },
+    {
+      "name": "Pork adobo",
+      "aliases": "adobong baboy",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 320, "is_default": true}
+      ]
+    },
+    {
+      "name": "Kare-kare",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 bowl", "grams": 350, "kcal": 480, "is_default": true},
+        {"label": "1 cup", "grams": 200, "kcal": 275, "is_default": false}
+      ]
+    },
+    {
+      "name": "Sinigang na baboy",
+      "aliases": "pork sinigang",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 bowl", "grams": 400, "kcal": 320, "is_default": true}
+      ]
+    },
+    {
+      "name": "Tinolang manok",
+      "aliases": "chicken tinola",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 bowl", "grams": 400, "kcal": 220, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chicken menudo",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 300, "is_default": true}
+      ]
+    },
+    {
+      "name": "Afritada",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 280, "is_default": true}
+      ]
+    },
+    {
+      "name": "Sinangag",
+      "aliases": "garlic fried rice",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 180, "kcal": 240, "is_default": true}
+      ]
+    },
+    {
+      "name": "Tapsilog",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 plate", "grams": 400, "kcal": 550, "is_default": true}
+      ]
+    },
+    {
+      "name": "Pancit canton",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 plate", "grams": 250, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "Lumpiang shanghai",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "3 pieces", "grams": 90, "kcal": 220, "is_default": true},
+        {"label": "6 pieces", "grams": 180, "kcal": 440, "is_default": false}
+      ]
+    },
+    {
+      "name": "Lechon kawali",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "100 g", "grams": 100, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "Longganisa",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "2 pieces", "grams": 100, "kcal": 240, "is_default": true}
+      ]
+    },
+    {
+      "name": "Tocino",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "100 g", "grams": 100, "kcal": 220, "is_default": true}
+      ]
+    },
+    {
+      "name": "Champorado",
+      "aliases": "chocolate rice porridge",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 cup", "grams": 240, "kcal": 250, "is_default": true}
+      ]
+    },
+    {
+      "name": "Arroz caldo",
+      "aliases": "chicken rice porridge",
+      "cuisine_tag": "filipino",
+      "source": "philfct",
+      "servings": [
+        {"label": "1 bowl", "grams": 300, "kcal": 200, "is_default": true}
+      ]
+    },
+    {
+      "name": "Kūmara, roasted",
+      "aliases": "kumara, roasted sweet potato",
+      "cuisine_tag": "nz",
+      "source": "nzfcd",
+      "servings": [
+        {"label": "100 g", "grams": 100, "kcal": 90, "is_default": true},
+        {"label": "1 medium", "grams": 200, "kcal": 180, "is_default": false}
+      ]
+    },
+    {
+      "name": "Hoki, baked",
+      "cuisine_tag": "nz",
+      "source": "nzfcd",
+      "servings": [
+        {"label": "100 g fillet", "grams": 100, "kcal": 95, "is_default": true}
+      ]
+    },
+    {
+      "name": "Lamb chop, grilled",
+      "cuisine_tag": "nz",
+      "source": "nzfcd",
+      "servings": [
+        {"label": "1 chop", "grams": 100, "kcal": 260, "is_default": true}
+      ]
+    },
+    {
+      "name": "Weet-Bix",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "2 biscuits", "grams": 30, "kcal": 130, "is_default": true},
+        {"label": "1 biscuit", "grams": 15, "kcal": 65, "is_default": false}
+      ]
+    },
+    {
+      "name": "Mince pie",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 pie", "grams": 180, "kcal": 350, "is_default": true}
+      ]
+    },
+    {
+      "name": "Flat white",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 cup (250 ml)", "grams": 250, "kcal": 120, "is_default": true}
+      ]
+    },
+    {
+      "name": "Marmite on toast",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 slice", "grams": 40, "kcal": 130, "is_default": true}
+      ]
+    },
+    {
+      "name": "Pavlova",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 slice", "grams": 100, "kcal": 250, "is_default": true}
+      ]
+    },
+    {
+      "name": "Hokey pokey ice cream",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 scoop", "grams": 65, "kcal": 180, "is_default": true}
+      ]
+    },
+    {
+      "name": "Vegemite on toast",
+      "cuisine_tag": "nz",
+      "source": "custom",
+      "servings": [
+        {"label": "1 slice", "grams": 40, "kcal": 120, "is_default": true}
+      ]
+    },
+    {
+      "name": "White rice, cooked",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 cup", "grams": 158, "kcal": 205, "is_default": true},
+        {"label": "1 bowl", "grams": 250, "kcal": 325, "is_default": false}
+      ]
+    },
+    {
+      "name": "Brown rice, cooked",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 cup", "grams": 195, "kcal": 220, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chicken breast, grilled",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "100 g", "grams": 100, "kcal": 165, "is_default": true}
+      ]
+    },
+    {
+      "name": "Beef mince, cooked",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "100 g", "grams": 100, "kcal": 250, "is_default": true}
+      ]
+    },
+    {
+      "name": "Boiled egg",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 egg", "grams": 50, "kcal": 78, "is_default": true},
+        {"label": "2 eggs", "grams": 100, "kcal": 156, "is_default": false}
+      ]
+    },
+    {
+      "name": "Scrambled eggs",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "2 eggs + milk", "grams": 120, "kcal": 200, "is_default": true}
+      ]
+    },
+    {
+      "name": "Whole milk",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 cup (250 ml)", "grams": 250, "kcal": 155, "is_default": true}
+      ]
+    },
+    {
+      "name": "Sourdough bread",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 slice", "grams": 50, "kcal": 110, "is_default": true}
+      ]
+    },
+    {
+      "name": "Banana",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 medium", "grams": 118, "kcal": 105, "is_default": true}
+      ]
+    },
+    {
+      "name": "Apple",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 medium", "grams": 180, "kcal": 95, "is_default": true}
+      ]
+    },
+    {
+      "name": "Black coffee",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 cup (250 ml)", "grams": 250, "kcal": 5, "is_default": true}
+      ]
+    },
+    {
+      "name": "Water",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 glass (250 ml)", "grams": 250, "kcal": 0, "is_default": true}
+      ]
+    },
+    {
+      "name": "Roasted vegetables",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 cup", "grams": 150, "kcal": 90, "is_default": true}
+      ]
+    },
+    {
+      "name": "Green salad",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 small bowl", "grams": 100, "kcal": 30, "is_default": true}
+      ]
+    },
+    {
+      "name": "Plain yogurt",
+      "cuisine_tag": "universal",
+      "source": "usda",
+      "servings": [
+        {"label": "1 pot (150 g)", "grams": 150, "kcal": 100, "is_default": true}
+      ]
+    }
+  ]
+}

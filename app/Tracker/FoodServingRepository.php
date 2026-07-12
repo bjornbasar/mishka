@@ -65,11 +65,15 @@ final class FoodServingRepository
             if ($isDefault) {
                 $this->demoteCurrentDefault($foodId);
             }
+            // is_default is a BOOLEAN column — PG rejects integer→boolean
+            // implicit cast, and PHP-bool→PDO binding is driver-inconsistent.
+            // Emit TRUE/FALSE as a SQL literal (portable per PG + SQLite 3.23+).
+            $defaultLiteral = $isDefault ? 'TRUE' : 'FALSE';
             $id = (int) $this->db->fetchScalar(
                 'INSERT INTO food_servings
                     (food_id, label, grams, kcal, protein_g, carb_g, fat_g, is_default)
                  VALUES
-                    (:fid, :label, :grams, :kcal, :pg, :cg, :fg, :is_default)
+                    (:fid, :label, :grams, :kcal, :pg, :cg, :fg, ' . $defaultLiteral . ')
                  RETURNING id',
                 [
                     'fid' => $foodId,
@@ -79,7 +83,6 @@ final class FoodServingRepository
                     'pg' => isset($data['protein_g']) ? (float) $data['protein_g'] : null,
                     'cg' => isset($data['carb_g']) ? (float) $data['carb_g'] : null,
                     'fg' => isset($data['fat_g']) ? (float) $data['fat_g'] : null,
-                    'is_default' => $isDefault ? 1 : 0,
                 ],
             );
             if ($started) {
@@ -123,15 +126,29 @@ final class FoodServingRepository
                     $this->demoteCurrentDefault($foodId, exceptId: $id);
                 }
             }
+            // is_default gets emitted as a SQL literal (TRUE/FALSE) rather
+            // than parameterised — PG BOOLEAN column rejects integer coercion
+            // and PHP-bool→PDO binding is driver-inconsistent. Pop it out of
+            // the param bag and add it to the SET list directly.
+            $isDefaultLiteral = null;
+            if (array_key_exists('is_default', $filtered)) {
+                $isDefaultLiteral = (bool) $filtered['is_default'] ? 'TRUE' : 'FALSE';
+                unset($filtered['is_default']);
+            }
             $sets = [];
             foreach (array_keys($filtered) as $col) {
                 $sets[] = "{$col} = :{$col}";
             }
-            $filtered['id'] = $id;
-            // Cast bool to int for SQLite compatibility (stored as 0/1).
-            if (isset($filtered['is_default'])) {
-                $filtered['is_default'] = (bool) $filtered['is_default'] ? 1 : 0;
+            if ($isDefaultLiteral !== null) {
+                $sets[] = 'is_default = ' . $isDefaultLiteral;
             }
+            if ($sets === []) {
+                if ($started) {
+                    $pdo->commit();
+                }
+                return;
+            }
+            $filtered['id'] = $id;
             $this->db->run(
                 'UPDATE food_servings SET ' . implode(', ', $sets) . ' WHERE id = :id',
                 $filtered,
@@ -177,7 +194,7 @@ final class FoodServingRepository
     {
         $row = $this->db->fetchOne(
             'SELECT id, food_id, label, grams, kcal, protein_g, carb_g, fat_g, is_default
-             FROM food_servings WHERE food_id = :fid AND is_default = 1',
+             FROM food_servings WHERE food_id = :fid AND is_default = TRUE',
             ['fid' => $foodId],
         );
         return $row === null ? null : $this->normaliseRow($row);
@@ -203,8 +220,8 @@ final class FoodServingRepository
      */
     private function demoteCurrentDefault(int $foodId, ?int $exceptId = null): void
     {
-        $sql = 'UPDATE food_servings SET is_default = 0
-                WHERE food_id = :fid AND is_default = 1';
+        $sql = 'UPDATE food_servings SET is_default = FALSE
+                WHERE food_id = :fid AND is_default = TRUE';
         $params = ['fid' => $foodId];
         if ($exceptId !== null) {
             $sql .= ' AND id <> :exc';
