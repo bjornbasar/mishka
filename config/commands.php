@@ -20,4 +20,6 @@ return [
     App\Commands\MailTestCommand::class,
     // v0.8.0 — tracker food library seed
     App\Commands\TrackerSeedFoodsCommand::class,
+    // v0.8.1 — tracker exercise catalog seed
+    App\Commands\TrackerSeedExercisesCommand::class,
 ];

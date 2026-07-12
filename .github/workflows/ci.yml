@@ -203,6 +203,15 @@ jobs:
         run: |
           ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
 
+      - name: Seed tracker exercises (idempotent, v0.8.1+)
+        # Loads db/seed/tracker_exercises.json into the global exercises
+        # catalog. Partial UNIQUE idx_exercises_seed_unique dedups reruns.
+        # First-deploy inserts ~35 exercises; subsequent deploys skip all.
+        # Same failure-mode posture as tracker:seed-foods (DOCS #63).
+        # See DOCS #71.
+        run: |
+          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
+
       - name: Notify Slack
         if: always()
         run: |
