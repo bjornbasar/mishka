@@ -806,6 +806,78 @@ CREATE TABLE IF NOT EXISTS schema_versions (
 CREATE INDEX IF NOT EXISTS idx_schema_versions_applied_at
     ON schema_versions(applied_at DESC);
 
+-- v0.8.0: Tracker Phase 1 — dish library + serving-first food logging.
+-- Three greenfield tables (no PG_ONLY migration needed). Serves the food
+-- side of the tracker; exercise + profile + weight tables land in v0.8.1+.
+-- See DOCS.md #70 + docs/TRACKER.md.
+
+-- foods — composed dishes with kcal baked into servings (§7 of TRACKER-PLAN).
+-- household_id NULL = global seed row shared by every household. Seeds ship
+-- via db/seed/tracker_foods.json + `bin/karhu tracker:seed-foods`. Custom
+-- household dishes carry household_id NOT NULL + source='custom'.
+CREATE TABLE IF NOT EXISTS foods (
+    id           SERIAL PRIMARY KEY,
+    household_id INTEGER NULL REFERENCES households(id) ON DELETE CASCADE,
+    name         VARCHAR(200) NOT NULL,
+    -- name_lc: mb_strtolower(name), written by FoodRepository on every
+    -- create/update. Case-insensitive LIKE search hits idx_foods_name_lc.
+    -- Never populated by the caller; the repo owns this column.
+    name_lc      VARCHAR(200) NOT NULL,
+    aliases      VARCHAR(500) NULL,
+    cuisine_tag  VARCHAR(50) NULL,
+    source       VARCHAR(20) NOT NULL CHECK (source IN ('philfct','nzfcd','usda','custom')),
+    created_by   INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_foods_household ON foods(household_id) WHERE household_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_foods_name_lc   ON foods(name_lc);
+-- Seed dedup: (name, source) unique for global rows only. Household-scoped
+-- rows can freely duplicate the seed name (e.g., a household's own kare-kare).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_foods_seed_unique ON foods(name, source) WHERE household_id IS NULL;
+
+-- food_servings — serving units per dish. kcal baked in; no ingredient
+-- composition at log time. Exactly one is_default = TRUE per food_id
+-- (partial unique index). Repo enforces the invariant via
+-- demote-then-promote transaction.
+CREATE TABLE IF NOT EXISTS food_servings (
+    id         SERIAL PRIMARY KEY,
+    food_id    INTEGER NOT NULL REFERENCES foods(id) ON DELETE CASCADE,
+    label      VARCHAR(100) NOT NULL,
+    grams      NUMERIC(10,2) NOT NULL,
+    kcal       INTEGER NOT NULL,
+    protein_g  NUMERIC(6,2) NULL,
+    carb_g     NUMERIC(6,2) NULL,
+    fat_g      NUMERIC(6,2) NULL,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_food_servings_food ON food_servings(food_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_food_servings_default_unique
+    ON food_servings(food_id) WHERE is_default = TRUE;
+
+-- food_log — one row per "I ate this". kcal_snapshot captures the value at
+-- log time so subsequent dish edits/deletes don't rewrite history (mirrors
+-- chore_points_ledger append-only pattern from decision #31).
+-- food_id / serving_id SET NULL on delete so deleted-dish rows render via
+-- COALESCE(foods.name, '(deleted dish)') without breaking the log view.
+-- logged_on is the HOUSEHOLD-LOCAL calendar date, computed in PHP via
+-- App\Tracker\LocalDay::today($householdTz). Never CURRENT_DATE/NOW().
+CREATE TABLE IF NOT EXISTS food_log (
+    id             SERIAL PRIMARY KEY,
+    household_id   INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    food_id        INTEGER NULL REFERENCES foods(id) ON DELETE SET NULL,
+    serving_id     INTEGER NULL REFERENCES food_servings(id) ON DELETE SET NULL,
+    qty            NUMERIC(6,2) NOT NULL,
+    logged_on      DATE NOT NULL,
+    logged_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    meal           VARCHAR(20) NOT NULL CHECK (meal IN ('breakfast','lunch','dinner','snack')),
+    kcal_snapshot  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_food_log_household_day ON food_log(household_id, logged_on);
+CREATE INDEX IF NOT EXISTS idx_food_log_user_day      ON food_log(user_id, logged_on);
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
