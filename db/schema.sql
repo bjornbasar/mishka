@@ -878,6 +878,76 @@ CREATE TABLE IF NOT EXISTS food_log (
 CREATE INDEX IF NOT EXISTS idx_food_log_household_day ON food_log(household_id, logged_on);
 CREATE INDEX IF NOT EXISTS idx_food_log_user_day      ON food_log(user_id, logged_on);
 
+-- v0.8.1: Tracker Phase 2 — exercise catalog + logging + weight_log.
+-- Three greenfield tables (no PG_ONLY migration needed). Seeded via
+-- db/seed/tracker_exercises.json + bin/karhu tracker:seed-exercises.
+-- See DOCS.md #71 + docs/TRACKER.md §10.
+-- Design: exercise_log is a discriminated union by type ('duration' vs
+-- 'strength'). NO derivation between the two branches — user-locked at
+-- plan-time: sets/reps entries are NOT converted to minutes. Strength
+-- entries have met_minutes=NULL; kcal computed via mechanical-work
+-- formula (0.011723 × load_kg × default_rom_m × reps) when ROM known.
+
+-- Exercise catalog. household_id NULL = global seed row shared by all.
+CREATE TABLE IF NOT EXISTS exercises (
+    id             SERIAL PRIMARY KEY,
+    household_id   INTEGER NULL REFERENCES households(id) ON DELETE CASCADE,
+    name           VARCHAR(200) NOT NULL,
+    name_lc        VARCHAR(200) NOT NULL,               -- repo-owned mb_strtolower(name)
+    type           VARCHAR(20) NOT NULL CHECK (type IN ('duration','strength')),
+    met            NUMERIC(5,2) NOT NULL,               -- Compendium MET (0, 25] repo-bounded
+    default_rom_m  NUMERIC(4,2) NULL,                   -- range-of-motion for strength mechanical-work
+    source         VARCHAR(20) NOT NULL CHECK (source IN ('compendium','custom')),
+    created_by     INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_exercises_household ON exercises(household_id) WHERE household_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_exercises_name_lc   ON exercises(name_lc);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_exercises_seed_unique ON exercises(name, source) WHERE household_id IS NULL;
+
+-- weight_log — time series, no upsert (measurements are historical facts).
+-- Latest row per user (ORDER BY measured_on DESC, id DESC LIMIT 1) drives
+-- ExerciseLogController's kcal computation AND v0.8.2's BMR/TDEE calc.
+CREATE TABLE IF NOT EXISTS weight_log (
+    id           SERIAL PRIMARY KEY,
+    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    weight_kg    NUMERIC(5,2) NOT NULL,                 -- [20.00, 300.00] repo-bounded
+    measured_on  DATE NOT NULL,                         -- household-local via LocalDay::today
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_weight_log_user_measured ON weight_log(user_id, measured_on DESC);
+
+-- Exercise log — one row per "I did this". Discriminated union by
+-- exercise_type_snapshot: duration branch populates minutes; strength
+-- populates sets/reps/load_kg. Snapshots preserve name+type so deletion
+-- of the parent exercise doesn't break the log-view render.
+CREATE TABLE IF NOT EXISTS exercise_log (
+    id                     SERIAL PRIMARY KEY,
+    household_id           INTEGER NOT NULL REFERENCES households(id) ON DELETE CASCADE,
+    user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    exercise_id            INTEGER NULL REFERENCES exercises(id) ON DELETE SET NULL,
+    logged_on              DATE NOT NULL,               -- household-local via LocalDay::today
+    logged_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Discriminated union: exactly one branch's fields are non-null.
+    minutes                NUMERIC(6,2) NULL,           -- duration branch
+    sets                   INTEGER NULL,                -- strength branch
+    reps                   INTEGER NULL,                -- strength branch
+    load_kg                NUMERIC(6,2) NULL,           -- strength branch (optional even within branch)
+    -- Snapshots — immutable at log time (mirrors chore_points_ledger #31).
+    exercise_name_snapshot VARCHAR(200) NOT NULL,
+    exercise_type_snapshot VARCHAR(20) NOT NULL CHECK (exercise_type_snapshot IN ('duration','strength')),
+    -- met_minutes: DURATION branch only. NULL for strength (no set-rep→minutes conversion).
+    -- v0.8.3 leaderboard primary currency; strength contribution TBD in v0.8.3.
+    met_minutes            NUMERIC(8,2) NULL,
+    -- kcal_snapshot: computed branch-dependently at write time.
+    --   Duration:  MET × 3.5 × weight_kg ÷ 200 × minutes. NULL when user has no weight_log yet.
+    --   Strength:  0.011723 × load_kg × default_rom_m × reps. NULL when default_rom_m is NULL.
+    kcal_snapshot          INTEGER NULL
+);
+CREATE INDEX IF NOT EXISTS idx_exercise_log_household_day ON exercise_log(household_id, logged_on);
+CREATE INDEX IF NOT EXISTS idx_exercise_log_user_day     ON exercise_log(user_id, logged_on);
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
