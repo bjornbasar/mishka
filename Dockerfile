@@ -124,9 +124,18 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # container runs as root. TRIPWIRE: if a future release adds a non-root
 # USER directive, this mode breaks (www-data can't stat existing session
 # files). Revisit chmod when non-root lands. See DOCS #65 + #68.
+#
+# v0.7.7 — extend session lifetime from PHP's 24-min default to 30 days
+# so the family app "stays logged in" across days rather than requiring
+# re-auth every browsing session. Safe because v0.7.0's /me/sessions
+# UI gives per-device revoke. See DOCS #69.
+#   session.gc_maxlifetime = 2592000  (30 * 24 * 60 * 60 seconds)
+# Paired with `new Session(['lifetime' => 2592000])` in bootstrap.php
+# which sets the browser cookie's Max-Age. Server-side GC threshold +
+# client-side cookie lifetime kept in sync.
 RUN mkdir -p /var/lib/mishka/sessions \
     && chmod 733 /var/lib/mishka/sessions \
-    && echo 'session.save_path = "/var/lib/mishka/sessions"' \
+    && printf 'session.save_path = "/var/lib/mishka/sessions"\nsession.gc_maxlifetime = 2592000\n' \
        > /usr/local/etc/php/conf.d/mishka-sessions.ini
 
 # v0.7.6 — pin default_socket_timeout to 5s. In practice this only

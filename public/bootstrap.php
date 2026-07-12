@@ -306,7 +306,14 @@ $app->container()->factory(
 // Session must be first so $_SESSION is available; the guard reads
 // $_SESSION['user_id'] + ['auth_time'] and revokes stale sessions before
 // CSRF would let them act on the request.
-$app->pipe(new Session());
+//
+// v0.7.7 — 30-day cookie lifetime (was: 0 = browser-session). Family app
+// pattern: users install as PWA on tablet, come back next day, still
+// signed in. Paired with session.gc_maxlifetime=2592000 pinned in the
+// Dockerfile's mishka-sessions.ini so server-side session-file GC and
+// client-side cookie Max-Age move together. Safe because /me/sessions
+// (v0.7.0) lets users revoke per-device. See DOCS #69.
+$app->pipe(new Session(['lifetime' => 2592000]));
 $app->pipe(new SessionRevocationGuard($pwChangeRepo, $sessionRepo));
 $app->pipe(new Csrf());
 

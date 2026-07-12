@@ -1,23 +1,22 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-12 (after v0.7.6 shipped).
+> Last reviewed: 2026-07-12 (after v0.7.7 shipped).
 
 ## Current release
 
-**v0.7.6** — multi-stage docker image + `default_socket_timeout=5` ini pin. Shipped 2026-07-12. Image size 625MB → 555MB (70MB / 11% shave). See `DOCS.md` decision #68.
+**v0.7.7** — family "stay logged in": 30-day `session.gc_maxlifetime` + 30-day cookie `Max-Age`. Shipped 2026-07-12. See `DOCS.md` decision #69.
 
 ## Priority queue
 
 | # | Version | Scope | Effort | Blocker? |
 |---|---|---|---|---|
-| **1** | **v0.7.7** | Family "stay logged in" — `session.gc_maxlifetime` bump from 24 min → 30 days + `session.cookie_lifetime` bump from browser-session → fixed duration (closes DOCS #65 v0.7.4+ candidate — safe because `/me/sessions` per-device revoke landed in v0.7.0) | ~0.5 day | No |
-| **2** | **v0.8.0** | **Tracker Phase 1** — dish library + serving-first food logging + seed data (~80 dishes) + live search | 10-14 days | 4 decisions locked below; ready to start |
-| **3** | **v0.8.1** | **Tracker Phase 2** — exercise catalog + logging (duration + strength branches) + kcal + met_minutes | 5-7 days | v0.8.0 landed |
-| **4** | **v0.8.2** | **Tracker Phase 3** — `tracker_profiles` + `weight_log` + BMR/TDEE + Today energy-balance screen (no double-count) | 3-5 days | v0.8.1 landed |
-| **5** | **v0.8.3** | **Tracker Phase 4** — household leaderboard (MET-minutes currency) + effort/consistency badges + streaks. Reuses Chores machinery (`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`) | 3-5 days | v0.8.2 landed |
-| 6 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish library + queue writes + sync-on-reconnect). Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
-| 7 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
+| **1** | **v0.8.0** | **Tracker Phase 1** — dish library + serving-first food logging + seed data (~80 dishes) + live search | 10-14 days | 4 decisions locked below; ready to start |
+| **2** | **v0.8.1** | **Tracker Phase 2** — exercise catalog + logging (duration + strength branches) + kcal + met_minutes | 5-7 days | v0.8.0 landed |
+| **3** | **v0.8.2** | **Tracker Phase 3** — `tracker_profiles` + `weight_log` + BMR/TDEE + Today energy-balance screen (no double-count) | 3-5 days | v0.8.1 landed |
+| **4** | **v0.8.3** | **Tracker Phase 4** — household leaderboard (MET-minutes currency) + effort/consistency badges + streaks. Reuses Chores machinery (`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`) | 3-5 days | v0.8.2 landed |
+| 5 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish library + queue writes + sync-on-reconnect). Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
+| 6 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
 
 **Tracker train total (v0.8.0–v0.8.3, no bonus): 21-31 dev days.** Roughly 5-7 weeks of focused solo work.
 
@@ -47,6 +46,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (v0.7 series, most recent first)
 
+- **v0.7.7** — family "stay logged in" (30-day session gc + 30-day cookie Max-Age) (DOCS #69, 2026-07-12)
 - **v0.7.6** — multi-stage docker image + `default_socket_timeout=5` ini pin (DOCS #68, 2026-07-12)
 - **v0.7.5** — real email delivery via Workspace SMTP relay (DOCS #67, 2026-07-11)
 - **v0.7.4** — client-side double-submit prevention hotfix (DOCS #66)
