@@ -49,8 +49,8 @@ final class FoodLogController
         if ($ctx instanceof Response) {
             return $ctx;
         }
-        $meal = (string) ($request->query('meal') ?? 'breakfast');
-        if (!in_array($meal, self::MEALS, true)) {
+        $meal = (string) $request->query('meal');
+        if ($meal === '' || !in_array($meal, self::MEALS, true)) {
             $meal = 'breakfast';
         }
         return (new Response())
@@ -69,7 +69,7 @@ final class FoodLogController
             return $ctx;
         }
         [$userId, $hid] = $ctx;
-        $q = (string) ($request->query('q') ?? '');
+        $q = (string) $request->query('q');
         $results = $this->foods->search($hid, $q, limit: 20);
         // Reshape into the {results: [{id, name, cuisine_tag, default_serving: {...}}]}
         // contract the layout IIFE reads.

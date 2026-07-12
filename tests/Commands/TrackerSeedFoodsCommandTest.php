@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Tests\Commands;
 
 use App\Commands\TrackerSeedFoodsCommand;
-use App\Tracker\FoodRepository;
 use App\Tracker\FoodServingRepository;
 use Karhu\Db\Connection;
 use PHPUnit\Framework\TestCase;
@@ -22,7 +21,6 @@ final class TrackerSeedFoodsCommandTest extends TestCase
         $this->db->pdo()->beginTransaction();
         $this->cmd = new TrackerSeedFoodsCommand(
             $this->db,
-            new FoodRepository($this->db),
             new FoodServingRepository($this->db),
         );
         $this->fixturePath = sys_get_temp_dir() . '/mishka-seed-test-' . uniqid('', true) . '.json';

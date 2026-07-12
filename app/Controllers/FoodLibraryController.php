@@ -206,6 +206,11 @@ final class FoodLibraryController
 
     // --- helpers ---
 
+    /**
+     * @param array<string, mixed>|null $food previously-loaded food row (edit mode)
+     * @param array<string, mixed>      $body user-supplied form values for repopulation
+     * @param list<string>              $errors
+     */
     private function renderForm(?array $food, array $body, array $errors): Response
     {
         return (new Response(422))

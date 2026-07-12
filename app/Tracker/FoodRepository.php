@@ -226,7 +226,10 @@ final class FoodRepository
         return '1';
     }
 
-    /** @return array{id: int, household_id: ?int, name: string, aliases: ?string, cuisine_tag: ?string, source: string, created_by: ?int, created_at: string, updated_at: string} */
+    /**
+     * @param array<string, mixed> $row raw DB row
+     * @return array{id: int, household_id: ?int, name: string, aliases: ?string, cuisine_tag: ?string, source: string, created_by: ?int, created_at: string, updated_at: string}
+     */
     private function normaliseRow(array $row): array
     {
         return [

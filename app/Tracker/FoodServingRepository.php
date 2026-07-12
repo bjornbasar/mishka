@@ -29,15 +29,9 @@ final class FoodServingRepository
     public function __construct(private readonly Connection $db) {}
 
     /**
-     * @param array{
-     *     label: string,
-     *     grams: numeric-string|float|int,
-     *     kcal: int,
-     *     protein_g?: ?numeric-string|float,
-     *     carb_g?: ?numeric-string|float,
-     *     fat_g?: ?numeric-string|float,
-     *     is_default?: bool,
-     * } $data
+     * @param array<string, mixed> $data
+     *   Expected keys: label (string), grams (numeric), kcal (int), plus optional
+     *   protein_g/carb_g/fat_g (numeric-or-null) and is_default (bool).
      */
     public function create(int $foodId, array $data): int
     {
@@ -230,7 +224,10 @@ final class FoodServingRepository
         $this->db->run($sql, $params);
     }
 
-    /** @return array{id: int, food_id: int, label: string, grams: string, kcal: int, protein_g: ?string, carb_g: ?string, fat_g: ?string, is_default: bool} */
+    /**
+     * @param array<string, mixed> $row raw DB row
+     * @return array{id: int, food_id: int, label: string, grams: string, kcal: int, protein_g: ?string, carb_g: ?string, fat_g: ?string, is_default: bool}
+     */
     private function normaliseRow(array $row): array
     {
         return [

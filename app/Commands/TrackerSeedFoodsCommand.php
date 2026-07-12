@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Commands;
 
-use App\Tracker\FoodRepository;
 use App\Tracker\FoodServingRepository;
 use Karhu\Attributes\Command;
 use Karhu\Db\Connection;
@@ -32,7 +31,6 @@ final class TrackerSeedFoodsCommand
 {
     public function __construct(
         private readonly Connection $db,
-        private readonly FoodRepository $foods,
         private readonly FoodServingRepository $servings,
     ) {}
 
@@ -59,7 +57,7 @@ final class TrackerSeedFoodsCommand
             fwrite(\STDERR, "tracker:seed-foods: seed JSON parse failed: {$e->getMessage()}\n");
             return 1;
         }
-        if (!is_array($data) || ($data['version'] ?? null) !== 1) {
+        if (($data['version'] ?? null) !== 1) {
             fwrite(\STDERR, "tracker:seed-foods: unknown seed schema version (expected version=1)\n");
             return 1;
         }
