@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
 use App\Household\HouseholdRepository;
+use App\Tracker\ExerciseLogRepository;
 use App\Tracker\FoodLogRepository;
 use App\Tracker\LocalDay;
 use App\View\NavContext;
@@ -17,15 +18,17 @@ use Karhu\View\TwigAdapter;
 
 /**
  * v0.8.0 — Tracker "Today" dashboard.
+ * v0.8.1 — extended with exercise log entries below meals.
  *
- * Renders today's food log for the current user, grouped by meal.
- * Placeholder in v0.8.0 — real energy-balance widget lands in v0.8.2.
- * v0.8.1 adds exercise entries; v0.8.3 the household leaderboard.
+ * Renders today's food + exercise log for the current user. Placeholder
+ * energy-balance widget lands in v0.8.2 (with tracker_profiles + BMR);
+ * v0.8.3 adds the household leaderboard from met_minutes sums.
  */
 final class TrackerController
 {
     public function __construct(
         private readonly FoodLogRepository $log,
+        private readonly ExerciseLogRepository $exerciseLog,
         private readonly HouseholdRepository $households,
         private readonly HouseholdAuthorizer $auth,
         private readonly NavContext $nav,
@@ -59,11 +62,15 @@ final class TrackerController
             $dayTotal += $e['kcal_snapshot'];
         }
 
+        // v0.8.1 — exercise entries logged today, chronological.
+        $exerciseEntries = $this->exerciseLog->listForUserDay($userId, $hid, $today);
+
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($this->view->render('tracker/today.twig', [
                 'meal_groups' => $byMeal,
                 'day_total' => $dayTotal,
+                'exercise_entries' => $exerciseEntries,
                 'today' => $today,
                 'household' => $household,
             ] + $this->nav->forCurrentUser()));

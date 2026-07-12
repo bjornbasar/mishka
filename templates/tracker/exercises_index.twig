@@ -1,0 +1,38 @@
+{% extends "layout.twig" %}
+
+{% block title %}Exercise catalog — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Exercise catalog</h1>
+        <div class="calendar-nav">
+            <a href="/health/exercises/new" class="new-event-link">+ New exercise</a>
+            <a href="/health" class="new-event-link">← Today</a>
+        </div>
+    </div>
+
+    {% if exercises|length == 0 %}
+        <p style="color:var(--muted);">
+            The catalog is empty — the tracker seed should run automatically.
+            Run <code>bin/karhu tracker:seed-exercises</code> to populate it.
+        </p>
+    {% else %}
+        <p style="color:var(--muted); margin:0 0 1rem;">{{ exercises|length }} exercises</p>
+        <ul style="list-style:none; padding:0; margin:0;">
+            {% for e in exercises %}
+                <li style="border-bottom:1px solid var(--border); padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                    <span>
+                        <a href="/health/exercises/{{ e.id }}">{{ e.name }}</a>
+                        <small style="color:var(--muted);"> · {{ e.type }}</small>
+                        <small style="color:var(--muted);"> · MET {{ e.met }}</small>
+                        {% if e.household_id is null %}
+                            <small style="color:var(--muted);" title="Global seed">· {{ e.source }}</small>
+                        {% else %}
+                            <small style="color:var(--muted);" title="Your household added this">· custom</small>
+                        {% endif %}
+                    </span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

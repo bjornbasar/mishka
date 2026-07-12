@@ -1,0 +1,119 @@
+{% extends "layout.twig" %}
+
+{% block title %}Log exercise — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Log exercise</h1>
+        <div class="calendar-nav">
+            <a href="/health" class="new-event-link">← Back</a>
+        </div>
+    </div>
+
+    <form method="POST" action="/health/log/exercise" class="auth" data-exercise-form>
+        {{ csrf_field() }}
+        <input type="hidden" name="exercise_id" value="">
+
+        <div data-exercise-search>
+            <label>
+                Search for an exercise
+                <input type="text" data-exercise-search-input autocomplete="off" placeholder="e.g. running, squats">
+            </label>
+            <ul data-exercise-search-results style="list-style:none; padding:0; margin:0.25rem 0 0; max-height:16rem; overflow-y:auto; border:1px solid var(--border); border-radius:0.375rem;"></ul>
+            <p data-exercise-search-preview style="margin:0.5rem 0 0; color:var(--muted); font-size:0.95rem;"></p>
+        </div>
+
+        {# Duration branch — visible when picked exercise's type == 'duration' #}
+        <div data-branch-duration style="display:none; margin-top:1rem;">
+            <label>
+                Minutes
+                <input type="number" name="minutes" step="1" min="1" placeholder="30">
+            </label>
+        </div>
+
+        {# Strength branch — visible when picked exercise's type == 'strength' #}
+        <div data-branch-strength style="display:none; margin-top:1rem;">
+            <label>
+                Sets
+                <input type="number" name="sets" step="1" min="1" placeholder="3">
+            </label>
+            <label>
+                Reps
+                <input type="number" name="reps" step="1" min="1" placeholder="10">
+            </label>
+            <label>
+                Load (kg) <small style="color:var(--muted);">(optional)</small>
+                <input type="number" name="load_kg" step="0.5" min="0" placeholder="20">
+            </label>
+        </div>
+
+        <button type="submit" style="margin-top:1rem;">Log it</button>
+    </form>
+
+    <p style="color:var(--muted); margin-top:1rem; font-size:0.9rem;">
+        Can't find it? <a href="/health/exercises/new">Add to the catalog</a>.
+    </p>
+
+    {# Bespoke IIFE — the layout.twig live-search is food-shaped and can't be reused.
+       Plan-agent CRITICAL finding #1. See DOCS #71. #}
+    <script>
+        (function () {
+            if (!('fetch' in window)) return;
+            var root = document.querySelector('[data-exercise-search]');
+            if (!root) return;
+            var input = root.querySelector('[data-exercise-search-input]');
+            var results = root.querySelector('[data-exercise-search-results]');
+            var preview = root.querySelector('[data-exercise-search-preview]');
+            var form = root.closest('form');
+            var branchDuration = form.querySelector('[data-branch-duration]');
+            var branchStrength = form.querySelector('[data-branch-strength]');
+            var hiddenId = form.querySelector('[name="exercise_id"]');
+
+            var timer = null;
+            input.addEventListener('input', function () {
+                clearTimeout(timer);
+                var q = input.value.trim();
+                if (q.length < 2) { results.innerHTML = ''; return; }
+                timer = setTimeout(function () {
+                    fetch('/health/log/exercise/search?q=' + encodeURIComponent(q), {
+                        credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json' },
+                        cache: 'no-store',
+                    }).then(function (r) { return r.ok ? r.json() : { results: [] }; })
+                      .then(function (data) { renderResults(data.results || []); })
+                      .catch(function () { /* offline — leave prior */ });
+                }, 250);
+            });
+
+            function renderResults(items) {
+                results.innerHTML = '';
+                items.forEach(function (item) {
+                    var li = document.createElement('li');
+                    li.style.padding = '0.5rem 0.75rem';
+                    li.style.borderBottom = '1px solid var(--border)';
+                    li.style.cursor = 'pointer';
+                    li.textContent = item.name + ' — ' + item.type + ' · MET ' + item.met;
+                    li.dataset.exerciseId = item.id;
+                    li.dataset.exerciseType = item.type;
+                    li.addEventListener('click', function () { onPick(item, li); });
+                    results.appendChild(li);
+                });
+            }
+
+            function onPick(item, li) {
+                hiddenId.value = item.id;
+                if (preview) preview.textContent = 'Picked: ' + li.textContent;
+                results.innerHTML = '';
+                input.value = item.name;
+                // Toggle branch UI based on the picked exercise's type.
+                if (item.type === 'duration') {
+                    branchDuration.style.display = '';
+                    branchStrength.style.display = 'none';
+                } else {
+                    branchDuration.style.display = 'none';
+                    branchStrength.style.display = '';
+                }
+            }
+        })();
+    </script>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "layout.twig" %}
+
+{% block title %}Weight — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>Weight</h1>
+        <div class="calendar-nav">
+            <a href="/health" class="new-event-link">← Today</a>
+        </div>
+    </div>
+
+    {% if latest %}
+        <p style="color:var(--muted); margin:0 0 1rem;">
+            Latest: <strong>{{ latest.weight_kg }} kg</strong> on {{ latest.measured_on }}
+        </p>
+    {% else %}
+        <p style="color:var(--muted); margin:0 0 1rem;">
+            No weight recorded yet. Enter your first reading below.
+        </p>
+    {% endif %}
+
+    <form method="POST" action="/health/weight" class="auth">
+        {{ csrf_field() }}
+        <label>
+            Weight (kg)
+            <input type="number" name="weight_kg" step="0.1" min="20" max="300" required autofocus>
+        </label>
+        <label>
+            Measured on <small style="color:var(--muted);">(leave blank for today)</small>
+            <input type="date" name="measured_on">
+        </label>
+        <button type="submit" style="margin-top:1rem;">Record</button>
+    </form>
+
+    {% if history|length > 0 %}
+        <h2 style="font-size:1.1rem; margin-top:2rem; margin-bottom:0.5rem;">Recent history</h2>
+        <ul style="list-style:none; padding:0; margin:0;">
+            {% for h in history %}
+                <li style="border-bottom:1px solid var(--border); padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                    <span>{{ h.measured_on }} — <strong>{{ h.weight_kg }} kg</strong></span>
+                    <form method="POST" action="/health/weight/{{ h.id }}/delete" style="display:inline;">
+                        {{ csrf_field() }}
+                        <button type="submit" style="background:transparent; border:none; color:var(--muted); cursor:pointer;" title="Remove" onclick="return confirm('Delete this reading?');">✕</button>
+                    </form>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

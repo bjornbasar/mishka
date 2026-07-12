@@ -6,7 +6,9 @@
     <div class="calendar-header">
         <h1>Health</h1>
         <div class="calendar-nav">
-            <a href="/health/foods" class="new-event-link">Library</a>
+            <a href="/health/foods" class="new-event-link">Foods</a>
+            <a href="/health/exercises" class="new-event-link">Exercises</a>
+            <a href="/health/weight" class="new-event-link">Weight</a>
         </div>
     </div>
 
@@ -51,4 +53,38 @@
             {% endif %}
         </section>
     {% endfor %}
+
+    {# v0.8.1 — Exercise section below meals. #}
+    <section style="margin-bottom:1.5rem;">
+        <h2 style="font-size:1.1rem; margin-bottom:0.5rem;">
+            🏃 Exercise
+            <a href="/health/log/exercise" style="float:right; font-size:0.9rem;">+ Add</a>
+        </h2>
+        {% if exercise_entries|length == 0 %}
+            <p style="color:var(--muted); margin:0; font-size:0.9rem;">Nothing logged. Tap <strong>+ Add</strong> to log today's workout.</p>
+        {% else %}
+            <ul style="list-style:none; padding:0; margin:0;">
+                {% for e in exercise_entries %}
+                    <li style="border-bottom:1px solid var(--border); padding:0.5rem 0; display:flex; justify-content:space-between; align-items:center;">
+                        <span>
+                            <strong>{{ e.exercise_name }}</strong>
+                            {% if e.exercise_type == 'duration' %}
+                                <small style="color:var(--muted);">— {{ e.minutes }} min</small>
+                            {% else %}
+                                <small style="color:var(--muted);">— {{ e.sets }} × {{ e.reps }}{% if e.load_kg %} @ {{ e.load_kg }} kg{% endif %}</small>
+                            {% endif %}
+                        </span>
+                        <span>
+                            {% if e.met_minutes %}<small style="color:var(--muted);">{{ e.met_minutes }} MET-min · </small>{% endif %}
+                            <strong>{{ e.kcal_snapshot ?: '—' }} kcal</strong>
+                            <form method="POST" action="/health/log/exercise/{{ e.id }}/delete" style="display:inline; margin-left:0.5rem;">
+                                {{ csrf_field() }}
+                                <button type="submit" style="background:transparent; border:none; color:var(--muted); cursor:pointer;" title="Remove">✕</button>
+                            </form>
+                        </span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </section>
 {% endblock %}

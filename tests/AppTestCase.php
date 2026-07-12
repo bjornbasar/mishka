@@ -93,6 +93,10 @@ abstract class AppTestCase extends TestCase
     protected \App\Tracker\FoodRepository $foodRepo;
     protected \App\Tracker\FoodServingRepository $foodServingRepo;
     protected \App\Tracker\FoodLogRepository $foodLogRepo;
+    // v0.8.1 — tracker phase 2
+    protected \App\Tracker\ExerciseRepository $exerciseRepo;
+    protected \App\Tracker\WeightLogRepository $weightLogRepo;
+    protected \App\Tracker\ExerciseLogRepository $exerciseLogRepo;
     protected PasswordHasher $hasher;
     // v0.5.0
     protected EmailVerificationTokenRepository $verifyTokenRepo;
@@ -147,6 +151,9 @@ abstract class AppTestCase extends TestCase
         $this->foodRepo = new \App\Tracker\FoodRepository($this->db);
         $this->foodServingRepo = new \App\Tracker\FoodServingRepository($this->db);
         $this->foodLogRepo = new \App\Tracker\FoodLogRepository($this->db);
+        $this->exerciseRepo = new \App\Tracker\ExerciseRepository($this->db);
+        $this->weightLogRepo = new \App\Tracker\WeightLogRepository($this->db);
+        $this->exerciseLogRepo = new \App\Tracker\ExerciseLogRepository($this->db);
         $this->scheduleRepo = new ChoreScheduleRepository($this->db);
         $choreScheduleGenerator = new ChoreScheduleGenerator($this->scheduleRepo, $this->choreRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
@@ -214,6 +221,10 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(\App\Tracker\FoodRepository::class, $this->foodRepo);
         $app->container()->set(\App\Tracker\FoodServingRepository::class, $this->foodServingRepo);
         $app->container()->set(\App\Tracker\FoodLogRepository::class, $this->foodLogRepo);
+        // v0.8.1 — tracker phase 2
+        $app->container()->set(\App\Tracker\ExerciseRepository::class, $this->exerciseRepo);
+        $app->container()->set(\App\Tracker\WeightLogRepository::class, $this->weightLogRepo);
+        $app->container()->set(\App\Tracker\ExerciseLogRepository::class, $this->exerciseLogRepo);
         $app->container()->set(ChoreScheduleRepository::class, $this->scheduleRepo);
         $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
         $app->container()->set(PasswordHasher::class, $this->hasher);
@@ -294,6 +305,10 @@ abstract class AppTestCase extends TestCase
             \App\Controllers\TrackerController::class,
             \App\Controllers\FoodLogController::class,
             \App\Controllers\FoodLibraryController::class,
+            // v0.8.1 — Tracker Phase 2
+            \App\Controllers\ExerciseLogController::class,
+            \App\Controllers\ExerciseCatalogController::class,
+            \App\Controllers\WeightController::class,
         ]);
 
         return $app;

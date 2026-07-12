@@ -178,6 +178,10 @@ $badgeAwarder = new BadgeAwarder($badgeAwardRepo, $choreRepo);
 $foodRepo = new \App\Tracker\FoodRepository($db);
 $foodServingRepo = new \App\Tracker\FoodServingRepository($db);
 $foodLogRepo = new \App\Tracker\FoodLogRepository($db);
+// v0.8.1 — tracker phase 2: exercise catalog + weight_log + exercise_log.
+$exerciseRepo = new \App\Tracker\ExerciseRepository($db);
+$weightLogRepo = new \App\Tracker\WeightLogRepository($db);
+$exerciseLogRepo = new \App\Tracker\ExerciseLogRepository($db);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);
@@ -244,6 +248,10 @@ $app->container()->set(BadgeAwardRepository::class, $badgeAwardRepo);
 $app->container()->set(\App\Tracker\FoodRepository::class, $foodRepo);
 $app->container()->set(\App\Tracker\FoodServingRepository::class, $foodServingRepo);
 $app->container()->set(\App\Tracker\FoodLogRepository::class, $foodLogRepo);
+// v0.8.1 — tracker phase 2 bindings
+$app->container()->set(\App\Tracker\ExerciseRepository::class, $exerciseRepo);
+$app->container()->set(\App\Tracker\WeightLogRepository::class, $weightLogRepo);
+$app->container()->set(\App\Tracker\ExerciseLogRepository::class, $exerciseLogRepo);
 $app->container()->set(BadgeAwarder::class, $badgeAwarder);
 $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);

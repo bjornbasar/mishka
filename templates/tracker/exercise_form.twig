@@ -1,0 +1,54 @@
+{% extends "layout.twig" %}
+
+{% block title %}{% if exercise %}Edit {{ exercise.name }}{% else %}New exercise{% endif %} — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    <div class="calendar-header">
+        <h1>{% if exercise %}Edit {{ exercise.name }}{% else %}New exercise{% endif %}</h1>
+        <div class="calendar-nav">
+            <a href="/health/exercises" class="new-event-link">← Catalog</a>
+        </div>
+    </div>
+
+    {% if errors %}
+        <ul class="errors">
+            {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+        </ul>
+    {% endif %}
+
+    <form method="POST" action="{% if exercise %}/health/exercises/{{ exercise.id }}{% else %}/health/exercises{% endif %}" class="auth">
+        {{ csrf_field() }}
+        <label>
+            Name
+            <input type="text" name="name" value="{{ old.name|default(exercise.name|default('')) }}" required maxlength="200" autofocus>
+        </label>
+        <label>
+            Type
+            <select name="type" required>
+                {% set current_type = old.type|default(exercise.type|default('duration')) %}
+                <option value="duration"{% if current_type == 'duration' %} selected{% endif %}>Duration (minutes)</option>
+                <option value="strength"{% if current_type == 'strength' %} selected{% endif %}>Strength (sets/reps/load)</option>
+            </select>
+        </label>
+        <label>
+            MET <small style="color:var(--muted);">(Compendium value, 0-25)</small>
+            <input type="number" name="met" step="0.1" min="0.1" max="25" value="{{ old.met|default(exercise.met|default('')) }}" required>
+        </label>
+        <label>
+            Default ROM (m) <small style="color:var(--muted);">(optional — strength only, for mechanical-work kcal)</small>
+            <input type="number" name="default_rom_m" step="0.01" min="0" max="9.99" value="{{ old.default_rom_m|default(exercise.default_rom_m|default('')) }}">
+        </label>
+
+        <button type="submit" style="margin-top:1rem;">{% if exercise %}Save{% else %}Add exercise{% endif %}</button>
+    </form>
+
+    {% if exercise %}
+        <form method="POST" action="/health/exercises/{{ exercise.id }}/delete" style="margin-top:2rem;">
+            {{ csrf_field() }}
+            <button type="submit" style="background:transparent; border:1px solid var(--border); color:var(--muted);"
+                    onclick="return confirm('Delete this exercise? Any log entries will show as (deleted exercise).');">
+                Delete exercise
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}
