@@ -135,6 +135,39 @@ final class ExerciseLogRepositoryTest extends TestCase
         self::assertNull($entries[0]['exercise_id']);
     }
 
+    public function test_exercise_kcal_for_user_day_sums_own_entries(): void
+    {
+        // v0.8.2 per-user aggregation for the Today widget. kcal_snapshot
+        // IS nullable on exercise_log (strength w/o ROM); COALESCE(NULL, 0)
+        // treats those as 0 contribution.
+        $this->log->create($this->hid, $this->uid, $this->durationExerciseId, 'duration', 'Running',
+            minutes: 30.0, sets: null, reps: null, loadKg: null,
+            metMinutes: 294.0, kcalSnapshot: 250, loggedOn: '2026-07-14');
+        // Strength with unknown ROM → kcal_snapshot NULL → contributes 0.
+        $this->log->create($this->hid, $this->uid, $this->strengthExerciseId, 'strength', 'Squats',
+            minutes: null, sets: 3, reps: 10, loadKg: 20.0,
+            metMinutes: null, kcalSnapshot: null, loggedOn: '2026-07-14');
+
+        self::assertSame(250, $this->log->exerciseKcalForUserDay($this->uid, $this->hid, '2026-07-14'));
+    }
+
+    public function test_exercise_kcal_scopes_to_user_and_household(): void
+    {
+        $otherUser = (int) $this->db->fetchScalar(
+            "INSERT INTO users (email, password_hash, display_name) VALUES ('bb@x', 'x', 'BB') RETURNING id",
+        );
+        // Different user, same household — should NOT count.
+        $this->log->create($this->hid, $otherUser, $this->durationExerciseId, 'duration', 'Running',
+            minutes: 60.0, sets: null, reps: null, loadKg: null,
+            metMinutes: 588.0, kcalSnapshot: 999, loggedOn: '2026-07-14');
+        // Same user, correct household — SHOULD count.
+        $this->log->create($this->hid, $this->uid, $this->durationExerciseId, 'duration', 'Running',
+            minutes: 15.0, sets: null, reps: null, loadKg: null,
+            metMinutes: 147.0, kcalSnapshot: 111, loggedOn: '2026-07-14');
+
+        self::assertSame(111, $this->log->exerciseKcalForUserDay($this->uid, $this->hid, '2026-07-14'));
+    }
+
     public function test_daily_totals_sums_met_minutes_and_kcal(): void
     {
         $this->log->create($this->hid, $this->uid, $this->durationExerciseId, 'duration', 'Running',

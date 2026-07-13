@@ -118,6 +118,35 @@ final class FoodLogRepositoryTest extends TestCase
         self::assertCount(1, $this->log->listForUserDay($this->user, $this->hh, '2026-07-12'));
     }
 
+    public function test_intake_kcal_for_user_day_sums_own_entries(): void
+    {
+        // v0.8.2 per-user aggregation for the Today energy-balance widget.
+        $this->log->create($this->hh, $this->user, $this->foodId, $this->servingId, 1.0, 'breakfast', '2026-07-14', 400);
+        $this->log->create($this->hh, $this->user, $this->foodId, $this->servingId, 1.0, 'lunch', '2026-07-14', 600);
+        // Also a different-day entry that should NOT count.
+        $this->log->create($this->hh, $this->user, $this->foodId, $this->servingId, 1.0, 'dinner', '2026-07-13', 700);
+
+        self::assertSame(1000, $this->log->intakeKcalForUserDay($this->user, $this->hh, '2026-07-14'));
+    }
+
+    public function test_intake_kcal_scopes_to_user_and_household(): void
+    {
+        $otherUser = (int) $this->db->fetchScalar(
+            "INSERT INTO users (email, password_hash, display_name) VALUES ('other@x', 'x', 'Other') RETURNING id",
+        );
+        $otherHh = (int) $this->db->fetchScalar(
+            "INSERT INTO households (name, join_code, timezone) VALUES ('Other', 'CCCCCC', 'Pacific/Auckland') RETURNING id",
+        );
+        // Same-user, different household — should NOT count.
+        $this->log->create($otherHh, $this->user, $this->foodId, $this->servingId, 1.0, 'breakfast', '2026-07-14', 999);
+        // Different user, same household — should NOT count.
+        $this->log->create($this->hh, $otherUser, $this->foodId, $this->servingId, 1.0, 'breakfast', '2026-07-14', 888);
+        // Same-user, same household — SHOULD count.
+        $this->log->create($this->hh, $this->user, $this->foodId, $this->servingId, 1.0, 'breakfast', '2026-07-14', 100);
+
+        self::assertSame(100, $this->log->intakeKcalForUserDay($this->user, $this->hh, '2026-07-14'));
+    }
+
     public function test_daily_totals_for_household_aggregates_per_user(): void
     {
         $userB = (int) $this->db->fetchScalar(

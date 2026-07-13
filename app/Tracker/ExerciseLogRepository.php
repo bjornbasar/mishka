@@ -148,10 +148,28 @@ final class ExerciseLogRepository
     }
 
     /**
+     * v0.8.2 — per-user exercise kcal for the Today energy-balance
+     * widget. Strict user + household + day scoping (privacy invariant
+     * per TRACKER-PLAN.md §5). kcal_snapshot IS nullable on exercise_log
+     * (strength without ROM; duration without user weight) —
+     * COALESCE(NULL, 0) treats those as 0 contribution to expenditure.
+     */
+    public function exerciseKcalForUserDay(int $userId, int $householdId, string $loggedOn): int
+    {
+        return (int) $this->db->fetchScalar(
+            'SELECT COALESCE(SUM(kcal_snapshot), 0)
+             FROM exercise_log
+             WHERE user_id = :uid AND household_id = :hid AND logged_on = :day',
+            ['uid' => $userId, 'hid' => $householdId, 'day' => $loggedOn],
+        );
+    }
+
+    /**
      * Aggregate daily totals per user for the household on one day.
      * Fuels v0.8.3 leaderboard. met_minutes is NULL for strength — SUM
      * treats NULLs as zero, so this returns duration-only contribution.
-     * Strength participation may need a separate signal in v0.8.3.
+     * v0.8.2's Today widget uses `exerciseKcalForUserDay` instead
+     * (per-user scoping to avoid loading other users' rows).
      *
      * @return array<int, array{user_id: int, total_met_minutes: string, total_kcal: int, entries: int}>
      */

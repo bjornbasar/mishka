@@ -132,9 +132,27 @@ final class FoodLogRepository
     }
 
     /**
+     * v0.8.2 — per-user intake for the Today energy-balance widget.
+     * Strict user + household + day scoping (privacy invariant per
+     * TRACKER-PLAN.md §5 — intake/weight/net PRIVATE per user; do NOT
+     * load other users' rows into PHP memory even if never rendered).
+     * kcal_snapshot is NOT NULL on food_log so COALESCE is defensive.
+     */
+    public function intakeKcalForUserDay(int $userId, int $householdId, string $loggedOn): int
+    {
+        return (int) $this->db->fetchScalar(
+            'SELECT COALESCE(SUM(kcal_snapshot), 0)
+             FROM food_log
+             WHERE user_id = :uid AND household_id = :hid AND logged_on = :day',
+            ['uid' => $userId, 'hid' => $householdId, 'day' => $loggedOn],
+        );
+    }
+
+    /**
      * Aggregate daily totals per user for the household on one day. Used
      * lightly in v0.8.0 (Today view shows own count only); v0.8.2's
-     * energy-balance widget uses this heavily.
+     * energy-balance widget uses `intakeKcalForUserDay` instead (per-user
+     * scoping to avoid loading other users' rows).
      *
      * @return array<int, array{user_id: int, total_kcal: int, entries: int}>
      */

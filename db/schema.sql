@@ -948,6 +948,28 @@ CREATE TABLE IF NOT EXISTS exercise_log (
 CREATE INDEX IF NOT EXISTS idx_exercise_log_household_day ON exercise_log(household_id, logged_on);
 CREATE INDEX IF NOT EXISTS idx_exercise_log_user_day     ON exercise_log(user_id, logged_on);
 
+-- v0.8.2: Tracker Phase 3 — per-user body profile for BMR/TDEE calc.
+-- One row per user (PK on user_id — upsert semantics via ON CONFLICT).
+-- Feeds the Today energy-balance widget alongside food_log +
+-- exercise_log + weight_log (all v0.8.0-v0.8.1). See DOCS.md #72 +
+-- docs/TRACKER.md §11.
+--
+-- base_activity CRITICAL semantic: "your normal day EXCLUDING deliberate
+-- workouts". UI must spell this out so users don't double-count
+-- exercise_log against the activity factor. Mifflin-St Jeor literature
+-- values: 1.2 sedentary / 1.375 lightly active / 1.55 moderately active /
+-- 1.725 very active. See docs/TRACKER.md §11 + DOCS #72 double-count-trap.
+CREATE TABLE IF NOT EXISTS tracker_profiles (
+    user_id       INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    sex           VARCHAR(10) NOT NULL CHECK (sex IN ('male','female')),
+    birth_year    INTEGER NOT NULL,                 -- [1900, currentYear-5] repo-bounded
+    height_cm     NUMERIC(5,1) NOT NULL,            -- [50.0, 250.0] repo-bounded
+    base_activity NUMERIC(4,3) NOT NULL,            -- [1.0, 2.5] repo-bounded
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+-- No auxiliary indexes — PK on user_id is enough for the read pattern.
+
 -- BEGIN PG_ONLY
 BEGIN;
 ALTER TABLE user_notification_prefs ADD COLUMN IF NOT EXISTS new_chore_assigned_enabled BOOLEAN NOT NULL DEFAULT TRUE;
