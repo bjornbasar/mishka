@@ -151,12 +151,15 @@ final class FoodRepository
         $escaped = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $q);
         $pattern = '%' . mb_strtolower($escaped) . '%';
 
+        // is_default comparison uses SQL literal TRUE — portable per SQLite 3.23+
+        // AND PG. Bare `1` breaks PG (BOOLEAN column rejects integer implicit
+        // cast — same bug root-cause as v0.8.1's FoodServingRepository fix).
         $sql =
             'SELECT f.id, f.name, f.cuisine_tag, f.source, f.household_id,
                     s.id AS default_serving_id, s.label AS default_serving_label,
                     s.kcal AS default_serving_kcal, s.grams AS default_serving_grams
              FROM foods f
-             INNER JOIN food_servings s ON s.food_id = f.id AND s.is_default = ' . $this->trueLiteral() . '
+             INNER JOIN food_servings s ON s.food_id = f.id AND s.is_default = TRUE
              WHERE (f.household_id IS NULL' . ($householdId !== null ? ' OR f.household_id = :hid' : '') . ')
                AND f.name_lc LIKE :pattern ESCAPE ' . "'\\'" . '
              ORDER BY (f.household_id IS NULL) ASC, f.name ASC
@@ -214,16 +217,6 @@ final class FoodRepository
             ];
         }
         return $out;
-    }
-
-    /**
-     * SQLite stores booleans as 0/1 integers; PG has TRUE/FALSE literals. Both
-     * accept `1` — using it uniformly avoids driver-branching in the query
-     * string.
-     */
-    private function trueLiteral(): string
-    {
-        return '1';
     }
 
     /**
