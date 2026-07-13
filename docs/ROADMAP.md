@@ -1,20 +1,19 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-12 (after v0.7.7 shipped).
+> Last reviewed: 2026-07-13 (after v0.8.2 shipped).
 
 ## Current release
 
-**v0.8.1** — Tracker Phase 2: exercise catalog + logging (duration + strength branches) + weight_log + kcal. Shipped 2026-07-13. See `DOCS.md` decision #71 + `docs/TRACKER.md` §10.
+**v0.8.2** — Tracker Phase 3: `tracker_profiles` + Mifflin-St Jeor BMR + Today energy-balance widget. Shipped 2026-07-13. See `DOCS.md` decision #72 + `docs/TRACKER.md` §11.
 
 ## Priority queue
 
 | # | Version | Scope | Effort | Blocker? |
 |---|---|---|---|---|
-| **1** | **v0.8.2** | **Tracker Phase 3** — `tracker_profiles` (sex / birth year / height / base-activity) + BMR/TDEE + Today energy-balance widget (no double-count). `weight_log` already landed in v0.8.1 so scope is lighter than originally planned. | 2-4 days | v0.8.1 landed |
-| **2** | **v0.8.3** | **Tracker Phase 4** — household leaderboard (MET-minutes currency for duration entries; strength contribution TBD — see DOCS #71) + effort/consistency badges + streaks. Reuses Chores machinery (`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`) | 3-5 days | v0.8.2 landed |
-| 3 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) + PWA `shortcuts` array. Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
-| 4 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
+| **1** | **v0.8.3** | **Tracker Phase 4** — household leaderboard (MET-minutes currency for duration entries; strength contribution TBD — see DOCS #71) + effort/consistency badges + streaks. Reuses Chores machinery (`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`) | 3-5 days | v0.8.2 landed |
+| 2 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) + PWA `shortcuts` array. Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
+| 3 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
 
 **Tracker train total (v0.8.0–v0.8.3, no bonus): 21-31 dev days.** Roughly 5-7 weeks of focused solo work.
 
@@ -44,6 +43,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.2** — Tracker Phase 3: `tracker_profiles` + Mifflin-St Jeor BMR + Today energy-balance widget (DOCS #72, 2026-07-13)
 - **v0.8.1** — Tracker Phase 2: exercise catalog + logging (duration + strength) + weight_log + kcal (DOCS #71, 2026-07-13)
 - **v0.8.0** — Tracker Phase 1: dish library + serving-first food logging + 41-dish seed + live search (DOCS #70, 2026-07-13)
 - **v0.7.7** — family "stay logged in" (30-day session gc + 30-day cookie Max-Age) (DOCS #69, 2026-07-12)

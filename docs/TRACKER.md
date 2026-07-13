@@ -169,12 +169,13 @@ Search endpoint is GET-safelisted by karhu Csrf middleware (no CSRF token needed
   contract (catches template drift), JSON search shape + no-store header, POST create +
   rejection paths (invalid meal, foreign-household food), delete own entry.
 
-## 9. What lands next (v0.8.2)
+## 9. What lands next (v0.8.3)
 
-`tracker_profiles` (sex / birth year / height / base-activity) + Mifflin-St Jeor BMR + Today
-energy-balance widget. `weight_log` already landed in v0.8.1 so the profile side is the
-remaining work. Base-activity factor MUST represent "daily life excluding exercise" — the
-double-count trap. Documented at TRACKER-PLAN.md §5.
+Household leaderboard (MET-minutes currency for duration entries; strength contribution TBD
+per DOCS #71) + effort / consistency badges + streaks. Reuses the chores machinery
+(`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`). Per
+TRACKER-PLAN.md §5 the leaderboard is EFFORT-only — intake/weight/net stay private per user
+(the privacy invariant that v0.8.2's widget locked in). See `docs/ROADMAP.md`.
 
 ## 10. v0.8.1 — Exercise + weight_log (shipped)
 
@@ -316,3 +317,177 @@ v0.8.0 FoodLibraryController pattern).
   design open. Effort/consistency badges + streaks reusing Chores' `BadgeAwardRepository` +
   `WeekWindow`/`DayWindow` (DOCS #46 pattern).
 - **v0.8.4** — Offline logging + PWA `shortcuts` array (deferred at v0.8.1 plan-time).
+
+## 11. v0.8.2 — `tracker_profiles` + BMR + Today energy-balance widget (shipped)
+
+Third Tracker release. `weight_log` already landed in v0.8.1 so v0.8.2's scope is just the
+profile side (sex / birth-year / height / base-activity) + Mifflin-St Jeor + a Today
+widget that renders intake vs total expenditure.
+
+### Data model (v0.8.2)
+
+One greenfield table inserted after v0.8.1's `exercise_log` block, before the PG_ONLY EOF
+fence:
+
+- **`tracker_profiles`** — one row per user (`PRIMARY KEY(user_id) REFERENCES users(id) ON
+  DELETE CASCADE`). Fields: `sex VARCHAR(10)` CHECK `('male','female')`; `birth_year INTEGER`
+  repo-bounded to `[1900, currentYear − 5]` (Plan-agent finding #5 — family-scale, no
+  toddlers logging, and rejects a fat-fingered current-year birth year that would give age=0
+  and BMR≈1748); `height_cm NUMERIC(5,1)` bounded `[50.0, 250.0]`; `base_activity
+  NUMERIC(4,3)` bounded `[1.0, 2.5]`. `created_at + updated_at TIMESTAMPTZ NOT NULL DEFAULT
+  NOW()`.
+
+No BOOLEAN columns — no `TRUE`/`FALSE` portability trap this time. No auxiliary indexes —
+PK on user_id covers `WHERE user_id = :uid`. FK CASCADE: profile follows the user's
+lifecycle.
+
+### Design decision — the double-count trap (UI-copy mitigation)
+
+Textbook `TDEE = BMR × activity_factor`. The classical Mifflin-St Jeor factors (1.2
+sedentary → 1.725 very active) BAKE EXERCISE INTO the number. Mishka already logs workouts
+separately in v0.8.1's `exercise_log`. If a user picks 1.725 base_activity AND logs their
+gym time, the widget double-counts.
+
+Mitigation is UI copy only (un-unit-testable — UX mitigation). Base-activity SELECT carries
+`EXCLUDING WORKOUTS` in the label + per-option semantics on each dropdown row (`Sedentary —
+desk job, little walking (1.20)` through `Very active — physical job / lots of walking
+(1.725)`) + a paragraph reinforcer: "Deliberate workouts are logged separately in the
+Exercise section. Choosing a higher number here would double-count them." Dropdown chosen
+over free-numeric input — smaller footgun surface. Widget also renders `Activity: 308 kcal
+(base_activity 1.20 — excluding workouts)` inline + `title=` tooltip as a reinforcer for
+returning users tweaking their profile 6 months later.
+
+### BMR + expenditure formulas (`App\Tracker\BmrCalculator`, static-only)
+
+- `calculate(sex, birthYear, heightCm, weightKg, nowYear=null)` — Mifflin-St Jeor (1990):
+  `10·kg + 6.25·cm − 5·age + (male +5 / female −161)`. Returns null when any input is
+  missing OR `age < 5` (defence-in-depth against fat-fingered birth year).
+- `expenditure(bmr, baseActivity, exerciseKcalToday)` — `round(bmr × baseActivity +
+  exerciseKcalToday)`. Nullable to preserve the null cascade when profile or weight is
+  missing.
+
+Age drift accepted trade-off: `year − birthYear` overestimates by up to 1 year for
+pre-birthday users. BMR error < 1%. Matches TRACKER-PLAN.md §7's `birth_year INTEGER` (not
+DOB) privacy decision.
+
+### Repository — `App\Tracker\TrackerProfileRepository`
+
+- `findByUserId(userId): ?array` — normalised row or null.
+- `upsert(userId, data): void` — `INSERT ... ON CONFLICT (user_id) DO UPDATE SET ...,
+  updated_at = CURRENT_TIMESTAMP`. Driver-portable pattern already in use at three sites
+  (`UserPasswordChangeRepository:57-68`, `UserNotificationPrefsRepository:110`,
+  `PushSubscriptionRepository:44`). INSERT clause OMITS `updated_at` (schema `DEFAULT NOW()`
+  covers first-write); DO UPDATE writes `CURRENT_TIMESTAMP`. Mirrors
+  `UserPasswordChangeRepository::stamp` idiom.
+- `delete(userId): void` — provided for completeness; CASCADE already handles this at the
+  DB level.
+- All four fields validated at repo layer against `InvalidArgumentException` on
+  out-of-range.
+
+### Per-user daily aggregation (existing repos, new methods)
+
+Plan-agent finding #1 — existing `dailyTotalsForHousehold` reads the WHOLE household.
+Widget needs per-user scoping both for correctness AND for privacy (avoid loading other
+users' rows into PHP memory even if never rendered). Added:
+
+- `FoodLogRepository::intakeKcalForUserDay(uid, hid, day): int` — `COALESCE(SUM(kcal_snapshot),
+  0)` scoped to `user_id + household_id + logged_on`. `kcal_snapshot` is NOT NULL on
+  food_log, so COALESCE is defensive.
+- `ExerciseLogRepository::exerciseKcalForUserDay(uid, hid, day): int` — same shape.
+  `kcal_snapshot` IS nullable on exercise_log (strength w/o ROM; duration w/o weight);
+  COALESCE(NULL, 0) treats them as 0 contribution — matches `dailyTotalsForHousehold`
+  semantic.
+
+Both extend their existing repo tests — no new test files.
+
+### Controller — `App\Controllers\TrackerProfileController`
+
+- `GET /health/profile` — renders `profile_form.twig` with the current profile (if any) +
+  latest weight (for BMR preview) + entry form.
+- `POST /health/profile` — upserts. 422 re-render on bounds fail (with `old` values for
+  form repopulation). 303 redirect to `/health` with flash on success.
+- Gates on `active_household_id` — profile is per-user but consistency with every other
+  `/health/*` route wins (household provides TZ for `updated_at` display formatting).
+
+### Today energy-balance widget
+
+Extends `TrackerController::today` (v0.8.0/v0.8.1). Widget renders at the TOP of Today
+(before meal sections) — it IS the primary Today number per TRACKER-PLAN.md §8 ethos.
+
+State precedence (Plan-agent finding #3 — fresh user has neither profile nor weight;
+profile CTA must win to avoid a redirect-to-weight-then-back CTA loop):
+
+1. Profile missing (regardless of weight) → `state = 'needs_profile'` — CTA to
+   `/health/profile`.
+2. Profile present + weight missing → `state = 'needs_weight'` — CTA to `/health/weight`.
+3. Both present → `state = 'complete'` — intake / expenditure / net breakdown.
+
+State-complete math (Plan-agent finding #4 — draft's example numbers didn't add up). The
+correct display split is `BMR + activity_delta + exercise` where `activity_delta = round(BMR
+× (base_activity − 1.0))` — the "not-workouts everyday movement" component only, NOT `BMR ×
+base_activity` (which would double-count BMR). Sum: `total_expenditure = BMR + activity_delta
++ exercise = BMR × base_activity + exercise`.
+
+Example (male, 1985, 175 cm, 72.5 kg, base_activity 1.20, 380 kcal logged workouts):
+
+```
+Today's balance
+Intake: 1,850 kcal                Expenditure: 2,228 kcal
+─────────────────────────────────────────────────────────
+Net: −378 kcal
+  BMR:      1,540 kcal   (Mifflin-St Jeor)
+  Activity:   308 kcal   (base_activity 1.20 — excluding workouts)
+  Exercise:   380 kcal   (from your logged workouts)
+```
+
+### Privacy invariant
+
+Per TRACKER-PLAN.md §5: intake / weight / expenditure / net are PRIVATE per user. Only
+effort will be shared with the household (v0.8.3's leaderboard MET-minutes). The widget
+renders ONLY the current user's own numbers.
+
+Regression test: `TrackerControllerTest::test_today_does_not_leak_other_users_intake_or_weight`
+— response-body integration test with distinct-value fingerprinting. User B is set up with
+three distinct values (9876 kcal intake, 88.8 kg weight, 5432 kcal exercise) and user A's
+Today body is asserted to NOT contain any of those strings. Plan-agent finding #2: leak
+surface is the twig template, not the repos — the test operates on the full response body.
+
+### Module layout (v0.8.2 additions)
+
+- `app/Tracker/` — `BmrCalculator.php`, `TrackerProfileRepository.php`.
+- `app/Controllers/` — `TrackerProfileController.php`. `TrackerController` ctor grows from 6
+  to 8 params (adds `TrackerProfileRepository` + `WeightLogRepository`); new private
+  `computeBalance(userId, householdId, today): array` method returns the state-fork.
+- `templates/tracker/` — `profile_form.twig` (NEW); `today.twig` extended (balance widget
+  block + `[Profile]` header link alongside `[Foods] [Exercises] [Weight]`).
+- `config/controllers.php` — `TrackerProfileController` registered after v0.8.1's Tracker
+  Phase 2 controllers.
+- `public/bootstrap.php` — `\App\Tracker\TrackerProfileRepository::class` container binding
+  (leading backslash per DOCS #55 Karhu\App aliasing rule).
+- `tests/AppTestCase.php` — `$profileRepo` field + instantiation + container binding +
+  `TrackerProfileController::class` in the router scan list; `TrackerController` factory
+  reflects the new 8-param ctor.
+
+BmrCalculator is static-only — no container binding needed (mirrors how
+`ExerciseKcalCalculator` is used in v0.8.1).
+
+### Tests (v0.8.2 additions)
+
+- `tests/Tracker/BmrCalculatorTest.php` — male/female worked examples, null-input branches,
+  `nowYear` override, `age<5` defence, expenditure aggregation.
+- `tests/Tracker/TrackerProfileRepositoryTest.php` — CRUD, upsert insert-then-update path,
+  bounds validation on all four fields, cascade-delete via user delete.
+- `tests/Smoke/TrackerProfileRepositoryPgSmokeTest.php` — `ON CONFLICT (user_id) DO UPDATE`
+  against real PG16 + NUMERIC(4,3) `base_activity = 1.375` INSERT + SELECT roundtrip
+  assertion (Plan-agent finding #8 — turned a "should work but let's prove it" unknown into
+  a regression guard).
+- Existing `FoodLogRepositoryTest` + `ExerciseLogRepositoryTest` extended with
+  `intakeKcalForUserDay` + `exerciseKcalForUserDay` cases.
+- `tests/Controllers/TrackerProfileControllerTest.php` — GET form (empty + populated), POST
+  create, POST update, height + birth_year bounds rejection, unauth redirect,
+  no-active-household redirect.
+- `tests/Controllers/TrackerControllerTest.php` — extended with 3 widget state fork tests
+  (needs_profile / needs_weight / complete) + the privacy regression test above.
+
+Full suite green at 909 / 2273 / 0 (was 871 / 2196 / 0 pre-v0.8.2 — +38 tests / +77
+assertions). PHPStan L6 clean per commit.
