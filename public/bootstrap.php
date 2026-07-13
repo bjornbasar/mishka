@@ -182,6 +182,8 @@ $foodLogRepo = new \App\Tracker\FoodLogRepository($db);
 $exerciseRepo = new \App\Tracker\ExerciseRepository($db);
 $weightLogRepo = new \App\Tracker\WeightLogRepository($db);
 $exerciseLogRepo = new \App\Tracker\ExerciseLogRepository($db);
+// v0.8.2 — tracker phase 3: per-user body profile for BMR/TDEE.
+$profileRepo = new \App\Tracker\TrackerProfileRepository($db);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);

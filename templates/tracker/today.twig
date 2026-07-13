@@ -9,12 +9,49 @@
             <a href="/health/foods" class="new-event-link">Foods</a>
             <a href="/health/exercises" class="new-event-link">Exercises</a>
             <a href="/health/weight" class="new-event-link">Weight</a>
+            <a href="/health/profile" class="new-event-link">Profile</a>
         </div>
     </div>
 
     <p style="color:var(--muted); margin:0 0 1rem;">
         {{ today }} · {{ day_total }} kcal so far today
     </p>
+
+    {# v0.8.2 — energy-balance widget (per-user, private). Three states:
+       needs_profile → CTA to set up profile
+       needs_weight  → CTA to record weight (profile complete)
+       complete      → intake vs expenditure breakdown with net
+       See DOCS #72. #}
+    <section style="background:var(--card); border:1px solid var(--border); padding:0.75rem 1rem; border-radius:0.5rem; margin-bottom:1.5rem;">
+        {% if balance.state == 'needs_profile' %}
+            <h2 style="font-size:1.1rem; margin:0 0 0.5rem;">Set up your profile to see your daily balance</h2>
+            <p style="margin:0 0 0.5rem; color:var(--muted); font-size:0.95rem;">
+                Enter sex, birth year, height, and base-activity level. Combined with your weight, this gives Mishka the numbers to compute your daily energy balance.
+            </p>
+            <p style="margin:0;"><a href="/health/profile">Set up profile →</a></p>
+        {% elseif balance.state == 'needs_weight' %}
+            <h2 style="font-size:1.1rem; margin:0 0 0.5rem;">Record your weight to see your daily balance</h2>
+            <p style="margin:0 0 0.5rem; color:var(--muted); font-size:0.95rem;">
+                Your profile is set. Log your current weight so BMR (Mifflin-St Jeor) can compute.
+            </p>
+            <p style="margin:0;"><a href="/health/weight">Record weight →</a></p>
+        {% else %}
+            {# state == 'complete' — show intake / expenditure / net breakdown. #}
+            <h2 style="font-size:1.1rem; margin:0 0 0.5rem;">Today's balance</h2>
+            <div style="display:flex; justify-content:space-between; gap:1rem; margin-bottom:0.5rem;">
+                <span>Intake: <strong>{{ balance.intake }} kcal</strong></span>
+                <span>Expenditure: <strong>{{ balance.expenditure }} kcal</strong></span>
+            </div>
+            <p style="margin:0.25rem 0 0.75rem; font-size:1.1rem;">
+                Net: <strong>{{ balance.net > 0 ? '+' : '' }}{{ balance.net }} kcal</strong>
+            </p>
+            <ul style="list-style:none; padding:0; margin:0; font-size:0.9rem; color:var(--muted);">
+                <li>BMR: {{ balance.bmr }} kcal <small>(Mifflin-St Jeor)</small></li>
+                <li title="Your normal day EXCLUDING logged workouts. Double-counting your gym time here would inflate expenditure.">Activity: {{ balance.activity_delta }} kcal <small>(base_activity {{ balance.base_activity }} — excluding workouts)</small></li>
+                <li>Exercise: {{ balance.exercise }} kcal <small>(from your logged workouts)</small></li>
+            </ul>
+        {% endif %}
+    </section>
 
     {% set meal_labels = {'breakfast': '🍳 Breakfast', 'lunch': '🥗 Lunch', 'dinner': '🍽️ Dinner', 'snack': '🍎 Snack'} %}
     {% set total_entries = 0 %}

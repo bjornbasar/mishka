@@ -44,4 +44,6 @@ return [
     App\Controllers\ExerciseLogController::class,
     App\Controllers\ExerciseCatalogController::class,
     App\Controllers\WeightController::class,
+    // v0.8.2 — Tracker Phase 3: profile + BMR.
+    App\Controllers\TrackerProfileController::class,
 ];
