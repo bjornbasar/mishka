@@ -344,6 +344,398 @@
       "servings": [
         {"label": "1 pot (150 g)", "grams": 150, "kcal": 100, "is_default": true}
       ]
+    },
+
+    {
+      "name": "Ham and cheese sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 180, "kcal": 350, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chicken sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 200, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "Tuna mayo sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 180, "kcal": 400, "is_default": true}
+      ]
+    },
+    {
+      "name": "BLT sandwich",
+      "aliases": "bacon lettuce tomato",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 200, "kcal": 440, "is_default": true}
+      ]
+    },
+    {
+      "name": "Egg salad sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 180, "kcal": 350, "is_default": true}
+      ]
+    },
+    {
+      "name": "Club sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich (3 slices)", "grams": 320, "kcal": 600, "is_default": true}
+      ]
+    },
+    {
+      "name": "Grilled cheese sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 150, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "Reuben sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 300, "kcal": 500, "is_default": true}
+      ]
+    },
+    {
+      "name": "Meatball sub",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "6-inch sub", "grams": 250, "kcal": 480, "is_default": true},
+        {"label": "footlong sub", "grams": 500, "kcal": 950, "is_default": false}
+      ]
+    },
+    {
+      "name": "Banh mi",
+      "aliases": "Vietnamese sandwich",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "1 sandwich", "grams": 250, "kcal": 450, "is_default": true}
+      ]
+    },
+    {
+      "name": "Subway turkey (6-inch)",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "6-inch", "grams": 220, "kcal": 280, "is_default": true}
+      ]
+    },
+    {
+      "name": "Subway turkey (footlong)",
+      "cuisine_tag": "sandwich",
+      "source": "custom",
+      "servings": [
+        {"label": "footlong", "grams": 440, "kcal": 560, "is_default": true}
+      ]
+    },
+
+    {
+      "name": "Korean fried chicken (soy garlic)",
+      "aliases": "K-chicken soy garlic, KFC soy garlic",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "2 pieces", "grams": 200, "kcal": 380, "is_default": true},
+        {"label": "4 pieces", "grams": 400, "kcal": 760, "is_default": false}
+      ]
+    },
+    {
+      "name": "Korean fried chicken (spicy yangnyeom)",
+      "aliases": "K-chicken spicy, yangnyeom chicken",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "2 pieces", "grams": 200, "kcal": 400, "is_default": true}
+      ]
+    },
+    {
+      "name": "Korean fried chicken (honey butter)",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "2 pieces", "grams": 200, "kcal": 420, "is_default": true}
+      ]
+    },
+    {
+      "name": "Bibimbap",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "1 bowl", "grams": 500, "kcal": 490, "is_default": true}
+      ]
+    },
+    {
+      "name": "Bulgogi",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "1 serving", "grams": 200, "kcal": 340, "is_default": true}
+      ]
+    },
+    {
+      "name": "Kimchi jjigae",
+      "aliases": "kimchi stew",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "1 bowl", "grams": 400, "kcal": 250, "is_default": true}
+      ]
+    },
+    {
+      "name": "Japchae",
+      "aliases": "Korean glass noodles",
+      "cuisine_tag": "korean",
+      "source": "custom",
+      "servings": [
+        {"label": "1 plate", "grams": 250, "kcal": 340, "is_default": true}
+      ]
+    },
+
+    {
+      "name": "KFC original recipe drumstick",
+      "aliases": "kfc drumstick",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 drumstick", "grams": 60, "kcal": 120, "is_default": true}
+      ]
+    },
+    {
+      "name": "KFC original recipe thigh",
+      "aliases": "kfc thigh",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 thigh", "grams": 115, "kcal": 250, "is_default": true}
+      ]
+    },
+    {
+      "name": "KFC extra crispy breast",
+      "aliases": "kfc breast",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 breast", "grams": 170, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "KFC popcorn chicken",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "small (110 g)", "grams": 110, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "KFC fries (medium)",
+      "aliases": "kfc chips",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "medium", "grams": 110, "kcal": 320, "is_default": true}
+      ]
+    },
+    {
+      "name": "KFC coleslaw",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "small", "grams": 90, "kcal": 170, "is_default": true}
+      ]
+    },
+    {
+      "name": "McDonald's Big Mac",
+      "aliases": "big mac",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 burger", "grams": 219, "kcal": 550, "is_default": true}
+      ]
+    },
+    {
+      "name": "McDonald's cheeseburger",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 burger", "grams": 118, "kcal": 300, "is_default": true}
+      ]
+    },
+    {
+      "name": "McDonald's McChicken",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 burger", "grams": 143, "kcal": 400, "is_default": true}
+      ]
+    },
+    {
+      "name": "McDonald's Filet-O-Fish",
+      "aliases": "filet o fish",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 burger", "grams": 141, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "McDonald's fries (medium)",
+      "aliases": "mcdonalds chips medium",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "medium", "grams": 117, "kcal": 320, "is_default": true},
+        {"label": "large", "grams": 154, "kcal": 440, "is_default": false}
+      ]
+    },
+    {
+      "name": "Burger King Whopper",
+      "aliases": "whopper",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 burger", "grams": 291, "kcal": 660, "is_default": true}
+      ]
+    },
+    {
+      "name": "Hot dog with bun",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 hot dog", "grams": 100, "kcal": 290, "is_default": true}
+      ]
+    },
+    {
+      "name": "Pizza slice (cheese)",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 slice", "grams": 105, "kcal": 285, "is_default": true}
+      ]
+    },
+    {
+      "name": "Pizza slice (pepperoni)",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 slice", "grams": 110, "kcal": 310, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chicken nuggets (6-piece)",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "6 pieces", "grams": 96, "kcal": 250, "is_default": true},
+        {"label": "10 pieces", "grams": 160, "kcal": 420, "is_default": false}
+      ]
+    },
+    {
+      "name": "Fish and chips",
+      "cuisine_tag": "fastfood",
+      "source": "custom",
+      "servings": [
+        {"label": "1 serving", "grams": 350, "kcal": 700, "is_default": true}
+      ]
+    },
+
+    {
+      "name": "Thai green curry (chicken)",
+      "cuisine_tag": "thai",
+      "source": "custom",
+      "servings": [
+        {"label": "1 bowl", "grams": 350, "kcal": 380, "is_default": true}
+      ]
+    },
+    {
+      "name": "Pad thai",
+      "cuisine_tag": "thai",
+      "source": "custom",
+      "servings": [
+        {"label": "1 plate", "grams": 300, "kcal": 400, "is_default": true}
+      ]
+    },
+    {
+      "name": "Vietnamese pho (beef)",
+      "aliases": "pho bo",
+      "cuisine_tag": "vietnamese",
+      "source": "custom",
+      "servings": [
+        {"label": "1 bowl", "grams": 500, "kcal": 350, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chinese chow mein",
+      "cuisine_tag": "chinese",
+      "source": "custom",
+      "servings": [
+        {"label": "1 plate", "grams": 300, "kcal": 400, "is_default": true}
+      ]
+    },
+    {
+      "name": "Chinese fried rice",
+      "cuisine_tag": "chinese",
+      "source": "custom",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 340, "is_default": true}
+      ]
+    },
+    {
+      "name": "Sweet and sour pork",
+      "cuisine_tag": "chinese",
+      "source": "custom",
+      "servings": [
+        {"label": "1 serving", "grams": 250, "kcal": 500, "is_default": true}
+      ]
+    },
+    {
+      "name": "Butter chicken",
+      "aliases": "murgh makhani",
+      "cuisine_tag": "indian",
+      "source": "custom",
+      "servings": [
+        {"label": "1 serving", "grams": 300, "kcal": 450, "is_default": true}
+      ]
+    },
+    {
+      "name": "Dal (lentil curry)",
+      "cuisine_tag": "indian",
+      "source": "custom",
+      "servings": [
+        {"label": "1 cup", "grams": 200, "kcal": 200, "is_default": true}
+      ]
+    },
+    {
+      "name": "California roll (sushi)",
+      "cuisine_tag": "japanese",
+      "source": "custom",
+      "servings": [
+        {"label": "8 pieces", "grams": 200, "kcal": 320, "is_default": true}
+      ]
+    },
+    {
+      "name": "Ramen",
+      "cuisine_tag": "japanese",
+      "source": "custom",
+      "servings": [
+        {"label": "1 bowl", "grams": 500, "kcal": 450, "is_default": true}
+      ]
     }
   ]
 }
