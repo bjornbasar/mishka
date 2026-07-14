@@ -31,6 +31,7 @@ final class NavContext
     /**
      * @return array{
      *     session_email: string|null,
+     *     session_user_id: int|null,
      *     households: list<array{id: int, name: string, role: string, joined_at: string}>,
      *     active_household: array{id: int, name: string, join_code: string, timezone: string, created_at: string}|null,
      *     verify_required: bool,
@@ -43,6 +44,7 @@ final class NavContext
         if (!is_int($userId) || $userId <= 0) {
             return [
                 'session_email' => null,
+                'session_user_id' => null,
                 'households' => [],
                 'active_household' => null,
                 'verify_required' => false,
@@ -75,6 +77,9 @@ final class NavContext
 
         return [
             'session_email' => is_string($email) ? $email : null,
+            // v0.8.4 — exposed for the offline logging IIFE's session
+            // scoping meta tag (DOCS #74 B2).
+            'session_user_id' => $userId,
             'households' => $memberships,
             'active_household' => $active,
             'verify_required' => $verifyRequired,

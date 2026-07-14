@@ -10,7 +10,7 @@
         </div>
     </div>
 
-    <form method="POST" action="/health/log/exercise" class="auth" data-exercise-form>
+    <form method="POST" action="/health/log/exercise" class="auth" data-exercise-form data-offline-queue>
         {{ csrf_field() }}
         <input type="hidden" name="exercise_id" value="">
 

@@ -39,6 +39,9 @@ final class ServiceWorkerStructureTest extends TestCase
         '/icon-512-maskable.png',
         '/manifest.webmanifest',
         '/push-subscribe.js',
+        // v0.8.4 — offline logging client-side layer.
+        '/mishka-idb.js',
+        '/mishka-offline.js',
     ];
 
     public function test_sw_file_exists_and_has_version_constant(): void
@@ -129,7 +132,8 @@ final class ServiceWorkerStructureTest extends TestCase
 
     public function test_precached_assets_exist_on_disk_or_route(): void
     {
-        // Per adversarial round-2 S9: assert the loop ran for all 7 entries.
+        // Per adversarial round-2 S9: assert the loop ran for all entries.
+        // v0.8.4 bumped 7 → 9 (mishka-idb.js + mishka-offline.js).
         $checked = 0;
         foreach (self::EXPECTED_PRECACHE as $url) {
             $checked++;
@@ -148,7 +152,7 @@ final class ServiceWorkerStructureTest extends TestCase
             // Static file: must exist under public/.
             self::assertFileExists(self::PUBLIC_DIR . $url, "Precached asset $url missing from public/");
         }
-        self::assertSame(7, $checked, 'Expected to verify exactly 7 precache entries');
+        self::assertSame(9, $checked, 'Expected to verify exactly 9 precache entries');
     }
 
     public function test_push_handler_preserved(): void

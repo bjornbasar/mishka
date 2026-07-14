@@ -27,6 +27,8 @@ const PRECACHE_URLS = [
     '/icon-512-maskable.png',
     '/manifest.webmanifest',
     '/push-subscribe.js',
+    '/mishka-idb.js',             // v0.8.4 offline queue wrapper
+    '/mishka-offline.js',         // v0.8.4 offline logging IIFE
 ];
 
 const STATIC_EXTENSIONS = /\.(png|ico|css|js|json|webmanifest|svg|woff2?)$/i;

@@ -10,6 +10,19 @@
        and send X-CSRF-Token. karhu's Csrf middleware accepts the header form
        OR the form-field form; the meta tag is the simplest reader path. #}
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    {# v0.8.4: session-context metas for the offline logging IIFE
+       (public/mishka-offline.js). Absent on anonymous pages — the IIFE's
+       HAS_SESSION_CONTEXT check skips queue + flush behaviour there. The
+       user + household ids scope the IDB queue rows so a shared iPad with
+       user-switch never leaks queued POSTs across sessions (DOCS #74 B2).
+       The tz drives client-side `logged_on` stamping at queue-time so
+       "the workout I logged Tuesday" appears on Tuesday after an
+       overnight offline gap. #}
+    {% if session_email is defined and session_email and active_household is defined and active_household %}
+        <meta name="mishka-user-id" content="{{ session_user_id|default('') }}">
+        <meta name="mishka-household-id" content="{{ active_household.id|default('') }}">
+        <meta name="mishka-household-tz" content="{{ active_household.timezone|default('') }}">
+    {% endif %}
     {# v0.6.3: PWA manifest + iOS install support. Apple ignores manifest fields
        like theme_color, so we duplicate as <meta name="theme-color">. Status bar
        "black" (NOT "black-translucent") keeps content below the notch on modern
@@ -445,6 +458,8 @@
                     {% include "_partials/household_switcher.twig" %}
                 {% endif %}
                 <span>{{ session_email }}</span>
+                {# v0.8.4 — offline queue badge; populated by mishka-offline.js when count > 0 #}
+                <span data-offline-badge style="display:none; color:var(--muted, #666); font-size:0.9rem;"></span>
                 <a href="/me/notifications" class="nav-bell" title="Notification preferences">🔔</a>
                 <form method="POST" action="/logout">
                     {{ csrf_field() }}
@@ -495,6 +510,15 @@
             });
         }
     </script>
+    {# v0.8.4: offline logging — mishka-idb.js (thin IDB wrapper) + mishka-
+       offline.js (queue interceptor + flush IIFE). Load order matters:
+       mishka-idb.js MUST come first because mishka-offline.js references
+       window.MishkaIDB. `defer` guarantees document-order execution. Both
+       load on every page but the IIFE's HAS_SESSION_CONTEXT check skips
+       queue+flush behaviour on anonymous pages (/login, /register, etc.
+       — the session meta tags are absent there). See DOCS #74. #}
+    <script src="/mishka-idb.js" defer></script>
+    <script src="/mishka-offline.js" defer></script>
     {# v0.6.4: hamburger nav toggle + ESC-to-close + viewport-cross reset.
        Pre-paint <head> script already added .js-nav so the CSS knows JS is
        available. This script wires up click/key/resize listeners. mishka's
@@ -633,8 +657,22 @@
                             headers: { 'Accept': 'application/json' },
                             cache: 'no-store',
                         }).then(function (r) { return r.ok ? r.json() : { results: [] }; })
-                          .then(function (data) { renderResults(data.results || []); })
-                          .catch(function () { /* offline — leave prior results */ });
+                          .then(function (data) {
+                              var items = data.results || [];
+                              renderResults(items);
+                              // v0.8.4 — write-through cache for offline fallback.
+                              if (window.MishkaOffline) {
+                                  window.MishkaOffline.cacheLibraryResponse(url, q, items);
+                              }
+                          })
+                          .catch(function () {
+                              // v0.8.4 — offline fallback: try IDB library_cache.
+                              if (window.MishkaOffline) {
+                                  window.MishkaOffline.searchLibrary(url, q).then(function (cached) {
+                                      renderResults(cached || []);
+                                  });
+                              }
+                          });
                     }, 250);
                 });
                 function renderResults(items) {

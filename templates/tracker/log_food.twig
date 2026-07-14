@@ -10,7 +10,7 @@
         </div>
     </div>
 
-    <form method="POST" action="/health/log/food" class="auth">
+    <form method="POST" action="/health/log/food" class="auth" data-offline-queue>
         {{ csrf_field() }}
         <input type="hidden" name="meal" value="{{ meal }}">
         <input type="hidden" name="food_id" value="">

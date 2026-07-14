@@ -20,7 +20,7 @@
         </p>
     {% endif %}
 
-    <form method="POST" action="/health/weight" class="auth">
+    <form method="POST" action="/health/weight" class="auth" data-offline-queue>
         {{ csrf_field() }}
         <label>
             Weight (kg)
