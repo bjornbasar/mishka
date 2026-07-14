@@ -175,3 +175,54 @@ Served by the front-end (PHP `-S` in current prod, Apache in any future deploy) 
 | Method | Path | Notes |
 |---|---|---|
 | GET | /csrf-token | Returns `{"token": "..."}` JSON with `Cache-Control: no-store`. Unauthenticated (works for anonymous + logged-in alike via karhu's session/cookie token storage). Powers the inline IIFE in `layout.twig` that refreshes the in-page CSRF token on every page load — closes the cross-tab session-rotation gap (login in tab A invalidates tab B's CSRF token; old behaviour was a plain-text "CSRF token mismatch" 403; new behaviour is silent refresh on tab B's next nav). Consumed only by `layout.twig`'s inline script; not part of any external API contract. GET-safelisted by Csrf middleware so the endpoint doesn't require a token to call itself. |
+
+## Tracker — Health (v0.8.0 → v0.8.3)
+
+All routes gated on `Session::has('user_id')` + `Session::has('active_household_id')` + `HouseholdAuthorizer::requireMember`. Anonymous → 302 /login; no active household → 302 /household/setup. Retroactively documented in v0.8.3 (Plan-agent nice-to-have #14 fold — ROUTES.md had been silently drifting since v0.8.0).
+
+### Today + food logging (v0.8.0)
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET  | /health | Today dashboard — meal-grouped food entries + Exercise section (v0.8.1) + energy-balance widget (v0.8.2). Header links: [Foods] [Exercises] [Weight] [Profile] [Leaderboard]. |
+| GET  | /health/log/food | Log-food form + live-search IIFE (data-live-search attrs). |
+| GET  | /health/log/food/search | JSON `{"results": [...]}` with `Cache-Control: no-store`. INNER JOIN excludes default-less dishes. GET-safelisted by Csrf. |
+| POST | /health/log/food | Validate meal + qty + foreign-household guard; INSERT `food_log` with `kcal_snapshot = round(qty * serving.kcal)` + `logged_on = LocalDay::today($tz)`. 303 to /health. |
+| POST | /health/log/food/{id}/delete | Owner-scoped delete; 303 to /health. |
+| GET  | /health/foods | Library index (CRUD list). |
+| GET  | /health/foods/new | Create form. |
+| POST | /health/foods | Create food + at-least-one serving (rejects zero-servings creation). 303 to /health/foods. |
+| GET  | /health/foods/{id} | Edit form. |
+| POST | /health/foods/{id} | Update. |
+| POST | /health/foods/{id}/delete | Delete (cascades to food_servings; food_log rows keep `(deleted dish)` via SET NULL). |
+
+### Exercise + weight (v0.8.1)
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET  | /health/log/exercise | Log-exercise form + bespoke `data-exercise-search` IIFE (distinct from food IIFE — routes to duration/strength branch based on picked exercise's type). |
+| GET  | /health/log/exercise/search | JSON with `Cache-Control: no-store`. Distinct-shape payload from food-search (includes `type`, `met`, `default_rom_m`). |
+| POST | /health/log/exercise | Discriminated union: duration branch computes `met_minutes` + `kcal` (from latest weight); strength branch uses mechanical-work kcal (when `default_rom_m` known). 303 to /health. v0.8.3: fires `TrackerBadgeAwarder::evaluateAndGrant` best-effort AFTER create. |
+| POST | /health/log/exercise/{id}/delete | Owner-scoped delete; 303 to /health. |
+| GET  | /health/exercises | Exercise catalog CRUD list. |
+| GET  | /health/exercises/new | Create form. |
+| POST | /health/exercises | Create; MET bounds `(0, 25]` at repo. |
+| GET  | /health/exercises/{id} | Edit form. |
+| POST | /health/exercises/{id} | Update; MET bounds re-checked. |
+| POST | /health/exercises/{id}/delete | Delete (exercise_log rows keep `exercise_name_snapshot` + `exercise_type_snapshot` via SET NULL). |
+| GET  | /health/weight | Weight form + last-10 history. Gates on active_household_id (household TZ drives `measured_on`). |
+| POST | /health/weight | Create weight entry; `weight_kg` bounded `[20.0, 300.0]` at repo. 303 back. |
+| POST | /health/weight/{id}/delete | Owner-scoped delete. |
+
+### Profile + BMR (v0.8.2)
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET  | /health/profile | Show form + BMR preview (if profile + weight both present). |
+| POST | /health/profile | Upsert `tracker_profiles` (`ON CONFLICT (user_id) DO UPDATE`). 422 re-render on bounds fail; 303 to /health on success. |
+
+### Leaderboard (v0.8.3)
+
+| Method | Path | Behaviour |
+|---|---|---|
+| GET  | /health/leaderboard | Household weekly effort leaderboard (MET-minutes rank + strength-session sidecar + 🔥 weekly / 📅 daily streaks + badge emoji strip per row). Privacy invariant: intake / weight / expenditure / net NEVER rendered — response-body-regression-tested. |

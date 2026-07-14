@@ -169,13 +169,12 @@ Search endpoint is GET-safelisted by karhu Csrf middleware (no CSRF token needed
   contract (catches template drift), JSON search shape + no-store header, POST create +
   rejection paths (invalid meal, foreign-household food), delete own entry.
 
-## 9. What lands next (v0.8.3)
+## 9. What lands next (v0.8.4)
 
-Household leaderboard (MET-minutes currency for duration entries; strength contribution TBD
-per DOCS #71) + effort / consistency badges + streaks. Reuses the chores machinery
-(`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`). Per
-TRACKER-PLAN.md §5 the leaderboard is EFFORT-only — intake/weight/net stay private per user
-(the privacy invariant that v0.8.2's widget locked in). See `docs/ROADMAP.md`.
+Offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) +
+PWA `shortcuts` array. Only build if the family actually asks for it. All prior tracker
+phases (v0.8.0 foods, v0.8.1 exercise + weight, v0.8.2 profile + BMR + widget, v0.8.3
+leaderboard + badges + streaks) have shipped. See `docs/ROADMAP.md`.
 
 ## 10. v0.8.1 — Exercise + weight_log (shipped)
 
@@ -491,3 +490,129 @@ BmrCalculator is static-only — no container binding needed (mirrors how
 
 Full suite green at 909 / 2273 / 0 (was 871 / 2196 / 0 pre-v0.8.2 — +38 tests / +77
 assertions). PHPStan L6 clean per commit.
+
+## 12. v0.8.3 — household effort leaderboard + effort/consistency badges + streaks (shipped)
+
+Fourth Tracker release. Reuses the Chores machinery to add a household-shared **effort**
+leaderboard + badges + streaks, without ever leaking intake / weight / net (v0.8.2's
+privacy invariant preserved).
+
+### Reused Chores machinery
+
+- `App\Chores\BadgeAwardRepository` — v0.6.13 household-scoped `badge_awards` table, UNIQUE
+  dedup on `(household_id, user_id, badge_code)`. No schema change; new tracker codes just
+  populate the same table.
+- `App\Chores\Achievements::computeStreak` / `computeDailyStreak` — reusable streak walk
+  helpers. v0.8.3 adds `computeDailyStreakLocal` — sibling walking household-local `Y-m-d`
+  DATE strings instead of UTC instants (tracker's `logged_on` axis).
+- `App\Chores\WeekWindow` + `DayWindow` — v0.8.3 adds local-DATE sibling helpers
+  (`weekStartLocal / weekEndLocal / lookbackStartLocal` on `WeekWindow`; parallel siblings
+  on `DayWindow`) returning `Y-m-d` strings for `WHERE logged_on ...` predicates.
+- `config/badges.php` — extended with 9 new codes. Grid grows from 8 → 17.
+- `/badges` template posture — new `/health/leaderboard` mirrors auth triad + roster JOIN
+  idiom.
+
+### Filter axis — `logged_on` DATE household-local
+
+`exercise_log.logged_on` is a household-local DATE (via `LocalDay::today($tz)` at write).
+Every v0.8.3 aggregate uses the DATE axis via `WHERE logged_on >= :ws AND logged_on < :we`
+(half-open). Sister UTC helpers remain the axis for chore-side TIMESTAMPTZ columns
+(`chore_points_ledger.completed_at`). Docblocks name the two-axes contract to prevent
+future maintainers substituting `weekStartUtc` for `weekStartLocal` in a DATE predicate.
+
+### Leaderboard shape
+
+Ranking column: **weekly MET-minutes** (from `exercise_log.met_minutes`, populated only on
+duration entries). Weight-independent by design in v0.8.1's `ExerciseKcalCalculator::
+metMinutes = MET × minutes`.
+
+Strength contribution — **session-count sidecar** (user-locked). Rank is MET-minutes only;
+each row shows `(+N strength sessions)` as a secondary label. Does NOT convert reps →
+minutes (honours v0.8.1's user-lock, DOCS #71).
+
+Streaks: (a) **weekly-effort streak** — consecutive ISO weeks each ≥ 150 MET-minutes (WHO
+moderate-activity baseline); (b) **daily-activity streak** — consecutive days with any log
+entry. Both walk 52-week lookback.
+
+Zero-effort household → single centred "log a workout to break the seal" muted paragraph
+above the table. Members with zero cells render "—" in muted colour (matches today.twig
+L60-72 empty-state convention). Viewer's row bolded + `(you)` marker.
+
+### Badge codes (v0.8.3 — 9 new)
+
+Threshold table below. All codes granted by `TrackerBadgeAwarder::evaluateAndGrant` eager;
+count + MET-minute badges backfilled by `bin/karhu tracker:badges-backfill`; streak badges
+are eager-only (matches chore precedent DOCS #54/#55).
+
+| Code | Type | Criterion |
+|---|---|---|
+| `first_workout` | count | ≥ 1 log entries |
+| `ten_workouts` | count | ≥ 10 |
+| `fifty_workouts` | count | ≥ 50 |
+| `five_hundred_met_minutes` | lifetime MET-min | ≥ 500 |
+| `five_thousand_met_minutes` | lifetime MET-min | ≥ 5000 |
+| `active_week` | week milestone | first week with ≥ 150 MET-min |
+| `four_week_effort_streak` | weekly streak | 4 consecutive ISO weeks ≥ 150 MET-min |
+| `seven_day_activity_streak` | daily streak | 7 consecutive days with any entry |
+| `thirty_day_activity_streak` | daily streak | 30 consecutive days with any entry |
+
+### Privacy invariant preserved
+
+Per TRACKER-PLAN.md §5 (unchanged from v0.8.2): intake / weight / expenditure / net PRIVATE
+per user. Only EFFORT (MET-min + strength session count + streaks + badges) is shared with
+the household.
+
+Regression-tested by `TrackerLeaderboardControllerTest::test_leaderboard_does_not_leak_
+intake_or_weight_or_net`: user B's distinct fingerprints (9876 kcal / 88.8 kg / 5432 kcal)
+MUST NOT appear in user A's leaderboard response. PLUS shape-based negative assertions on
+`Intake:` / `Expenditure:` / `BMR:` / `Net:` (unique widget-only markers absent from
+leaderboard) — defends against a future maintainer copy-pasting the Today balance widget
+into `leaderboard.twig`.
+
+### Module layout (v0.8.3 additions)
+
+- `app/Chores/WeekWindow.php` + `DayWindow.php` — local-DATE sibling helpers.
+- `app/Chores/Achievements.php` — `computeDailyStreakLocal` sibling.
+- `app/Tracker/ExerciseLogRepository.php` — 5 new methods (leaderboard SQL + cumulative +
+  streak feeds + daily MET bucketing).
+- `app/Tracker/TrackerBadgeAwarder.php` (NEW) — 9-threshold awarder + pure `computeWeekly
+  MetStreak` + ISO-week helpers.
+- `app/Commands/TrackerBadgesBackfillCommand.php` (NEW) — `bin/karhu tracker:badges-backfill`.
+- `app/Controllers/TrackerLeaderboardController.php` (NEW) — `GET /health/leaderboard`.
+- `app/Controllers/ExerciseLogController.php` — ctor grows 7→8 params (adds
+  `TrackerBadgeAwarder`); `store()` fires awarder best-effort in try/catch.
+- `templates/tracker/leaderboard.twig` (NEW) — ranking table + badge strip.
+- `templates/tracker/today.twig` — `[Leaderboard]` header link added.
+- `config/badges.php` — 9 new tracker codes (grid 8→17).
+- `config/controllers.php` — `TrackerLeaderboardController` registered.
+- `config/commands.php` — `TrackerBadgesBackfillCommand` registered.
+- `public/bootstrap.php` — `TrackerBadgeAwarder` + backfilled `TrackerProfileRepository`
+  container bindings.
+- `.github/workflows/ci.yml` — deploy step `Tracker badges backfill (idempotent)`
+  AFTER `Seed tracker exercises`.
+- `tests/AppTestCase.php` — `$trackerBadgeAwarder` field + binding + router scan entry.
+
+### Tests (v0.8.3 additions)
+
+- `tests/Chores/WeekWindowTest.php` / `DayWindowTest.php` — 5 new cases each covering local
+  siblings + DST-crossing wall-clock arithmetic + malformed input rejection.
+- `tests/Chores/AchievementsTest.php` — 4 new cases for `computeDailyStreakLocal`.
+- `tests/Tracker/ExerciseLogRepositoryTest.php` — 11 new cases: leaderboard shapes +
+  cumulative stats + streak feeds + per-day bucketing.
+- `tests/Tracker/TrackerBadgeAwarderTest.php` (NEW) — 17 cases: guards + all 9 threshold
+  paths + idempotency + `computeWeeklyMetStreak` pure-function unit tests + ISO year-
+  boundary assertion.
+- `tests/Controllers/TrackerLeaderboardControllerTest.php` (NEW) — 8 cases including the
+  load-bearing privacy regression.
+- `tests/Controllers/ExerciseLogControllerTest.php` — +1 case: POST fires awarder +
+  `first_workout` badge granted eagerly.
+- `tests/Controllers/BadgesControllerTest.php` — bumped "N of 8" → "N of 17".
+- `tests/Commands/TrackerBadgesBackfillCommandTest.php` (NEW) — 4 cases: empty db,
+  10-entry earns first + ten, idempotency, bad-tz household skipped.
+- `tests/Smoke/ExerciseLogRepositoryLeaderboardPgSmokeTest.php` (NEW) — 4 cases against
+  PG16: NUMERIC(8,2) SUM roundtrip via PDO, COALESCE(SUM(NULL), 0) on strength-only user,
+  departed-member drop, `u.id > 0` sentinel guard (skipped in SQLite — sequence rejects
+  id=0 insert, expected).
+
+Full suite green at **971 / 2381 / 0**, 1 skipped (was 909 / 2273 / 0 pre-v0.8.3 — +62
+tests / +108 assertions). PHPStan L6 clean per commit.

@@ -1,19 +1,18 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-13 (after v0.8.2 shipped).
+> Last reviewed: 2026-07-14 (after v0.8.3 shipped).
 
 ## Current release
 
-**v0.8.2** — Tracker Phase 3: `tracker_profiles` + Mifflin-St Jeor BMR + Today energy-balance widget. Shipped 2026-07-13. See `DOCS.md` decision #72 + `docs/TRACKER.md` §11.
+**v0.8.3** — Tracker Phase 4: household effort leaderboard + effort/consistency badges + streaks. Shipped 2026-07-14. See `DOCS.md` decision #73 + `docs/TRACKER.md` §12.
 
 ## Priority queue
 
 | # | Version | Scope | Effort | Blocker? |
 |---|---|---|---|---|
-| **1** | **v0.8.3** | **Tracker Phase 4** — household leaderboard (MET-minutes currency for duration entries; strength contribution TBD — see DOCS #71) + effort/consistency badges + streaks. Reuses Chores machinery (`WeekWindow`, `DayWindow`, `BadgeAwardRepository`, `Achievements`, `badge_awards`) | 3-5 days | v0.8.2 landed |
-| 2 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) + PWA `shortcuts` array. Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
-| 3 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
+| 1 *(bonus)* | **v0.8.4** | **Tracker Phase 5** — offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) + PWA `shortcuts` array. Only build if family actually asks for it. | 5-7 days | v0.8.3 landed |
+| 2 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
 
 **Tracker train total (v0.8.0–v0.8.3, no bonus): 21-31 dev days.** Roughly 5-7 weeks of focused solo work.
 
@@ -43,6 +42,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.3** — Tracker Phase 4: household effort leaderboard + effort/consistency badges + streaks (DOCS #73, 2026-07-14)
 - **v0.8.2** — Tracker Phase 3: `tracker_profiles` + Mifflin-St Jeor BMR + Today energy-balance widget (DOCS #72, 2026-07-13)
 - **v0.8.1** — Tracker Phase 2: exercise catalog + logging (duration + strength) + weight_log + kcal (DOCS #71, 2026-07-13)
 - **v0.8.0** — Tracker Phase 1: dish library + serving-first food logging + 41-dish seed + live search (DOCS #70, 2026-07-13)
