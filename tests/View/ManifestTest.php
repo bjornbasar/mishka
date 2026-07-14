@@ -103,4 +103,56 @@ final class ManifestTest extends TestCase
             '.htaccess must keep the file-exists short-circuit so static assets bypass index.php',
         );
     }
+
+    // v0.8.4 — PWA shortcuts (Android/Chromium home-screen long-press).
+
+    public function test_manifest_has_three_shortcuts_pointing_at_health_routes(): void
+    {
+        $manifest = $this->manifest();
+        self::assertArrayHasKey('shortcuts', $manifest);
+        self::assertIsArray($manifest['shortcuts']);
+        self::assertCount(3, $manifest['shortcuts']);
+
+        $urls = array_column($manifest['shortcuts'], 'url');
+        self::assertSame(['/health/log/food', '/health/log/exercise', '/health'], $urls);
+
+        foreach ($manifest['shortcuts'] as $sc) {
+            self::assertArrayHasKey('name', $sc);
+            self::assertArrayHasKey('short_name', $sc);
+            self::assertArrayHasKey('description', $sc);
+            self::assertArrayHasKey('icons', $sc);
+            self::assertNotEmpty($sc['icons']);
+        }
+    }
+
+    public function test_shortcut_icons_are_all_precached(): void
+    {
+        // Plan-agent SHOULD-FIX #10 fold — extend the existing
+        // manifest-icons-must-be-precached invariant (asserted by
+        // ServiceWorkerStructureTest::test_manifest_icons_match_precache
+        // for top-level icons[]) to cover nested shortcuts[].icons[].
+        // Prevents a v0.8.4.1 "distinct shortcut icons" work item from
+        // silently adding an icon that isn't in the SW's PRECACHE_URLS.
+        $manifest = $this->manifest();
+        $precached = ['/icon-192.png', '/icon-512.png', '/icon-512-maskable.png', '/apple-touch-icon.png'];
+        foreach ($manifest['shortcuts'] as $sc) {
+            foreach ($sc['icons'] as $icon) {
+                self::assertContains(
+                    $icon['src'],
+                    $precached,
+                    "shortcut icon {$icon['src']} MUST be in PRECACHE_URLS or offline shortcuts break",
+                );
+            }
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function manifest(): array
+    {
+        $raw = file_get_contents(__DIR__ . '/../../public/manifest.webmanifest');
+        self::assertIsString($raw);
+        $decoded = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        return $decoded;
+    }
 }

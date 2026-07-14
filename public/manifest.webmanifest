@@ -16,5 +16,28 @@
     { "src": "/icon-192.png",          "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png",          "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Log Food",
+      "short_name": "Food",
+      "description": "Log a meal or snack",
+      "url": "/health/log/food",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Log Exercise",
+      "short_name": "Exercise",
+      "description": "Log a workout",
+      "url": "/health/log/exercise",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Today",
+      "short_name": "Today",
+      "description": "Health dashboard",
+      "url": "/health",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }
