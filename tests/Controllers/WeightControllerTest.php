@@ -66,4 +66,53 @@ final class WeightControllerTest extends AppTestCase
         $this->request('POST', "/health/weight/{$id}/delete", [], headers: ['content-type' => 'application/x-www-form-urlencoded']);
         self::assertNull($this->weightLogRepo->latestForUser($uid));
     }
+
+    // v0.8.4 — measured_on migrated to shared LoggedOnValidator (+ JSON path).
+
+    public function test_post_accepts_valid_measured_on_within_seven_days(): void
+    {
+        [$uid, ] = $this->signedIn();
+        $yesterday = (new \DateTimeImmutable('yesterday', new \DateTimeZone('Pacific/Auckland')))->format('Y-m-d');
+        $this->request('POST', '/health/weight', [
+            'weight_kg' => '68.5',
+            'measured_on' => $yesterday,
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded']);
+        $latest = $this->weightLogRepo->latestForUser($uid);
+        self::assertNotNull($latest);
+        self::assertSame($yesterday, (string) $latest['measured_on']);
+    }
+
+    public function test_post_rejects_measured_on_older_than_seven_days(): void
+    {
+        [$uid, ] = $this->signedIn();
+        $tooOld = (new \DateTimeImmutable('-14 days', new \DateTimeZone('Pacific/Auckland')))->format('Y-m-d');
+        $r = $this->request('POST', '/health/weight', [
+            'weight_kg' => '68.5',
+            'measured_on' => $tooOld,
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded']);
+        self::assertSame(303, $r->status());
+        self::assertNull($this->weightLogRepo->latestForUser($uid));
+    }
+
+    public function test_post_json_success_returns_200(): void
+    {
+        $this->signedIn();
+        $r = $this->request('POST', '/health/weight', [
+            'weight_kg' => '68.5',
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded', 'accept' => 'application/json']);
+        self::assertSame(200, $r->status());
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('ok', $body['status']);
+    }
+
+    public function test_post_json_validation_reject_returns_400(): void
+    {
+        $this->signedIn();
+        $r = $this->request('POST', '/health/weight', [
+            'weight_kg' => '5',   // out of range
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded', 'accept' => 'application/json']);
+        self::assertSame(400, $r->status());
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('validation', $body['code']);
+    }
 }

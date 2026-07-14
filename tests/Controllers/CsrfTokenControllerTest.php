@@ -129,4 +129,39 @@ final class CsrfTokenControllerTest extends MiddlewareIntegrationTestCase
         self::assertSame(200, $response->status());
         self::assertStringContainsString('no-store', (string) $response->header('cache-control'));
     }
+
+    // v0.8.4 — extended payload for offline-flush auth-probe.
+
+    public function test_anonymous_response_carries_authenticated_false_and_null_ids(): void
+    {
+        $r = $this->request('GET', '/csrf-token', [], headers: ['accept' => 'application/json']);
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertFalse($body['authenticated']);
+        self::assertNull($body['user_id']);
+        self::assertNull($body['active_household_id']);
+    }
+
+    public function test_logged_in_response_carries_user_id_but_null_household_when_no_active(): void
+    {
+        $uid = $this->createUserWithHash('me@example.com', 'pw-correct-horse-staple');
+        $this->loginAs($uid, 'me@example.com');
+        // No active_household_id set.
+        $r = $this->request('GET', '/csrf-token', [], headers: ['accept' => 'application/json']);
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($body['authenticated']);
+        self::assertSame($uid, $body['user_id']);
+        self::assertNull($body['active_household_id']);
+    }
+
+    public function test_authed_with_active_household_carries_both_ids(): void
+    {
+        $uid = $this->createUserWithHash('me@example.com', 'pw-correct-horse-staple');
+        $this->loginAs($uid, 'me@example.com');
+        $_SESSION['active_household_id'] = 42;
+        $r = $this->request('GET', '/csrf-token', [], headers: ['accept' => 'application/json']);
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertTrue($body['authenticated']);
+        self::assertSame($uid, $body['user_id']);
+        self::assertSame(42, $body['active_household_id']);
+    }
 }

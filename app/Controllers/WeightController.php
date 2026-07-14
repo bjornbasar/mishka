@@ -6,7 +6,7 @@ namespace App\Controllers;
 
 use App\Auth\HouseholdAuthorizer;
 use App\Household\HouseholdRepository;
-use App\Tracker\LocalDay;
+use App\Tracker\LoggedOnValidator;
 use App\Tracker\WeightLogRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
@@ -54,7 +54,7 @@ final class WeightController
     #[Route('/health/weight', methods: ['POST'], name: 'tracker.weight.store')]
     public function store(Request $request): Response
     {
-        $ctx = $this->requireContext();
+        $ctx = $this->requireContext($request);
         if ($ctx instanceof Response) {
             return $ctx;
         }
@@ -62,24 +62,25 @@ final class WeightController
 
         $weightKg = (float) $request->post('weight_kg');
         if ($weightKg < 20.0 || $weightKg > 300.0) {
-            Session::set('flash_error', 'Weight must be between 20 and 300 kg.');
-            return (new Response())->redirect('/health/weight', 303);
+            return $this->rejectStore($request, 'Weight must be between 20 and 300 kg.', '/health/weight');
         }
-        $measuredOnRaw = trim($request->post('measured_on'));
-        if ($measuredOnRaw !== '') {
-            // User-supplied date — validate shape.
-            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $measuredOnRaw)) {
-                Session::set('flash_error', 'Date must be YYYY-MM-DD.');
-                return (new Response())->redirect('/health/weight', 303);
-            }
-            $measuredOn = $measuredOnRaw;
-        } else {
-            $household = $this->households->findById($hid);
-            $tz = new \DateTimeZone((string) $household['timezone']);
-            $measuredOn = LocalDay::today($tz);
+        // v0.8.4 — measured_on migrated from ad-hoc regex to shared
+        // LoggedOnValidator (bounds: not-future, not-older-than-7-days,
+        // real calendar date). Preserves the blank→today fallback.
+        $household = $this->households->findById($hid);
+        $tz = new \DateTimeZone((string) $household['timezone']);
+        try {
+            $measuredOn = LoggedOnValidator::parse($request->post('measured_on'), $tz);
+        } catch (\InvalidArgumentException $e) {
+            return $this->rejectStore($request, 'Bad date: ' . $e->getMessage(), '/health/weight');
         }
 
         $this->weights->create($userId, $weightKg, $measuredOn);
+        if ($this->wantsJson($request)) {
+            return (new Response())
+                ->withHeader('Content-Type', 'application/json; charset=utf-8')
+                ->withBody(json_encode(['status' => 'ok'], JSON_THROW_ON_ERROR));
+        }
         Session::set('flash_success', 'Weight recorded.');
         return (new Response())->redirect('/health/weight', 303);
     }
@@ -106,17 +107,47 @@ final class WeightController
     }
 
     /** @return Response|array{0: int, 1: int} */
-    private function requireContext(): Response|array
+    private function requireContext(?Request $request = null): Response|array
     {
         if (!Session::has('user_id')) {
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Session required.');
+            }
             return (new Response())->redirect('/login', 302);
         }
         if (!Session::has('active_household_id')) {
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Active household required.');
+            }
             return (new Response())->redirect('/household/setup', 302);
         }
         $userId = (int) Session::get('user_id');
         $hid = (int) Session::get('active_household_id');
         $this->auth->requireMember($userId, $hid);
         return [$userId, $hid];
+    }
+
+    /** v0.8.4 — detect JSON caller (offline replay) vs HTML form submit. */
+    private function wantsJson(Request $request): bool
+    {
+        return str_contains(strtolower((string) $request->header('accept')), 'application/json');
+    }
+
+    /** v0.8.4 — validation-reject helper. */
+    private function rejectStore(Request $request, string $message, string $htmlRedirect): Response
+    {
+        if ($this->wantsJson($request)) {
+            return $this->jsonError(400, 'validation', $message);
+        }
+        Session::set('flash_error', $message);
+        return (new Response())->redirect($htmlRedirect, 303);
+    }
+
+    /** v0.8.4 — JSON error response builder. */
+    private function jsonError(int $status, string $code, string $message): Response
+    {
+        return (new Response($status))
+            ->withHeader('Content-Type', 'application/json; charset=utf-8')
+            ->withBody(json_encode(['status' => 'error', 'code' => $code, 'message' => $message], JSON_THROW_ON_ERROR));
     }
 }

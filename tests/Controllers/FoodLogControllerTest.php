@@ -118,4 +118,66 @@ final class FoodLogControllerTest extends AppTestCase
         self::assertSame(303, $response->status());
         self::assertSame(0, (int) $this->db->fetchScalar('SELECT COUNT(*) FROM food_log WHERE id = :id', ['id' => $logId]));
     }
+
+    // v0.8.4 — optional logged_on field + JSON path for offline replay.
+
+    public function test_post_accepts_optional_logged_on_field(): void
+    {
+        [$uid, $hid, $foodId, $servingId] = $this->signedInWithGlobalSeed();
+        $yesterday = (new \DateTimeImmutable('yesterday', new \DateTimeZone('Pacific/Auckland')))->format('Y-m-d');
+        $this->request('POST', '/health/log/food', [
+            'meal' => 'breakfast',
+            'food_id' => (string) $foodId,
+            'serving_id' => (string) $servingId,
+            'qty' => '1',
+            'logged_on' => $yesterday,
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded']);
+        $row = $this->db->fetchOne('SELECT logged_on FROM food_log WHERE user_id = :uid', ['uid' => $uid]);
+        self::assertNotNull($row);
+        self::assertSame($yesterday, (string) $row['logged_on']);
+    }
+
+    public function test_post_rejects_malformed_logged_on(): void
+    {
+        [$uid, $hid, $foodId, $servingId] = $this->signedInWithGlobalSeed();
+        $r = $this->request('POST', '/health/log/food', [
+            'meal' => 'breakfast',
+            'food_id' => (string) $foodId,
+            'serving_id' => (string) $servingId,
+            'qty' => '1',
+            'logged_on' => 'nope',
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded']);
+        self::assertSame(303, $r->status());
+        self::assertSame(0, (int) $this->db->fetchScalar('SELECT COUNT(*) FROM food_log WHERE user_id = :uid', ['uid' => $uid]));
+    }
+
+    public function test_post_json_success_returns_200_status_ok(): void
+    {
+        [$uid, $hid, $foodId, $servingId] = $this->signedInWithGlobalSeed();
+        $r = $this->request('POST', '/health/log/food', [
+            'meal' => 'breakfast',
+            'food_id' => (string) $foodId,
+            'serving_id' => (string) $servingId,
+            'qty' => '1',
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded', 'accept' => 'application/json']);
+        self::assertSame(200, $r->status());
+        self::assertStringContainsString('application/json', (string) $r->header('content-type'));
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('ok', $body['status']);
+    }
+
+    public function test_post_json_validation_reject_returns_400_status_error(): void
+    {
+        [$uid, $hid, $foodId, $servingId] = $this->signedInWithGlobalSeed();
+        $r = $this->request('POST', '/health/log/food', [
+            'meal' => 'elevenses',
+            'food_id' => (string) $foodId,
+            'serving_id' => (string) $servingId,
+            'qty' => '1',
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded', 'accept' => 'application/json']);
+        self::assertSame(400, $r->status());
+        $body = json_decode($r->body(), true, flags: JSON_THROW_ON_ERROR);
+        self::assertSame('error', $body['status']);
+        self::assertSame('validation', $body['code']);
+    }
 }

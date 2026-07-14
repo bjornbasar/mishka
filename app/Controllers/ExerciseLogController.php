@@ -9,7 +9,7 @@ use App\Household\HouseholdRepository;
 use App\Tracker\ExerciseKcalCalculator;
 use App\Tracker\ExerciseLogRepository;
 use App\Tracker\ExerciseRepository;
-use App\Tracker\LocalDay;
+use App\Tracker\LoggedOnValidator;
 use App\Tracker\TrackerBadgeAwarder;
 use App\Tracker\WeightLogRepository;
 use App\View\NavContext;
@@ -87,7 +87,7 @@ final class ExerciseLogController
     #[Route('/health/log/exercise', methods: ['POST'], name: 'tracker.log_exercise.store')]
     public function store(Request $request): Response
     {
-        $ctx = $this->requireContext();
+        $ctx = $this->requireContext($request);
         if ($ctx instanceof Response) {
             return $ctx;
         }
@@ -95,18 +95,15 @@ final class ExerciseLogController
 
         $exerciseId = (int) $request->post('exercise_id');
         if ($exerciseId <= 0) {
-            Session::set('flash_error', 'Please pick an exercise.');
-            return (new Response())->redirect('/health/log/exercise', 303);
+            return $this->rejectStore($request, 'Please pick an exercise.', '/health/log/exercise');
         }
         $exercise = $this->exercises->findById($exerciseId);
         if ($exercise === null) {
-            Session::set('flash_error', 'Exercise not found.');
-            return (new Response())->redirect('/health/log/exercise', 303);
+            return $this->rejectStore($request, 'Exercise not found.', '/health/log/exercise');
         }
         // Household visibility — global seed OR own household only.
         if ($exercise['household_id'] !== null && $exercise['household_id'] !== $hid) {
-            Session::set('flash_error', 'Exercise not available.');
-            return (new Response())->redirect('/health/log/exercise', 303);
+            return $this->rejectStore($request, 'Exercise not available.', '/health/log/exercise');
         }
 
         $type = $exercise['type'];  // 'duration' | 'strength' — server-side, not form-side
@@ -115,13 +112,17 @@ final class ExerciseLogController
 
         $household = $this->households->findById($hid);
         $tz = new \DateTimeZone((string) $household['timezone']);
-        $today = LocalDay::today($tz);
+        // v0.8.4 — accept optional client-stamped logged_on (offline replay).
+        try {
+            $loggedOn = LoggedOnValidator::parse($request->post('logged_on'), $tz);
+        } catch (\InvalidArgumentException $e) {
+            return $this->rejectStore($request, 'Bad date: ' . $e->getMessage(), '/health/log/exercise');
+        }
 
         if ($type === 'duration') {
             $minutes = (float) $request->post('minutes');
             if ($minutes <= 0) {
-                Session::set('flash_error', 'Please enter a positive number of minutes.');
-                return (new Response())->redirect('/health/log/exercise', 303);
+                return $this->rejectStore($request, 'Please enter a positive number of minutes.', '/health/log/exercise');
             }
             $latestWeight = $this->weights->latestForUser($userId);
             $weightKg = $latestWeight !== null ? (float) $latestWeight['weight_kg'] : null;
@@ -133,7 +134,7 @@ final class ExerciseLogController
                 'duration', (string) $exercise['name'],
                 minutes: $minutes, sets: null, reps: null, loadKg: null,
                 metMinutes: $metMinutes, kcalSnapshot: $kcal,
-                loggedOn: $today,
+                loggedOn: $loggedOn,
             );
         } else {
             // strength branch
@@ -142,8 +143,7 @@ final class ExerciseLogController
             $loadKgRaw = $request->post('load_kg');
             $loadKg = $loadKgRaw !== '' ? (float) $loadKgRaw : null;
             if ($sets <= 0 || $reps <= 0) {
-                Session::set('flash_error', 'Please enter positive sets and reps.');
-                return (new Response())->redirect('/health/log/exercise', 303);
+                return $this->rejectStore($request, 'Please enter positive sets and reps.', '/health/log/exercise');
             }
             $kcal = $loadKg !== null
                 ? ExerciseKcalCalculator::mechanicalWorkKcal($loadKg, $rom, $reps)
@@ -154,14 +154,15 @@ final class ExerciseLogController
                 'strength', (string) $exercise['name'],
                 minutes: null, sets: $sets, reps: $reps, loadKg: $loadKg,
                 metMinutes: null, kcalSnapshot: $kcal,
-                loggedOn: $today,
+                loggedOn: $loggedOn,
             );
         }
 
         // v0.8.3 — best-effort badge award. Mirrors ChoresController::handleDone
         // L320-346 posture: catch \Throwable + error_log; a badge-eval failure
         // must NEVER 500 the log-write. Defensive TZ fallback for corrupted
-        // households.timezone rows.
+        // households.timezone rows. Idempotent by BadgeAwardRepository UNIQUE
+        // dedup — safe to fire on v0.8.4 offline-replay POSTs.
         try {
             $awarderTz = new \DateTimeZone((string) ($household['timezone'] ?? 'Pacific/Auckland'));
             $this->trackerAwards->evaluateAndGrant($hid, $userId, $awarderTz, new \DateTimeImmutable('now'));
@@ -169,6 +170,11 @@ final class ExerciseLogController
             error_log('tracker-award failure: ' . $e->getMessage());
         }
 
+        if ($this->wantsJson($request)) {
+            return (new Response())
+                ->withHeader('Content-Type', 'application/json; charset=utf-8')
+                ->withBody(json_encode(['status' => 'ok'], JSON_THROW_ON_ERROR));
+        }
         Session::set('flash_success', 'Logged ' . $exercise['name'] . '.');
         return (new Response())->redirect('/health', 303);
     }
@@ -197,17 +203,47 @@ final class ExerciseLogController
     }
 
     /** @return Response|array{0: int, 1: int} */
-    private function requireContext(): Response|array
+    private function requireContext(?Request $request = null): Response|array
     {
         if (!Session::has('user_id')) {
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Session required.');
+            }
             return (new Response())->redirect('/login', 302);
         }
         if (!Session::has('active_household_id')) {
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Active household required.');
+            }
             return (new Response())->redirect('/household/setup', 302);
         }
         $userId = (int) Session::get('user_id');
         $hid = (int) Session::get('active_household_id');
         $this->auth->requireMember($userId, $hid);
         return [$userId, $hid];
+    }
+
+    /** v0.8.4 — detect JSON caller (offline replay) vs HTML form submit. */
+    private function wantsJson(Request $request): bool
+    {
+        return str_contains(strtolower((string) $request->header('accept')), 'application/json');
+    }
+
+    /** v0.8.4 — validation-reject helper; branches on wantsJson. */
+    private function rejectStore(Request $request, string $message, string $htmlRedirect): Response
+    {
+        if ($this->wantsJson($request)) {
+            return $this->jsonError(400, 'validation', $message);
+        }
+        Session::set('flash_error', $message);
+        return (new Response())->redirect($htmlRedirect, 303);
+    }
+
+    /** v0.8.4 — JSON error response builder. */
+    private function jsonError(int $status, string $code, string $message): Response
+    {
+        return (new Response($status))
+            ->withHeader('Content-Type', 'application/json; charset=utf-8')
+            ->withBody(json_encode(['status' => 'error', 'code' => $code, 'message' => $message], JSON_THROW_ON_ERROR));
     }
 }

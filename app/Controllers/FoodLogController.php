@@ -9,7 +9,7 @@ use App\Household\HouseholdRepository;
 use App\Tracker\FoodLogRepository;
 use App\Tracker\FoodRepository;
 use App\Tracker\FoodServingRepository;
-use App\Tracker\LocalDay;
+use App\Tracker\LoggedOnValidator;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Http\Request;
@@ -97,7 +97,7 @@ final class FoodLogController
     #[Route('/health/log/food', methods: ['POST'], name: 'tracker.log_food.store')]
     public function store(Request $request): Response
     {
-        $ctx = $this->requireContext();
+        $ctx = $this->requireContext($request);
         if ($ctx instanceof Response) {
             return $ctx;
         }
@@ -109,12 +109,10 @@ final class FoodLogController
         $qty = (float) $request->post('qty', '1');
 
         if (!in_array($meal, self::MEALS, true)) {
-            Session::set('flash_error', 'Invalid meal.');
-            return (new Response())->redirect('/health/log/food', 303);
+            return $this->rejectStore($request, 'Invalid meal.', '/health/log/food');
         }
         if ($foodId <= 0 || $servingId <= 0 || $qty <= 0) {
-            Session::set('flash_error', 'Please pick a dish + serving.');
-            return (new Response())->redirect('/health/log/food?meal=' . urlencode($meal), 303);
+            return $this->rejectStore($request, 'Please pick a dish + serving.', '/health/log/food?meal=' . urlencode($meal));
         }
 
         // Enforce food + serving visibility to this household (global seed
@@ -123,21 +121,31 @@ final class FoodLogController
         $food = $this->foods->findById($foodId);
         $serving = $this->servings->findById($servingId);
         if ($food === null || $serving === null || $serving['food_id'] !== $foodId) {
-            Session::set('flash_error', 'Dish not available.');
-            return (new Response())->redirect('/health/log/food?meal=' . urlencode($meal), 303);
+            return $this->rejectStore($request, 'Dish not available.', '/health/log/food?meal=' . urlencode($meal));
         }
         if ($food['household_id'] !== null && $food['household_id'] !== $hid) {
-            Session::set('flash_error', 'Dish not available.');
-            return (new Response())->redirect('/health/log/food?meal=' . urlencode($meal), 303);
+            return $this->rejectStore($request, 'Dish not available.', '/health/log/food?meal=' . urlencode($meal));
         }
 
         $household = $this->households->findById($hid);
         $tz = new \DateTimeZone((string) $household['timezone']);
-        $today = LocalDay::today($tz);
+        // v0.8.4 — accept optional client-stamped logged_on (offline queue
+        // replay). Blank/absent → server falls back to today. Malformed /
+        // future / >7-day-old → validation reject.
+        try {
+            $loggedOn = LoggedOnValidator::parse($request->post('logged_on'), $tz);
+        } catch (\InvalidArgumentException $e) {
+            return $this->rejectStore($request, 'Bad date: ' . $e->getMessage(), '/health/log/food?meal=' . urlencode($meal));
+        }
         $kcal = (int) round($qty * (int) $serving['kcal']);
 
-        $this->log->create($hid, $userId, $foodId, $servingId, $qty, $meal, $today, $kcal);
+        $this->log->create($hid, $userId, $foodId, $servingId, $qty, $meal, $loggedOn, $kcal);
 
+        if ($this->wantsJson($request)) {
+            return (new Response())
+                ->withHeader('Content-Type', 'application/json; charset=utf-8')
+                ->withBody(json_encode(['status' => 'ok'], JSON_THROW_ON_ERROR));
+        }
         Session::set('flash_success', 'Logged ' . $food['name'] . '.');
         return (new Response())->redirect('/health', 303);
     }
@@ -171,17 +179,53 @@ final class FoodLogController
     /**
      * @return Response|array{0: int, 1: int} guard-response OR [$userId, $hid]
      */
-    private function requireContext(): Response|array
+    private function requireContext(?Request $request = null): Response|array
     {
         if (!Session::has('user_id')) {
+            // v0.8.4 — JSON callers (offline replay) get 401 instead of 302
+            // so `mishka-offline.js` can hold the queue for a re-sign-in
+            // instead of silently draining against an anonymous session.
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Session required.');
+            }
             return (new Response())->redirect('/login', 302);
         }
         if (!Session::has('active_household_id')) {
+            if ($request !== null && $this->wantsJson($request)) {
+                return $this->jsonError(401, 'auth', 'Active household required.');
+            }
             return (new Response())->redirect('/household/setup', 302);
         }
         $userId = (int) Session::get('user_id');
         $hid = (int) Session::get('active_household_id');
         $this->auth->requireMember($userId, $hid);
         return [$userId, $hid];
+    }
+
+    /** v0.8.4 — detect JSON caller (offline replay) vs HTML form submit. */
+    private function wantsJson(Request $request): bool
+    {
+        return str_contains(strtolower((string) $request->header('accept')), 'application/json');
+    }
+
+    /**
+     * v0.8.4 — validation-reject helper. JSON callers get 400 + `{status,message}`;
+     * HTML callers get the existing flash + 303-redirect flow.
+     */
+    private function rejectStore(Request $request, string $message, string $htmlRedirect): Response
+    {
+        if ($this->wantsJson($request)) {
+            return $this->jsonError(400, 'validation', $message);
+        }
+        Session::set('flash_error', $message);
+        return (new Response())->redirect($htmlRedirect, 303);
+    }
+
+    /** v0.8.4 — JSON error response builder. */
+    private function jsonError(int $status, string $code, string $message): Response
+    {
+        return (new Response($status))
+            ->withHeader('Content-Type', 'application/json; charset=utf-8')
+            ->withBody(json_encode(['status' => 'error', 'code' => $code, 'message' => $message], JSON_THROW_ON_ERROR));
     }
 }

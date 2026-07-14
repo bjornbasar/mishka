@@ -88,9 +88,14 @@ final class TrackerControllerTest extends AppTestCase
         $this->profileRepo->upsert($uidB, [
             'sex' => 'female', 'birth_year' => 1988, 'height_cm' => 165.0, 'base_activity' => 1.200,
         ]);
-        $this->weightLogRepo->create($uidA, 70.0, date('Y-m-d'));
+        // Household-local today — MUST match TrackerController::today's
+        // query axis (LocalDay::today(Auckland)); date('Y-m-d') returns
+        // UTC which diverges for ~10 hours each day. Latent v0.8.2 bug
+        // caught by v0.8.4's cross-TZ test runs — see DOCS #74.
+        $todayLocal = \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland'));
+        $this->weightLogRepo->create($uidA, 70.0, $todayLocal);
         // Distinct-value fingerprint for user B: 88.8 kg (weight).
-        $this->weightLogRepo->create($uidB, 88.8, date('Y-m-d'));
+        $this->weightLogRepo->create($uidB, 88.8, $todayLocal);
 
         // Distinct-value fingerprints for food:
         //  - user A eats 1234 kcal
@@ -102,8 +107,8 @@ final class TrackerControllerTest extends AppTestCase
         $svB = $this->foodServingRepo->create($foodId, [
             'label' => '1 B', 'grams' => 100, 'kcal' => 9876, 'is_default' => false,
         ]);
-        $this->foodLogRepo->create($hid, $uidA, $foodId, $svA, 1.0, 'breakfast', date('Y-m-d'), 1234);
-        $this->foodLogRepo->create($hid, $uidB, $foodId, $svB, 1.0, 'breakfast', date('Y-m-d'), 9876);
+        $this->foodLogRepo->create($hid, $uidA, $foodId, $svA, 1.0, 'breakfast', $todayLocal, 1234);
+        $this->foodLogRepo->create($hid, $uidB, $foodId, $svB, 1.0, 'breakfast', $todayLocal, 9876);
 
         // Distinct-value fingerprint for exercise: user B logs 5432 kcal.
         $exId = $this->exerciseRepo->create(null, [
@@ -113,7 +118,7 @@ final class TrackerControllerTest extends AppTestCase
         ], null);
         $this->exerciseLogRepo->create(
             $hid, $uidB, $exId, 'duration', 'FingerprintExercise',
-            30.0, null, null, null, 240.0, 5432, date('Y-m-d'),
+            30.0, null, null, null, 240.0, 5432, $todayLocal,
         );
 
         // User A is signed in from signInAsHouseholdOwnerLocal above.
