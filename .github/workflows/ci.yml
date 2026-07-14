@@ -78,7 +78,7 @@ jobs:
           DB_PASS: postgres
         run: vendor/bin/phpunit --filter 'PgSmoke'
 
-  # v0.7.2 — build self-contained image on Nalle, push to local registry.
+  # v0.7.2 — build self-contained image on Ruxa, push to local registry.
   # Runs on main pushes AND tag pushes. Deploy job depends on it.
   build:
     runs-on: [self-hosted, homelab]
@@ -95,15 +95,15 @@ jobs:
       cancel-in-progress: false
 
     env:
-      NALLE: ubuntu@192.168.4.9
-      NALLE_DIR: /data/personal/mishka
+      RUXA: ubuntu@192.168.4.9
+      RUXA_DIR: /data/personal/mishka
       REGISTRY: 192.168.4.9:5000
       IMAGE: mishka-php
 
     steps:
-      - name: Pull source on Nalle
+      - name: Pull source on Ruxa
         run: |
-          ssh $NALLE "cd $NALLE_DIR && git pull --ff-only"
+          ssh $RUXA "cd $RUXA_DIR && git pull --ff-only"
 
       - name: Compute image tags
         id: tags
@@ -119,9 +119,9 @@ jobs:
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "primary=${REGISTRY}/${IMAGE}:sha-${SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Build image on Nalle
+      - name: Build image on Ruxa
         run: |
-          ssh $NALLE "cd $NALLE_DIR && docker build -t ${{ steps.tags.outputs.primary }} ."
+          ssh $RUXA "cd $RUXA_DIR && docker build -t ${{ steps.tags.outputs.primary }} ."
 
       - name: Smoke-test the built image (round-2 C9 + round-3 C5 + round-4 S3)
         # Cheap sanity: autoloader resolves + Composer\InstalledVersions has
@@ -131,7 +131,7 @@ jobs:
         # S3: fail loudly if InstalledVersions returns empty/null (silent
         # empty would otherwise echo a blank line + exit 0).
         run: |
-          ssh $NALLE "docker run --rm ${{ steps.tags.outputs.primary }} \
+          ssh $RUXA "docker run --rm ${{ steps.tags.outputs.primary }} \
             php -r '\
               require \"/app/vendor/autoload.php\"; \
               \$v = \Composer\InstalledVersions::getVersion(\"twig/twig\"); \
@@ -142,7 +142,7 @@ jobs:
       - name: Tag + push all
         run: |
           for tag in ${{ steps.tags.outputs.tags }}; do
-            ssh $NALLE "docker tag ${{ steps.tags.outputs.primary }} $tag && docker push $tag"
+            ssh $RUXA "docker tag ${{ steps.tags.outputs.primary }} $tag && docker push $tag"
           done
 
   deploy:
@@ -151,10 +151,10 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     env:
-      NALLE: ubuntu@192.168.4.9
-      BEPO: ubuntu@192.168.4.34
-      NALLE_DIR: /data/personal/mishka
-      BEPO_DIR: /data/mishka
+      RUXA: ubuntu@192.168.4.9
+      BOSCO: ubuntu@192.168.4.34
+      RUXA_DIR: /data/personal/mishka
+      BOSCO_DIR: /data/mishka
 
     # v0.7.1 round-3 C5: don't cancel in-flight deploys — let each complete
     # so its audit row lands in schema_versions. Sequential queue on the
@@ -164,34 +164,34 @@ jobs:
       cancel-in-progress: false
 
     steps:
-      - name: Decrypt .env on Nalle
+      - name: Decrypt .env on Ruxa
         # v0.7.2: no more composer install or vendor rsync — the image carries
         # everything. Only .env (decrypted from .env.enc) + docker-compose.yml
-        # need to land on Bepo.
+        # need to land on Bosco.
         run: |
-          ssh $NALLE "cd $NALLE_DIR && \
+          ssh $RUXA "cd $RUXA_DIR && \
             sops decrypt --input-type dotenv --output-type dotenv --output .env.new .env.enc && \
             mv .env.new .env"
 
-      - name: Sync .env + compose to Bepo (compose + env only, NO source)
+      - name: Sync .env + compose to Bosco (compose + env only, NO source)
         run: |
-          ssh $NALLE "rsync -a $NALLE_DIR/.env $NALLE_DIR/docker-compose.yml $BEPO:$BEPO_DIR/"
+          ssh $RUXA "rsync -a $RUXA_DIR/.env $RUXA_DIR/docker-compose.yml $BOSCO:$BOSCO_DIR/"
 
-      - name: Pull new image + recreate containers on Bepo
+      - name: Pull new image + recreate containers on Bosco
         # docker compose pull resolves :latest to the digest the build job
         # just pushed. up -d --remove-orphans recreates app + worker with
         # the new image (compose detects image digest change). Brief
         # downtime during the swap — single php -S process, no graceful
         # handoff. Acceptable for family-scale.
         run: |
-          ssh $BEPO "cd $BEPO_DIR && docker compose pull && docker compose up -d --remove-orphans"
+          ssh $BOSCO "cd $BOSCO_DIR && docker compose pull && docker compose up -d --remove-orphans"
 
       - name: Run schema migration (idempotent + tracked)
         # Container has been recreated with new image; vendor + schema.sql
         # are baked in. Migrate reads the new schema.sql, hash-check skips
         # if unchanged, INSERTs audit row otherwise.
         run: |
-          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
+          ssh $BOSCO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
 
       - name: Seed tracker foods (idempotent, v0.8.0+)
         # Loads db/seed/tracker_foods.json into the global (household_id
@@ -201,7 +201,7 @@ jobs:
         # CI + fires the failure Slack — half-applied deploy = incident,
         # rollback via compose SHA-pin per DOCS #68. See DOCS #70.
         run: |
-          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
+          ssh $BOSCO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
 
       - name: Seed tracker exercises (idempotent, v0.8.1+)
         # Loads db/seed/tracker_exercises.json into the global exercises
@@ -210,7 +210,7 @@ jobs:
         # Same failure-mode posture as tracker:seed-foods (DOCS #63).
         # See DOCS #71.
         run: |
-          ssh $BEPO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
+          ssh $BOSCO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
 
       - name: Notify Slack
         if: always()
@@ -220,6 +220,6 @@ jobs:
           # Round-2 S1: $RUNNER_TEMP (per-runner) not /tmp/ (shared across
           # Hurska's 5 runners).
           MSG_FILE="$RUNNER_TEMP/slack-msg.json"
-          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Bepo)\"}" > "$MSG_FILE"
+          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Bosco)\"}" > "$MSG_FILE"
           curl -s -X POST -H 'Content-type: application/json' -d @"$MSG_FILE" "$(cat ~/.slack-webhook)"
           rm -f "$MSG_FILE"

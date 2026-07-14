@@ -27,7 +27,7 @@ use Karhu\Attributes\Command;
  *   2  --to missing or not a valid email (input validation, no send attempted).
  *
  * Sending capacity is bounded by Workspace's 10k/day/domain limit and by
- * the IP-allowlist on the relay rule. Any operator with shell on Bepo can
+ * the IP-allowlist on the relay rule. Any operator with shell on Bosco can
  * invoke this — not for use in scripts that take unsanitised --to input.
  */
 final class MailTestCommand

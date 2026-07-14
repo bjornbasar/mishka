@@ -16,7 +16,7 @@ use Karhu\Queue\QueueInterface;
  * (OOM, host reboot, manual docker kill) leaves the row stuck forever.
  * This command reclaims those rows so the worker picks them up again.
  *
- * Wired to a 10-minute cron on Nalle via ansible/host_vars/nalle.yml.
+ * Wired to a 10-minute cron on Ruxa via ansible/host_vars/ruxa.yml.
  * Offsets the existing push:scan 5-minute cron to minimise load collisions.
  *
  * Output is a single line:

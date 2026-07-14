@@ -9,7 +9,7 @@
 .gitattributes
 .dockerignore
 
-# Environment files — sops decrypts on Nalle, env_file mounts at runtime
+# Environment files — sops decrypts on Ruxa, env_file mounts at runtime
 .env
 .env.*
 

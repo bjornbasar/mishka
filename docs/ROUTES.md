@@ -151,7 +151,7 @@ Pipeline order (round-4 BL-1): **Session → SessionRevocationGuard → Csrf →
 All routes session-gated; anonymous → 302 /login.
 
 The actual push delivery happens out-of-band:
-- `php vendor/bjornbasar/karhu/bin/karhu push:scan` runs every 5 min on Nalle's cron. Three passes: prune dispatch ledger >90 days; event reminders (per-user threshold + 5-min cron jitter buffer); overdue digest (07:30–08:30 household-tz only).
+- `php vendor/bjornbasar/karhu/bin/karhu push:scan` runs every 5 min on Ruxa's cron. Three passes: prune dispatch ledger >90 days; event reminders (per-user threshold + 5-min cron jitter buffer); overdue digest (07:30–08:30 household-tz only).
 - `php vendor/bjornbasar/karhu/bin/karhu push:worker` runs as the `mishka-worker` container. Consumes the `jobs` table; for each `SendPushNotification`, fans out to every active subscription for the user via `PushSender`. HTTP 410 → `markRevoked`; success → `touch`; transient → `error_log` (lands in `docker logs mishka-worker`).
 
 All emailed-URL safety properties from v0.5 carry over: the click-action URL in the push payload is built from `APP_URL` via `UrlBuilder` (B1); the payload is JSON-encoded with `JSON_THROW_ON_ERROR`; title truncated to 100 chars + body to 200 chars before encryption (H5).

@@ -39,10 +39,10 @@ const STATIC_EXTENSIONS = /\.(png|ico|css|js|json|webmanifest|svg|woff2?)$/i;
 // didn't match `192\.168\.` (trailing chars fell outside $). Each alternative
 // now anchors itself:
 //   - exact: ^localhost$, ^127.0.0.1$, ^[::1]$
-//   - prefix: ^192.168., ^10., ^nalle.
+//   - prefix: ^192.168., ^10., ^ruxa.
 //   - suffix: \.local$
 // False positives in prod = none — mishka.minified.work matches none.
-const DEV_HOSTNAME_RE = /(^localhost$|^127\.0\.0\.1$|^\[::1\]$|^192\.168\.|^10\.|^nalle\.|\.local$)/i;
+const DEV_HOSTNAME_RE = /(^localhost$|^127\.0\.0\.1$|^\[::1\]$|^192\.168\.|^10\.|^ruxa\.|\.local$)/i;
 const IS_DEV = DEV_HOSTNAME_RE.test(self.location.hostname);
 
 // ============================================================

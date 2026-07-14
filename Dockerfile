@@ -10,7 +10,7 @@
 #   v0.7.2  — single-stage self-contained (see DOCS #64)
 #   v0.7.6  — multi-stage builder/runtime split (see DOCS #68)
 #
-# Build with (CI does this on Nalle via the build job in ci.yml):
+# Build with (CI does this on Ruxa via the build job in ci.yml):
 #   docker build -t 192.168.4.9:5000/mishka-php:sha-$(git rev-parse --short HEAD) .
 #
 # Used by both mishka-app (php -S) and mishka-worker (karhu push:worker).
