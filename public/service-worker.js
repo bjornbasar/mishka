@@ -16,7 +16,7 @@
 // tests/View/ServiceWorkerStructureTest::test_sw_version_matches_release
 // asserts SW_VERSION matches README's ## Status line — CI fails if forgot.
 
-const SW_VERSION = 'mishka-v0.8.3';
+const SW_VERSION = 'mishka-v0.8.4';
 const CACHE_NAME = 'mishka-cache-' + SW_VERSION;
 
 const PRECACHE_URLS = [

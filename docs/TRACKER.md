@@ -169,12 +169,12 @@ Search endpoint is GET-safelisted by karhu Csrf middleware (no CSRF token needed
   contract (catches template drift), JSON search shape + no-store header, POST create +
   rejection paths (invalid meal, foreign-household food), delete own entry.
 
-## 9. What lands next (v0.8.4)
+## 9. What lands next (Tracker train complete)
 
-Offline logging (SW cache dish + exercise catalogs + queue writes + sync-on-reconnect) +
-PWA `shortcuts` array. Only build if the family actually asks for it. All prior tracker
-phases (v0.8.0 foods, v0.8.1 exercise + weight, v0.8.2 profile + BMR + widget, v0.8.3
-leaderboard + badges + streaks) have shipped. See `docs/ROADMAP.md`.
+All 5 Tracker phases shipped: v0.8.0 foods · v0.8.1 exercise + weight · v0.8.2 profile
++ BMR + widget · v0.8.3 leaderboard + badges + streaks · v0.8.4 offline logging + PWA
+shortcuts. Future tracker work (if any) will be plan-mode-driven per its own ROADMAP
+entries. See `docs/ROADMAP.md`.
 
 ## 10. v0.8.1 — Exercise + weight_log (shipped)
 
@@ -616,3 +616,190 @@ into `leaderboard.twig`.
 
 Full suite green at **971 / 2381 / 0**, 1 skipped (was 909 / 2273 / 0 pre-v0.8.3 — +62
 tests / +108 assertions). PHPStan L6 clean per commit.
+
+## 13. v0.8.4 — offline logging + PWA shortcuts (shipped)
+
+Fifth and final Tracker release. Roadmap-marked bonus — user asked. Two deliverables:
+(a) offline logging (queue food/exercise/weight writes in IndexedDB when offline,
+replay via client-side IIFE on `window.online` or next page load with fresh CSRF);
+(b) PWA `shortcuts` array (three home-screen quick actions on Android/Chromium).
+
+### User-locked design choices (AskUserQuestion at plan-time)
+
+- **Q1 — `logged_on` axis**: client stamps at queue-time; server validates via shared
+  `LoggedOnValidator`. Preserves "the workout I logged Tuesday appears on Tuesday"
+  across an overnight offline gap.
+- **Q2 — Sync mechanism**: client-side IIFE fallback only. No Background Sync API —
+  universal browser support (Chromium + Safari + Firefox all fire `window.online`),
+  matches how `push-subscribe.js` already runs.
+
+### `App\Tracker\LoggedOnValidator` (NEW, static-only)
+
+Shared parser consumed by all three tracker POST controllers
+(`FoodLogController::store`, `ExerciseLogController::store`,
+`WeightController::store`). WeightController migrates its ad-hoc `measured_on` regex
+to the shared validator for symmetric behaviour across every user-suppliable-date
+endpoint (Plan-agent SHOULD-FIX #7 fold).
+
+Contract:
+- Blank / null → `LocalDay::today` fallback (unchanged pre-v0.8.4 behaviour).
+- Shape `^\d{4}-\d{2}-\d{2}$` required.
+- Format-round-trip check rejects non-existent dates (`2026-02-30` silently coerced to
+  `2026-03-02` by `createFromFormat` alone).
+- Must be `<= household-local today` (future-reject).
+- Must be `>= today − 7 days` INCLUSIVE (past-cutoff — exactly 7 days ago accepted,
+  8 rejected). 7-day cutoff is arbitrary but reasonable at family scale.
+
+DST-safe: `->modify('-7 days')` on a wall-clock midnight in `$tz` steps calendar
+days, NOT 7·86400s. Docblock warns against seconds-based refactor.
+
+### JSON path on tracker POST controllers
+
+`Accept: application/json` triggers a distinct response shape:
+- 200 `{status:'ok'}` on success.
+- 400 `{status:'error', code:'validation', message}` on reject.
+- 401 `{status:'error', code:'auth', message}` on session gone.
+
+Load-bearing: `fetch()` follows redirects by default → 302→`/login` returns 200
+after auto-follow → without the JSON path, replayed POSTs against anonymous sessions
+would silently succeed (row silently disappears from queue). 303-success + 303-
+validation-reject also share status post-follow. JSON path gives four distinct
+outcomes (200 / 400 / 401 / 403) so replay client can dispatch correctly.
+
+Plan-agent BLOCKER #1 fold — this is the load-bearing correctness fix.
+
+### `CsrfTokenController::show` extended contract
+
+Response now carries `authenticated: bool` + `user_id: ?int` +
+`active_household_id: ?int` alongside the existing `token`. Powers the offline IIFE's
+session-scoping pre-check (Plan-agent BLOCKER #2/#3 fold):
+
+- Flush loop probes `/csrf-token` FIRST.
+- Holds queue if `authenticated: false` (session gone).
+- Holds queue if `user_id !== metaUserId` (wrong user signed in on shared device).
+
+Preserves invariants from DOCS #49: `Cache-Control: no-store`, GET-safelisted by
+Csrf middleware, anonymous callers still get non-empty token.
+
+### `public/mishka-idb.js` (NEW — thin IDB wrapper)
+
+Zero-dep IndexedDB wrapper. DB name `mishka-offline`, version 1.
+
+**`queued_writes`** — auto-inc key + compound index `by_session` on
+`[user_id, household_id]`. Every queued row is session-scoped so shared iPads with
+mum→dad session swaps never leak queued POSTs across users. Plan-agent BLOCKER #2
+fold.
+
+**`library_cache`** — key `${household_id}:${endpoint}:${q}`. Household-scoped so
+mum's custom recipes don't render for dad on the same iPad. 30-min TTL at read
+time. Plan-agent SHOULD-FIX #12 fold.
+
+`crypto.randomUUID()` with RFC-4122 v4 fallback (`getRandomValues(new Uint8Array(16))`
++ version/variant bits) for dev-mode over HTTP where `randomUUID` is undefined.
+
+### `public/mishka-offline.js` (NEW — offline logging IIFE)
+
+~200 lines, no external deps. Reads three session meta tags from layout.twig; the
+`HAS_SESSION_CONTEXT` gate skips queue + flush on anonymous pages (Plan-agent
+BLOCKER #3 fold — `DOMContentLoaded` fires on `/login` / `/register` / `/offline`
+too; without this gate the IIFE would silently drain rows against anonymous
+sessions).
+
+**Form-submit interceptor** on `[data-offline-queue]` marker fires CAPTURE-PHASE
+PRIORITY-FIRST — before v0.7.4's double-submit-prevention IIFE. When offline,
+`preventDefault()` + `stopPropagation()` cancels the event; v0.7.4's disable-buttons
++ dataset-flag path never runs. Plan-agent SHOULD-FIX #6 fold.
+
+**`stampLoggedOnToday()`** — client stamps `logged_on` via
+`new Date().toLocaleDateString('en-CA', {timeZone: hh_tz})`. Intl produces
+`YYYY-MM-DD` in the household TZ (not device TZ). RangeError on invalid meta →
+omit `logged_on` from payload, let server default via LoggedOnValidator.
+Plan-agent SHOULD-FIX #11 fold.
+
+**`flushQueue()`** — runs on `DOMContentLoaded` + `window.online`, guarded by
+module-scoped `flushInFlight` mutex to prevent concurrent double-drain.
+
+Per-row replay response-status matrix:
+
+- 200 → remove row (log retry_count on success for DevTools reviewers).
+- 400 → hard-fail remove + console.warn (row is bad, don't retry forever).
+- 401 → hold row for the next authenticated flush.
+- 403 → one-shot re-freshen + retry (guarded, no infinite loop).
+- 429 / ≥ 500 → `incrementRetry`, cap at 5 then hard-fail.
+- Network error → `incrementRetry`.
+
+Exposes `window.MishkaOffline = {searchLibrary, cacheLibraryResponse}` for the
+layout.twig live-search IIFE's offline-fallback + write-through-cache hooks.
+
+### PWA shortcuts (`public/manifest.webmanifest`)
+
+Top-level `shortcuts` array with 3 entries: Log Food → `/health/log/food`;
+Log Exercise → `/health/log/exercise`; Today → `/health`. Chromium/Android show
+them on long-press of installed PWA icon; Safari + Firefox silently ignore.
+
+All three reuse `/icon-192.png` (in PRECACHE) — preserves the
+manifest-icons-must-be-precached invariant asserted by
+`ServiceWorkerStructureTest::test_manifest_icons_match_precache`. If distinct
+per-shortcut icons become desirable later, v0.8.4.1 can add them + extend PRECACHE.
+
+### SW precache + wiring
+
+- `PRECACHE_URLS` 7 → 9 (adds `/mishka-idb.js` + `/mishka-offline.js`).
+- `EXPECTED_PRECACHE` in `ServiceWorkerStructureTest.php` + count assertion at L154
+  bumped.
+- `SW_VERSION → mishka-v0.8.4` per decision #51 always-bump.
+- `NavContext::forCurrentUser` extended to expose `session_user_id: ?int` so
+  layout.twig can render the `mishka-user-id` meta tag.
+- Three meta tags added inside `{% if session_email %}` head guard:
+  `mishka-user-id`, `mishka-household-id`, `mishka-household-tz`. Absent on anonymous
+  pages by construction. Corrected to `active_household.timezone` (not
+  `household.timezone`) per Plan-agent BLOCKER #4 fold.
+- Body-end `<script src="/mishka-idb.js" defer>` + `<script src="/mishka-offline.js" defer>`
+  — `defer` guarantees document-order execution.
+- `<span data-offline-badge>` in the nav row (populated by `mishka-offline.js`).
+- layout.twig live-search IIFE gains `.catch → MishkaOffline.searchLibrary` +
+  write-through `cacheLibraryResponse`.
+- Three tracker form templates gain the `data-offline-queue` marker.
+
+### Tests (v0.8.4 additions)
+
+- `tests/Tracker/LoggedOnValidatorTest.php` (NEW) — 10 cases: blank fallback, valid
+  today, valid yesterday, exactly-7-days-ago (inclusive-accept), 8-days-ago rejected,
+  future rejected, malformed shape rejected, non-existent `2026-02-30` rejected,
+  DST-crossing boundary honours calendar days, whitespace stripped.
+- `tests/Controllers/CsrfTokenControllerTest.php` — 3 new: anonymous returns
+  authenticated:false + null ids; authed no-active-hh returns user_id + null hh;
+  authed with active hh returns both.
+- `tests/Controllers/FoodLogControllerTest.php` — 4 new: logged_on accepted;
+  malformed rejected; JSON success 200 `{status:'ok'}`; JSON validation reject 400
+  `{code:'validation'}`.
+- `tests/Controllers/ExerciseLogControllerTest.php` — 4 new (same shape).
+- `tests/Controllers/WeightControllerTest.php` — 4 new (same shape; measured_on
+  migrated to shared validator).
+- `tests/Controllers/TrackerControllerTest.php` — v0.8.2 privacy regression test's
+  latent-bug fix (was using `date('Y-m-d')` UTC which diverged from widget's
+  `LocalDay::today(Auckland)` during the ~10-hour daily UTC/NZ mismatch window).
+- `tests/View/ServiceWorkerStructureTest.php` — `EXPECTED_PRECACHE` 7 → 9 + count
+  assertion bumped.
+- `tests/View/ManifestTest.php` — 2 new: exactly 3 shortcuts with correct URLs;
+  every `shortcuts[].icons[].src` in the precached-icons set (Plan-agent
+  SHOULD-FIX #10 fold — extends the invariant coverage to nested icons).
+
+**Client-side JS tests**: none. mishka has no JS test runner; matches how
+`push-subscribe.js` v0.6.0 shipped. Manual Chrome DevTools smoke covers the client
+path — real-user smoke requires HTTPS context (`mishka.minified.work`), not
+`192.168.*` dev where the SW's `IS_DEV` escape hatch skips fetch interception.
+
+Full suite green at **996 / 2433 / 0**, 1 skipped (was 971 / 2381 / 0 pre-v0.8.4 —
++25 tests / +52 assertions). PHPStan L6 clean per commit.
+
+### What's NOT in v0.8.4
+
+- Schema-based idempotency (`client_request_id UUID UNIQUE` on food_log /
+  exercise_log / weight_log) — accepted risk at family scale, escape hatch to
+  v0.8.4.1+ if prod reveals doubles.
+- Per-shortcut distinct icons — deferrable, all three reuse `/icon-192.png` today.
+- Background Sync API — client-side IIFE fallback only (user-locked Q2 at
+  plan-time). Universal browser support beats Chromium-only offline-while-closed.
+- Multi-tab cross-tab dedup — accepted at-least-once semantic at family scale (R2
+  in the plan file).

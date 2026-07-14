@@ -174,7 +174,7 @@ Served by the front-end (PHP `-S` in current prod, Apache in any future deploy) 
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | /csrf-token | Returns `{"token": "..."}` JSON with `Cache-Control: no-store`. Unauthenticated (works for anonymous + logged-in alike via karhu's session/cookie token storage). Powers the inline IIFE in `layout.twig` that refreshes the in-page CSRF token on every page load — closes the cross-tab session-rotation gap (login in tab A invalidates tab B's CSRF token; old behaviour was a plain-text "CSRF token mismatch" 403; new behaviour is silent refresh on tab B's next nav). Consumed only by `layout.twig`'s inline script; not part of any external API contract. GET-safelisted by Csrf middleware so the endpoint doesn't require a token to call itself. |
+| GET | /csrf-token | Returns `{"token": "...", "authenticated": bool, "user_id": ?int, "active_household_id": ?int}` JSON with `Cache-Control: no-store`. Unauthenticated (works for anonymous + logged-in alike via karhu's session/cookie token storage). Powers the inline IIFE in `layout.twig` that refreshes the in-page CSRF token on every page load. v0.8.4: additional `authenticated` + `user_id` + `active_household_id` fields power the offline replay client's session-scoping pre-check (DOCS #74). GET-safelisted by Csrf middleware so the endpoint doesn't require a token to call itself. |
 
 ## Tracker — Health (v0.8.0 → v0.8.3)
 
@@ -187,7 +187,7 @@ All routes gated on `Session::has('user_id')` + `Session::has('active_household_
 | GET  | /health | Today dashboard — meal-grouped food entries + Exercise section (v0.8.1) + energy-balance widget (v0.8.2). Header links: [Foods] [Exercises] [Weight] [Profile] [Leaderboard]. |
 | GET  | /health/log/food | Log-food form + live-search IIFE (data-live-search attrs). |
 | GET  | /health/log/food/search | JSON `{"results": [...]}` with `Cache-Control: no-store`. INNER JOIN excludes default-less dishes. GET-safelisted by Csrf. |
-| POST | /health/log/food | Validate meal + qty + foreign-household guard; INSERT `food_log` with `kcal_snapshot = round(qty * serving.kcal)` + `logged_on = LocalDay::today($tz)`. 303 to /health. |
+| POST | /health/log/food | Validate meal + qty + foreign-household guard; INSERT `food_log` with `kcal_snapshot = round(qty * serving.kcal)` + `logged_on = LocalDay::today($tz)` (v0.8.4: optional `logged_on` form field client-stamped for offline replay, validated by `LoggedOnValidator` — bounds: not-future, not-older-than-7-days). 303 to /health for HTML clients; **`Accept: application/json` → 200 `{status:'ok'}` on success / 400 `{status:'error', code:'validation'}` on reject / 401 `{code:'auth'}` on session-lost** (v0.8.4 offline replay JSON path). |
 | POST | /health/log/food/{id}/delete | Owner-scoped delete; 303 to /health. |
 | GET  | /health/foods | Library index (CRUD list). |
 | GET  | /health/foods/new | Create form. |
@@ -202,7 +202,7 @@ All routes gated on `Session::has('user_id')` + `Session::has('active_household_
 |---|---|---|
 | GET  | /health/log/exercise | Log-exercise form + bespoke `data-exercise-search` IIFE (distinct from food IIFE — routes to duration/strength branch based on picked exercise's type). |
 | GET  | /health/log/exercise/search | JSON with `Cache-Control: no-store`. Distinct-shape payload from food-search (includes `type`, `met`, `default_rom_m`). |
-| POST | /health/log/exercise | Discriminated union: duration branch computes `met_minutes` + `kcal` (from latest weight); strength branch uses mechanical-work kcal (when `default_rom_m` known). 303 to /health. v0.8.3: fires `TrackerBadgeAwarder::evaluateAndGrant` best-effort AFTER create. |
+| POST | /health/log/exercise | Discriminated union: duration branch computes `met_minutes` + `kcal` (from latest weight); strength branch uses mechanical-work kcal (when `default_rom_m` known). 303 to /health. v0.8.3: fires `TrackerBadgeAwarder::evaluateAndGrant` best-effort AFTER create. v0.8.4: optional `logged_on` client-stamped for offline replay (validated by `LoggedOnValidator`); **`Accept: application/json` → JSON response path** (same shape as `/health/log/food`). |
 | POST | /health/log/exercise/{id}/delete | Owner-scoped delete; 303 to /health. |
 | GET  | /health/exercises | Exercise catalog CRUD list. |
 | GET  | /health/exercises/new | Create form. |
@@ -211,7 +211,7 @@ All routes gated on `Session::has('user_id')` + `Session::has('active_household_
 | POST | /health/exercises/{id} | Update; MET bounds re-checked. |
 | POST | /health/exercises/{id}/delete | Delete (exercise_log rows keep `exercise_name_snapshot` + `exercise_type_snapshot` via SET NULL). |
 | GET  | /health/weight | Weight form + last-10 history. Gates on active_household_id (household TZ drives `measured_on`). |
-| POST | /health/weight | Create weight entry; `weight_kg` bounded `[20.0, 300.0]` at repo. 303 back. |
+| POST | /health/weight | Create weight entry; `weight_kg` bounded `[20.0, 300.0]` at repo. 303 back. v0.8.4: `measured_on` migrated to shared `LoggedOnValidator` (bounds: not-future, not-older-than-7-days); **`Accept: application/json` → JSON response path** (same shape). |
 | POST | /health/weight/{id}/delete | Owner-scoped delete. |
 
 ### Profile + BMR (v0.8.2)
