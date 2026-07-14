@@ -28,9 +28,10 @@ final class BadgesControllerTest extends AppTestCase
 
         self::assertSame(200, $response->status());
         $body = $response->body();
-        // Earned section: shows "2 of 6 earned" and the two emoji.
+        // Earned section: shows "2 of N earned" and the two emoji.
         // v0.6.14 added seven_day_streak + thirty_day_streak → 8 total.
-        self::assertStringContainsString('2 of 8', $body);
+        // v0.8.3 added 9 tracker badges → 17 total.
+        self::assertStringContainsString('2 of 17', $body);
         self::assertStringContainsString('🌱', $body);
         self::assertStringContainsString('⭐', $body);
         // Locked section: 🔒 appears for the remaining badges.

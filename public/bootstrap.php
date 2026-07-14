@@ -184,6 +184,10 @@ $weightLogRepo = new \App\Tracker\WeightLogRepository($db);
 $exerciseLogRepo = new \App\Tracker\ExerciseLogRepository($db);
 // v0.8.2 — tracker phase 3: per-user body profile for BMR/TDEE.
 $profileRepo = new \App\Tracker\TrackerProfileRepository($db);
+// v0.8.3 — tracker phase 4: effort/consistency badge awarder.
+// Depends on BadgeAwardRepository (v0.6.13) + ExerciseLogRepository (v0.8.1).
+// Fires from ExerciseLogController::store best-effort.
+$trackerBadgeAwarder = new \App\Tracker\TrackerBadgeAwarder($badgeAwardRepo, $exerciseLogRepo);
 $hasher = new PasswordHasher();
 $rbac = new Rbac($userRepo);
 $authz = new HouseholdAuthorizer($householdRepo);
@@ -254,6 +258,10 @@ $app->container()->set(\App\Tracker\FoodLogRepository::class, $foodLogRepo);
 $app->container()->set(\App\Tracker\ExerciseRepository::class, $exerciseRepo);
 $app->container()->set(\App\Tracker\WeightLogRepository::class, $weightLogRepo);
 $app->container()->set(\App\Tracker\ExerciseLogRepository::class, $exerciseLogRepo);
+// v0.8.2 — tracker phase 3 binding
+$app->container()->set(\App\Tracker\TrackerProfileRepository::class, $profileRepo);
+// v0.8.3 — tracker phase 4 binding
+$app->container()->set(\App\Tracker\TrackerBadgeAwarder::class, $trackerBadgeAwarder);
 $app->container()->set(BadgeAwarder::class, $badgeAwarder);
 $app->container()->set(ChoreScheduleRepository::class, $choreScheduleRepo);
 $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);

@@ -10,6 +10,7 @@ use App\Tracker\ExerciseKcalCalculator;
 use App\Tracker\ExerciseLogRepository;
 use App\Tracker\ExerciseRepository;
 use App\Tracker\LocalDay;
+use App\Tracker\TrackerBadgeAwarder;
 use App\Tracker\WeightLogRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
@@ -39,6 +40,7 @@ final class ExerciseLogController
         private readonly HouseholdAuthorizer $auth,
         private readonly NavContext $nav,
         private readonly TwigAdapter $view,
+        private readonly TrackerBadgeAwarder $trackerAwards,
     ) {}
 
     // --- LITERAL SEGMENTS (must precede {id} routes) ---
@@ -154,6 +156,17 @@ final class ExerciseLogController
                 metMinutes: null, kcalSnapshot: $kcal,
                 loggedOn: $today,
             );
+        }
+
+        // v0.8.3 — best-effort badge award. Mirrors ChoresController::handleDone
+        // L320-346 posture: catch \Throwable + error_log; a badge-eval failure
+        // must NEVER 500 the log-write. Defensive TZ fallback for corrupted
+        // households.timezone rows.
+        try {
+            $awarderTz = new \DateTimeZone((string) ($household['timezone'] ?? 'Pacific/Auckland'));
+            $this->trackerAwards->evaluateAndGrant($hid, $userId, $awarderTz, new \DateTimeImmutable('now'));
+        } catch (\Throwable $e) {
+            error_log('tracker-award failure: ' . $e->getMessage());
         }
 
         Session::set('flash_success', 'Logged ' . $exercise['name'] . '.');

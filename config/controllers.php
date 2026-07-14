@@ -46,4 +46,6 @@ return [
     App\Controllers\WeightController::class,
     // v0.8.2 — Tracker Phase 3: profile + BMR.
     App\Controllers\TrackerProfileController::class,
+    // v0.8.3 — Tracker Phase 4: household effort leaderboard.
+    App\Controllers\TrackerLeaderboardController::class,
 ];

@@ -99,6 +99,8 @@ abstract class AppTestCase extends TestCase
     protected \App\Tracker\ExerciseLogRepository $exerciseLogRepo;
     // v0.8.2 — tracker phase 3
     protected \App\Tracker\TrackerProfileRepository $profileRepo;
+    // v0.8.3 — tracker phase 4
+    protected \App\Tracker\TrackerBadgeAwarder $trackerBadgeAwarder;
     protected PasswordHasher $hasher;
     // v0.5.0
     protected EmailVerificationTokenRepository $verifyTokenRepo;
@@ -157,6 +159,7 @@ abstract class AppTestCase extends TestCase
         $this->weightLogRepo = new \App\Tracker\WeightLogRepository($this->db);
         $this->exerciseLogRepo = new \App\Tracker\ExerciseLogRepository($this->db);
         $this->profileRepo = new \App\Tracker\TrackerProfileRepository($this->db);
+        $this->trackerBadgeAwarder = new \App\Tracker\TrackerBadgeAwarder($this->badgeAwardRepo, $this->exerciseLogRepo);
         $this->scheduleRepo = new ChoreScheduleRepository($this->db);
         $choreScheduleGenerator = new ChoreScheduleGenerator($this->scheduleRepo, $this->choreRepo, $this->householdRepo);
         $this->hasher = new PasswordHasher();
@@ -230,6 +233,8 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(\App\Tracker\ExerciseLogRepository::class, $this->exerciseLogRepo);
         // v0.8.2 — tracker phase 3
         $app->container()->set(\App\Tracker\TrackerProfileRepository::class, $this->profileRepo);
+        // v0.8.3 — tracker phase 4
+        $app->container()->set(\App\Tracker\TrackerBadgeAwarder::class, $this->trackerBadgeAwarder);
         $app->container()->set(ChoreScheduleRepository::class, $this->scheduleRepo);
         $app->container()->set(ChoreScheduleGenerator::class, $choreScheduleGenerator);
         $app->container()->set(PasswordHasher::class, $this->hasher);
@@ -316,6 +321,8 @@ abstract class AppTestCase extends TestCase
             \App\Controllers\WeightController::class,
             // v0.8.2 — Tracker Phase 3
             \App\Controllers\TrackerProfileController::class,
+            // v0.8.3 — Tracker Phase 4
+            \App\Controllers\TrackerLeaderboardController::class,
         ]);
 
         return $app;

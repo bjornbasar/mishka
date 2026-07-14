@@ -1,0 +1,88 @@
+{% extends "layout.twig" %}
+
+{% block title %}Health · Leaderboard — {{ brand.name }}{% endblock %}
+
+{% block content %}
+    {# v0.8.3 — household effort leaderboard.
+       Renders ONLY effort (MET-minutes, strength session count, streaks,
+       badges). Intake / weight / expenditure / net stay private per
+       user — TRACKER-PLAN.md §5 invariant, regression-tested in
+       tests/Controllers/TrackerLeaderboardControllerTest. #}
+    <div class="calendar-header">
+        <h1>Leaderboard</h1>
+        <div class="calendar-nav">
+            <a href="/health" class="new-event-link">← Today</a>
+        </div>
+    </div>
+
+    <p style="color:var(--muted); margin:0 0 1rem;">
+        Week of <strong>{{ week_start_local }}</strong> → <strong>{{ week_end_local }}</strong>
+        <br>
+        <small>Effort is shared with your household. Intake, weight, and net stay private.</small>
+    </p>
+
+    {% set total_effort = 0 %}
+    {% for r in week_rows %}
+        {% set total_effort = total_effort + (r.week_met_minutes|number_format(0, '.', ''))|round %}
+    {% endfor %}
+
+    {% if total_effort == 0 and week_rows|length > 0 %}
+        <p style="color:var(--muted); text-align:center; padding:1rem;">
+            No effort logged this week yet — <a href="/health/log/exercise">log a workout</a> to break the seal.
+        </p>
+    {% endif %}
+
+    <table style="width:100%; border-collapse:collapse; margin-bottom:1.5rem;">
+        <thead>
+            <tr style="text-align:left; border-bottom:2px solid var(--border);">
+                <th style="padding:0.5rem 0.25rem;">Member</th>
+                <th style="padding:0.5rem 0.25rem; text-align:right;">MET-min</th>
+                <th style="padding:0.5rem 0.25rem; text-align:right;">Strength</th>
+                <th style="padding:0.5rem 0.25rem; text-align:right;" title="Consecutive weeks ≥ 150 MET-min">🔥 Weeks</th>
+                <th style="padding:0.5rem 0.25rem; text-align:right;" title="Consecutive days with any workout">📅 Days</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in week_rows %}
+                {% set is_viewer = (r.user_id == viewer_user_id) %}
+                {% set met = (r.week_met_minutes|number_format(0, '.', ''))|round %}
+                {% set streaks = roster_streaks[r.user_id]|default({'daily': 0, 'weekly': 0}) %}
+                <tr style="border-bottom:1px solid var(--border); {% if is_viewer %}background:var(--card);{% endif %}">
+                    <td style="padding:0.5rem 0.25rem;">
+                        {% if is_viewer %}<strong>{{ r.display_name }} (you)</strong>{% else %}{{ r.display_name }}{% endif %}
+                    </td>
+                    <td style="padding:0.5rem 0.25rem; text-align:right;">
+                        {% if met > 0 %}<strong>{{ met }}</strong>{% else %}<span style="color:var(--muted);">—</span>{% endif %}
+                    </td>
+                    <td style="padding:0.5rem 0.25rem; text-align:right;">
+                        {% if r.week_strength_sessions > 0 %}{{ r.week_strength_sessions }} session{% if r.week_strength_sessions != 1 %}s{% endif %}{% else %}<span style="color:var(--muted);">—</span>{% endif %}
+                    </td>
+                    <td style="padding:0.5rem 0.25rem; text-align:right;">
+                        {% if streaks.weekly > 0 %}{{ streaks.weekly }}{% else %}<span style="color:var(--muted);">—</span>{% endif %}
+                    </td>
+                    <td style="padding:0.5rem 0.25rem; text-align:right;">
+                        {% if streaks.daily > 0 %}{{ streaks.daily }}{% else %}<span style="color:var(--muted);">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% set member_badges = roster_badges[r.user_id]|default([]) %}
+                {% if member_badges|length > 0 %}
+                    <tr>
+                        <td colspan="5" style="padding:0 0.25rem 0.5rem 0.25rem;">
+                            {% for code in member_badges %}
+                                {% if badge_meta[code] is defined %}
+                                    <span title="{{ badge_meta[code].title }}" style="font-size:1.25rem; margin-right:0.15rem;">{{ badge_meta[code].emoji }}</span>
+                                {% endif %}
+                            {% endfor %}
+                        </td>
+                    </tr>
+                {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <p style="color:var(--muted); font-size:0.85rem; margin:0;">
+        Rank uses <strong>MET-minutes</strong> from duration workouts (walk / run / cycle / etc.).
+        Strength sessions surface as a sidecar column — no synthetic minute conversion.
+        Badges shown across the whole household (chores + tracker merged) — see <a href="/badges">/badges</a>.
+    </p>
+{% endblock %}

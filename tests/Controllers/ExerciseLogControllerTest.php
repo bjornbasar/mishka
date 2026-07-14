@@ -140,4 +140,18 @@ final class ExerciseLogControllerTest extends AppTestCase
         self::assertSame(303, $r->status());
         self::assertSame(0, (int) $this->db->fetchScalar('SELECT COUNT(*) FROM exercise_log WHERE id = :id', ['id' => $logId]));
     }
+
+    // v0.8.3 — awarder fires from store() best-effort.
+
+    public function test_store_fires_awarder_and_grants_first_workout_badge(): void
+    {
+        [$uid, $hid, $durId] = $this->signedIn();
+        $r = $this->request('POST', '/health/log/exercise', [
+            'exercise_id' => (string) $durId,
+            'minutes' => '30',
+        ], headers: ['content-type' => 'application/x-www-form-urlencoded']);
+        self::assertSame(303, $r->status());
+        // first_workout should be granted eagerly.
+        self::assertContains('first_workout', $this->badgeAwardRepo->listCodesForUser($hid, $uid));
+    }
 }
