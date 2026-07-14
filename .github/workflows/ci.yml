@@ -212,6 +212,16 @@ jobs:
         run: |
           ssh $BOSCO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
 
+      - name: Tracker badges backfill (idempotent, v0.8.3+)
+        # Iterates household × user, calls TrackerBadgeAwarder::evaluateAndGrant
+        # per pair. Idempotent — BadgeAwardRepository UNIQUE dedup makes re-runs
+        # silent no-ops. First-deploy grants any earned badges from pre-v0.8.3
+        # exercise_log rows; subsequent deploys report zero new awards for
+        # users whose state hasn't crossed a new threshold. Same failure-mode
+        # posture as tracker:seed-foods (DOCS #63). See DOCS #73.
+        run: |
+          ssh $BOSCO "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:badges-backfill"
+
       - name: Notify Slack
         if: always()
         run: |

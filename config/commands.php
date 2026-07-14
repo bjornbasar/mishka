@@ -22,4 +22,6 @@ return [
     App\Commands\TrackerSeedFoodsCommand::class,
     // v0.8.1 — tracker exercise catalog seed
     App\Commands\TrackerSeedExercisesCommand::class,
+    // v0.8.3 — tracker effort badges backfill
+    App\Commands\TrackerBadgesBackfillCommand::class,
 ];
