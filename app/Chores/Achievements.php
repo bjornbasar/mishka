@@ -165,6 +165,57 @@ final class Achievements
     }
 
     /**
+     * v0.8.3 — sibling of computeDailyStreak that walks household-local
+     * `Y-m-d` DATE strings instead of UTC instants. Used by
+     * `App\Tracker\TrackerBadgeAwarder` — the tracker's `exercise_log.
+     * logged_on` axis is a household-local DATE, so streak input is
+     * already in the target axis. No TZ conversion needed; PHP-side
+     * "one-day-back" arithmetic via DayWindow::previousDayStartLocal.
+     *
+     * Daily streak = consecutive days (in $tz) with ≥1 log entry, walked
+     * back from the most recent activity day. Broken if the latest
+     * activity is older than yesterday.
+     *
+     * @param list<string> $daysLocal   `Y-m-d` DATE strings (any order, dedup done internally)
+     * @param string       $dayNowLocal `Y-m-d` for today (in $tz)
+     * @param string       $dayPrevLocal `Y-m-d` for yesterday (in $tz)
+     */
+    public static function computeDailyStreakLocal(
+        array $daysLocal,
+        \DateTimeZone $tz,
+        string $dayNowLocal,
+        string $dayPrevLocal,
+    ): int {
+        if ($daysLocal === []) {
+            return 0;
+        }
+        // Dedup + sort DESC (input may repeat when multiple entries share a day).
+        $set = [];
+        foreach ($daysLocal as $d) {
+            $set[$d] = true;
+        }
+        $activeDays = array_keys($set);
+        rsort($activeDays);
+
+        if ($activeDays[0] < $dayPrevLocal) {
+            return 0;
+        }
+
+        $streak = 1;
+        $cursor = $activeDays[0];
+        for ($i = 1, $n = count($activeDays); $i < $n; $i++) {
+            $expected = DayWindow::previousDayStartLocal($tz, $cursor);
+            if ($activeDays[$i] === $expected) {
+                $streak++;
+                $cursor = $activeDays[$i];
+            } else {
+                break;
+            }
+        }
+        return $streak;
+    }
+
+    /**
      * @param array<string, int> $stats
      * @return list<string>  badge codes in canonical definition order
      */

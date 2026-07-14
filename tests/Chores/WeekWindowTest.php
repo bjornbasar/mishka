@@ -89,4 +89,48 @@ final class WeekWindowTest extends TestCase
 
         self::assertSame('2026-03-22 11:00:00', WeekWindow::lookbackStartUtc($tz, 4, $now));
     }
+
+    // v0.8.3 — local-DATE siblings (Y-m-d strings for `WHERE logged_on >= :ws AND logged_on < :we`).
+
+    public function test_week_start_local_returns_household_local_monday_date(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $wednesday = new \DateTimeImmutable('2026-07-15 14:30', $tz);
+        self::assertSame('2026-07-13', WeekWindow::weekStartLocal($tz, $wednesday));
+    }
+
+    public function test_week_start_local_collapses_a_whole_week_to_one_date(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $mon = new \DateTimeImmutable('2026-07-13 09:00', $tz);
+        $sun = new \DateTimeImmutable('2026-07-19 22:00', $tz);
+        self::assertSame(
+            WeekWindow::weekStartLocal($tz, $mon),
+            WeekWindow::weekStartLocal($tz, $sun),
+        );
+    }
+
+    public function test_week_end_local_is_exactly_seven_days_forward_across_dst_end(): void
+    {
+        // Week straddles NZ DST end (2026-04-05, NZDT→NZST). Wall-clock +1 week
+        // must still land on the following Monday's local date regardless of the
+        // 25-hour Sunday inside the interval.
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        self::assertSame('2026-04-06', WeekWindow::weekEndLocal($tz, '2026-03-30'));
+    }
+
+    public function test_lookback_start_local_matches_lookback_start_utc_semantics(): void
+    {
+        // 4-week lookback from Mon 2026-04-20 NZST → Mon 2026-03-23 NZDT.
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $now = new \DateTimeImmutable('2026-04-20 10:00', $tz);
+        self::assertSame('2026-03-23', WeekWindow::lookbackStartLocal($tz, 4, $now));
+    }
+
+    public function test_week_end_local_rejects_malformed_input(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $this->expectException(\InvalidArgumentException::class);
+        WeekWindow::weekEndLocal($tz, 'nope');
+    }
 }

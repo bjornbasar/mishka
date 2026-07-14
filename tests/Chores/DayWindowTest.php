@@ -90,4 +90,44 @@ final class DayWindowTest extends TestCase
 
         self::assertSame('2026-03-20 11:00:00', DayWindow::lookbackStartUtc($tz, 30, $now));
     }
+
+    // v0.8.3 — local-DATE siblings for `exercise_log.logged_on` axis.
+
+    public function test_day_start_local_returns_household_local_date(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $morning = new \DateTimeImmutable('2026-07-14 09:00', $tz);
+        self::assertSame('2026-07-14', DayWindow::dayStartLocal($tz, $morning));
+    }
+
+    public function test_day_start_local_uses_household_tz_for_boundary(): void
+    {
+        // A UTC "2026-07-14 12:00" is 2026-07-15 00:00 NZST — the local DATE
+        // must be 2026-07-15, not 2026-07-14.
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $atUtcNoon = new \DateTimeImmutable('2026-07-14 12:00', new \DateTimeZone('UTC'));
+        self::assertSame('2026-07-15', DayWindow::dayStartLocal($tz, $atUtcNoon));
+    }
+
+    public function test_previous_day_local_across_nz_dst_end_stays_wall_clock(): void
+    {
+        // 2026-04-05 (Sun) was the DST-end day (25h wall clock). Yesterday of
+        // Monday 2026-04-06 in NZ is 2026-04-05 — trivially by name.
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        self::assertSame('2026-04-05', DayWindow::previousDayStartLocal($tz, '2026-04-06'));
+    }
+
+    public function test_lookback_start_local_gives_nz_calendar_date_thirty_days_ago(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $now = new \DateTimeImmutable('2026-04-20 10:00', $tz);
+        self::assertSame('2026-03-21', DayWindow::lookbackStartLocal($tz, 30, $now));
+    }
+
+    public function test_previous_day_local_rejects_malformed_input(): void
+    {
+        $tz = new \DateTimeZone('Pacific/Auckland');
+        $this->expectException(\InvalidArgumentException::class);
+        DayWindow::previousDayStartLocal($tz, 'nope');
+    }
 }

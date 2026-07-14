@@ -304,6 +304,37 @@ final class AchievementsTest extends TestCase
         self::assertSame(5, $out[1]['daily_streak']);
     }
 
+    // --- v0.8.3 — computeDailyStreakLocal (walks Y-m-d DATE strings) ---
+
+    public function test_daily_streak_local_empty_input_returns_zero(): void
+    {
+        $tz = new \DateTimeZone(self::TZ);
+        self::assertSame(0, Achievements::computeDailyStreakLocal([], $tz, '2026-07-14', '2026-07-13'));
+    }
+
+    public function test_daily_streak_local_seven_consecutive_days_is_seven(): void
+    {
+        $tz = new \DateTimeZone(self::TZ);
+        $days = ['2026-07-14', '2026-07-13', '2026-07-12', '2026-07-11', '2026-07-10', '2026-07-09', '2026-07-08'];
+        self::assertSame(7, Achievements::computeDailyStreakLocal($days, $tz, '2026-07-14', '2026-07-13'));
+    }
+
+    public function test_daily_streak_local_gap_breaks_the_streak(): void
+    {
+        // Sequence has a hole (missing 2026-07-11) — streak snaps at the gap.
+        $tz = new \DateTimeZone(self::TZ);
+        $days = ['2026-07-14', '2026-07-13', '2026-07-12', '2026-07-10', '2026-07-09'];
+        self::assertSame(3, Achievements::computeDailyStreakLocal($days, $tz, '2026-07-14', '2026-07-13'));
+    }
+
+    public function test_daily_streak_local_last_activity_two_days_ago_is_zero(): void
+    {
+        // The latest activity day is older than yesterday → streak is broken.
+        $tz = new \DateTimeZone(self::TZ);
+        $days = ['2026-07-12', '2026-07-11', '2026-07-10'];
+        self::assertSame(0, Achievements::computeDailyStreakLocal($days, $tz, '2026-07-14', '2026-07-13'));
+    }
+
     // --- helpers ---
 
     /** @return array<string, int> */
