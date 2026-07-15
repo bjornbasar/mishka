@@ -11,7 +11,7 @@
         "bjornbasar/karhu-view": "^0.1",
         "league/commonmark": "^2.0",
         "minishlink/web-push": "^10.1",
-        "sabre/vobject": "^4.5",
+        "sabre/vobject": "^5.0",
         "simshaun/recurr": "^6.0",
         "symfony/mailer": "^7.2",
         "symfony/mime": "^7.2",

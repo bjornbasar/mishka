@@ -5,3 +5,13 @@ parameters:
         - config
         - public
     tmpDir: .phpstan-cache
+    # sabre/vobject 5.0.0 declares Node::getIterator(): ?ElementList without
+    # a template signature on the IteratorAggregate interface. PHPStan L6
+    # therefore flags every method that takes a VCalendar (or Component
+    # subclass) as "missing iterable type" — but the vendor class is not
+    # generic, so there's no correct annotation. Localised suppression in
+    # IcalFeedBuilder (the only mishka file consuming these types).
+    ignoreErrors:
+        -
+            identifier: missingType.iterableValue
+            path: app/Calendar/IcalFeedBuilder.php
