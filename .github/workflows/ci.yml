@@ -230,6 +230,6 @@ jobs:
           # Round-2 S1: $RUNNER_TEMP (per-runner) not /tmp/ (shared across
           # Hurska's 5 runners).
           MSG_FILE="$RUNNER_TEMP/slack-msg.json"
-          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Bosco)\"}" > "$MSG_FILE"
+          echo "{\"text\":\"${ICON} *mishka* deploy ${STATUS} (Bosco → mishka.minified.work)\"}" > "$MSG_FILE"
           curl -s -X POST -H 'Content-type: application/json' -d @"$MSG_FILE" "$(cat ~/.slack-webhook)"
           rm -f "$MSG_FILE"
