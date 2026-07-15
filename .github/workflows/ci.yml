@@ -118,6 +118,22 @@ jobs:
           fi
           echo "tags=$TAGS" >> "$GITHUB_OUTPUT"
           echo "primary=${REGISTRY}/${IMAGE}:sha-${SHA}" >> "$GITHUB_OUTPUT"
+          # Cloud-copy (ghcr) tags: movable :latest on main + fixed split-semver
+          # on release (prerelease/non-semver → full tag only, never move latest).
+          # No per-commit sha- on ghcr — keeps the cold cloud copy tidy.
+          GHCR="ghcr.io/bjornbasar/${IMAGE}"
+          GHCR_TAGS=""
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            GHCR_TAGS="${GHCR}:latest"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            V="${GITHUB_REF#refs/tags/v}"
+            if [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              GHCR_TAGS="${GHCR}:${V} ${GHCR}:${V%.*} ${GHCR}:${V%%.*} ${GHCR}:latest"
+            else
+              GHCR_TAGS="${GHCR}:${V}"
+            fi
+          fi
+          echo "ghcr_tags=$GHCR_TAGS" >> "$GITHUB_OUTPUT"
 
       - name: Build image on Ruxa
         run: |
@@ -143,6 +159,19 @@ jobs:
         run: |
           for tag in ${{ steps.tags.outputs.tags }}; do
             ssh $RUXA "docker tag ${{ steps.tags.outputs.primary }} $tag && docker push $tag"
+          done
+
+      # Best-effort PRIVATE cloud copy to ghcr (Bosco pulls the LOCAL registry,
+      # so this is copy-only — no pull creds anywhere). Separate + non-fatal:
+      # a ghcr blip (e.g. a stale token after gh auth activity on Ruxa — re-run
+      # `gh auth token | docker login ghcr.io -u bjornbasar --password-stdin`)
+      # must never fail the deploy. ::warning:: keeps a failed copy visible.
+      - name: Copy image to ghcr (best-effort, private)
+        if: steps.tags.outputs.ghcr_tags != ''
+        run: |
+          for tag in ${{ steps.tags.outputs.ghcr_tags }}; do
+            ssh $RUXA "docker tag ${{ steps.tags.outputs.primary }} $tag && docker push $tag" \
+              || echo "::warning title=ghcr copy failed::$tag not copied (Bosco deploy unaffected). Check 'docker login ghcr.io' on Ruxa."
           done
 
   deploy:
