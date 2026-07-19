@@ -206,14 +206,54 @@ jobs:
         run: |
           ssh $RUXA "rsync -a $RUXA_DIR/.env $RUXA_DIR/docker-compose.yml $BOSCO:$BOSCO_DIR/"
 
-      - name: Pull new image + recreate containers on Bosco
+      - name: Pull new image + chown mishka-sessions + recreate containers on Bosco
         # docker compose pull resolves :latest to the digest the build job
         # just pushed. up -d --remove-orphans recreates app + worker with
         # the new image (compose detects image digest change). Brief
         # downtime during the swap — single php -S process, no graceful
         # handoff. Acceptable for family-scale.
+        #
+        # v0.8.5+ non-root migration (DOCS #75): sequence is
+        #   pull → stop app + worker → alpine chown+chmod the named
+        #   volume → up -d.
+        # The OLD (root) container is STOPPED before the alpine chown
+        # fires, so no PHP process can write a mid-migration session
+        # file that would land root-owned + mode 600 inside the newly
+        # www-data-owned mode 700 sessions dir (race window eliminated).
+        #
+        # The chown is IDEMPOTENT: on already-correct perms (post-v0.8.5)
+        # it's a no-op, so this step stays in every future deploy as a
+        # belt-and-braces guard against manual volume tweaks or
+        # restore-from-backup.
+        #
+        # Alpine pinned to sha256 digest (Q3 user-locked, plan file
+        # round-2 SHOULD-FIX S2): reproducible + first pull hits Docker
+        # Hub, subsequent deploys resolve from local Docker layer cache.
+        # Digest captured 2026-07-19 from `alpine:3`; refresh only if we
+        # deliberately want a newer base image.
+        #
+        # `set -e` inside the alpine sh -c so a chmod failure aborts the
+        # whole chain — otherwise the compound `&&` chain in ssh's outer
+        # shell would accept the docker-run exit=0 even if the internal
+        # chmod failed silently (plan file round-2 SHOULD-FIX S3).
         run: |
-          ssh $BOSCO "cd $BOSCO_DIR && docker compose pull && docker compose up -d --remove-orphans"
+          ssh $BOSCO "cd $BOSCO_DIR && \
+            docker compose pull && \
+            docker compose stop app worker && \
+            docker run --rm -v mishka_mishka-sessions:/target \
+              alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b \
+              sh -c 'set -e; chown -R 33:33 /target && chmod 700 /target' && \
+            docker compose up -d --remove-orphans"
+
+      - name: Assert containers running as www-data (v0.8.5 post-flight)
+        # Belt-and-braces (plan-agent round-1 NICE-TO-HAVE 7) against a
+        # future php:8.4-cli base migrating off Debian's uid-33 www-data
+        # mapping. Unlikely (Debian policy locks it) but fail-loud if it
+        # happens instead of silently letting the deploy report green with
+        # a wrong-uid runtime.
+        run: |
+          ssh $BOSCO "docker exec mishka-app id www-data | grep -q 'uid=33' && \
+                      docker exec mishka-app whoami | grep -qx 'www-data'"
 
       - name: Run schema migration (idempotent + tracked)
         # Container has been recreated with new image; vendor + schema.sql
