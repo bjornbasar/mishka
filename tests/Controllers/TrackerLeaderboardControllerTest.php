@@ -68,7 +68,7 @@ final class TrackerLeaderboardControllerTest extends AppTestCase
             ['hid' => $hid, 'uid' => $uidB],
         );
         $exId = $this->exerciseRepo->create(null, ['name' => 'Run', 'type' => 'duration', 'met' => 9.8, 'source' => 'compendium'], null);
-        $today = date('Y-m-d');
+        $today = \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland'));
         // A: 2222 MET-min — 4-digit fingerprint unlikely to collide with layout CSS/text.
         $this->exerciseLogRepo->create($hid, $uidA, $exId, 'duration', 'Run',
             minutes: 226.7, sets: null, reps: null, loadKg: null,
@@ -94,7 +94,7 @@ final class TrackerLeaderboardControllerTest extends AppTestCase
     {
         [$uid, $hid] = $this->signedIn();
         $exId = $this->exerciseRepo->create(null, ['name' => 'Squat', 'type' => 'strength', 'met' => 5.0, 'default_rom_m' => 0.5, 'source' => 'compendium'], null);
-        $today = date('Y-m-d');
+        $today = \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland'));
         $this->exerciseLogRepo->create($hid, $uid, $exId, 'strength', 'Squat',
             minutes: null, sets: 3, reps: 10, loadKg: 20.0,
             metMinutes: null, kcalSnapshot: 4, loggedOn: $today);
@@ -143,24 +143,24 @@ final class TrackerLeaderboardControllerTest extends AppTestCase
         $this->profileRepo->upsert($uidB, [
             'sex' => 'female', 'birth_year' => 1988, 'height_cm' => 165.0, 'base_activity' => 1.200,
         ]);
-        $this->weightLogRepo->create($uidB, 88.8, date('Y-m-d'));
+        $this->weightLogRepo->create($uidB, 88.8, \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland')));
         $foodId = $this->foodRepo->create(null, ['name' => 'FingerprintFood', 'source' => 'custom'], null);
         $svB = $this->foodServingRepo->create($foodId, [
             'label' => '1 B', 'grams' => 100, 'kcal' => 9876, 'is_default' => true,
         ]);
-        $this->foodLogRepo->create($hid, $uidB, $foodId, $svB, 1.0, 'breakfast', date('Y-m-d'), 9876);
+        $this->foodLogRepo->create($hid, $uidB, $foodId, $svB, 1.0, 'breakfast', \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland')), 9876);
 
         $exId = $this->exerciseRepo->create(null, [
             'name' => 'FingerprintExercise', 'type' => 'duration', 'met' => 8.0,
         ], null);
         $this->exerciseLogRepo->create($hid, $uidB, $exId, 'duration', 'FingerprintExercise',
             minutes: 30.0, sets: null, reps: null, loadKg: null,
-            metMinutes: 240.0, kcalSnapshot: 5432, loggedOn: date('Y-m-d'));
+            metMinutes: 240.0, kcalSnapshot: 5432, loggedOn: \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland')));
 
         // User A logs their own small workout so their row shows something.
         $this->exerciseLogRepo->create($hid, $uidA, $exId, 'duration', 'FingerprintExercise',
             minutes: 15.0, sets: null, reps: null, loadKg: null,
-            metMinutes: 120.0, kcalSnapshot: 100, loggedOn: date('Y-m-d'));
+            metMinutes: 120.0, kcalSnapshot: 100, loggedOn: \App\Tracker\LocalDay::today(new \DateTimeZone('Pacific/Auckland')));
 
         $body = $this->request('GET', '/health/leaderboard')->body();
 
