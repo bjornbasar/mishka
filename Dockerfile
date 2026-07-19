@@ -120,10 +120,13 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # v0.7.3 — persistent session storage. Must live in the runtime stage
 # because the /var/lib/mishka/sessions directory has to exist in the
 # final image for docker-compose's named volume mount to land on a
-# writable target. mode 733 = rwx / -wx / -wx — works because the
-# container runs as root. TRIPWIRE: if a future release adds a non-root
-# USER directive, this mode breaks (www-data can't stat existing session
-# files). Revisit chmod when non-root lands. See DOCS #65 + #68.
+# writable target.
+#
+# v0.8.5 — CLOSED the v0.7.6 mode-733 tripwire: container now runs as
+# www-data (see USER directive at end of file). Sessions dir owned by
+# www-data:www-data at mode 700 (owner-only rwx) — tightest posture
+# that matches the exclusive USER. Debugging still possible via
+# `docker exec -u root ...` (root ignores mode bits).
 #
 # v0.7.7 — extend session lifetime from PHP's 24-min default to 30 days
 # so the family app "stays logged in" across days rather than requiring
@@ -134,7 +137,8 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 # which sets the browser cookie's Max-Age. Server-side GC threshold +
 # client-side cookie lifetime kept in sync.
 RUN mkdir -p /var/lib/mishka/sessions \
-    && chmod 733 /var/lib/mishka/sessions \
+    && chown www-data:www-data /var/lib/mishka/sessions \
+    && chmod 700 /var/lib/mishka/sessions \
     && printf 'session.save_path = "/var/lib/mishka/sessions"\nsession.gc_maxlifetime = 2592000\n' \
        > /usr/local/etc/php/conf.d/mishka-sessions.ini
 
@@ -152,6 +156,31 @@ WORKDIR /app
 COPY --from=builder /app /app
 
 EXPOSE 8080
+
+# v0.8.5 — drop root at the runtime-stage boundary. All previous RUNs
+# (composer install in builder, apt installs, conf.d writes, mkdir +
+# chown of the sessions dir) needed root; from here on the container
+# runs as www-data (uid=33 gid=33, Debian default in php:8.4-cli — no
+# useradd needed). Applies to BOTH commands (app: `php -S ...`; worker:
+# `php vendor/bjornbasar/karhu/bin/karhu push:worker`) because both
+# services share this image and neither overrides USER in compose.
+#
+# Port 8080 is non-privileged (>1024) — no CAP_NET_BIND_SERVICE
+# capability needed. Karhu-queue Worker's SIGTERM handling is
+# UID-agnostic (no pcntl/posix). DB writes only in the worker path;
+# no filesystem writes needed anywhere at runtime.
+#
+# Dev on Ruxa (bind-mount) overrides this back to `user: "0:0"` in
+# /data/personal/docker-compose.yml on the mishka-dev-app service ONLY
+# so `docker exec mishka-dev-app composer install / phpunit` keeps
+# working against the ubuntu:ubuntu-owned host bind-mount. Dev-worker
+# keeps USER www-data (DB-only, no /app writes).
+#
+# Ops note: `docker exec mishka-app composer …` fails as www-data
+# because /var/www (www-data's HOME) is root-owned so the composer
+# cache can't write. Use `docker exec -u root mishka-app composer …`
+# for interactive composer sessions on the prod container. See DOCS #75.
+USER www-data
 
 # mishka-app default: serve via PHP's built-in dev server on :8080.
 # mishka-worker overrides this in docker-compose.yml with the karhu CLI

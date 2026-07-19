@@ -13,6 +13,16 @@ services:
     ports: ["5180:8080"]
     restart: unless-stopped
     mem_limit: 256m
+    # v0.8.5 — pair the Dockerfile's USER www-data with defence-in-depth
+    # container hardening. no-new-privileges blocks any setuid/setgid
+    # escape by a future dependency. cap_drop: [ALL] because PHP -S on
+    # port 8080 needs no Linux capabilities (unprivileged port; no ptrace,
+    # no chown, no raw sockets). read_only: true + tmpfs: /tmp deferred
+    # as v1.0+ candidate (bigger surface: PHP session upload tmp + opcache
+    # scratch need explicit config). See DOCS #75.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     # v0.7.3 — persistent PHP session storage. Without this, every
     # container recreate wipes /var/lib/mishka/sessions and mobile
     # users get 403 CSRF-mismatch on their next POST (session file
@@ -28,6 +38,11 @@ services:
     env_file: [.env]
     restart: unless-stopped
     mem_limit: 128m
+    # v0.8.5 — same hardening as app service (see rationale above).
+    # Karhu-queue Worker is DB-only; no capabilities required.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     # Worker doesn't use $_SESSION (CLI, no HTTP request) — but mounting
     # the same volume keeps image behaviour identical (session.save_path
     # is set at the image level; the directory must exist + be writable).
