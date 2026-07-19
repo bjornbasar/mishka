@@ -1,24 +1,22 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-15 (after v0.8.4 shipped — **Tracker train complete**).
+> Last reviewed: 2026-07-19 (after v0.8.5 shipped — **queue drained**).
 
 ## Current release
 
-**v0.8.4** — Tracker Phase 5: offline logging + PWA shortcuts. Shipped 2026-07-15. See `DOCS.md` decision #74 + `docs/TRACKER.md` §13. All 5 Tracker phases (v0.8.0-v0.8.4) now shipped.
+**v0.8.5** — Non-root container user + close v0.7.6 tripwire. Shipped 2026-07-19. See `DOCS.md` decision #75. Container now runs as `www-data`; sessions dir chown+chmod 700; prod compose gains `no-new-privileges` + `cap_drop: [ALL]`.
 
 ## Priority queue
 
-| # | Version | Scope | Effort | Blocker? |
-|---|---|---|---|---|
-| 1 | **v1.0+** | Non-root container user (DOCS #64 v1.0+ candidate); pairs with any "mishka outside the family" pivot. Also revisit `chmod 733` on `/var/lib/mishka/sessions` per v0.7.6 tripwire (mode-733 breaks for `www-data` because it can't stat existing session files) | 1-2 days | Not blocking anything |
-
-**Tracker train total (v0.8.0–v0.8.3, no bonus): 21-31 dev days.** Roughly 5-7 weeks of focused solo work.
+The queue is drained. All the v0.8.x tracker train + the v1.0+ non-root container candidate have shipped. v1.0.0 stays a separate later milestone tied to any "mishka outside the family" pivot — no forcing function today. `read_only: true` + `tmpfs: /tmp` container hardening is an explicit v1.0+ candidate deferred from v0.8.5 (needs opcache-file-cache-off verification + tmpfs sizing).
 
 **Not on the current queue** (parked, needs a real trigger to promote):
-- Tracker one-way import from Kuma recipes (`docs/TRACKER-PLAN.md` §9 "later")
-- Additional badge tiers or streak variants
-- Any of the "v1.0+" candidates that aren't the non-root user pivot
+- v1.0.0 "mishka outside the family" pivot — includes `read_only: true`+`tmpfs: /tmp` compose hardening, brand review, documentation for external adopters.
+- Tracker one-way import from Kuma recipes (`docs/TRACKER-PLAN.md` §9 "later").
+- Additional badge tiers or streak variants.
+
+**Tracker train total (v0.8.0–v0.8.4): shipped.**
 
 ## Tracker (v0.8.x) — locked decisions
 
@@ -41,6 +39,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.5** — Non-root container user + close v0.7.6 tripwire (DOCS #75, 2026-07-19)
 - **v0.8.4** — Tracker Phase 5: offline logging + PWA shortcuts (DOCS #74, 2026-07-15)
 - **v0.8.3** — Tracker Phase 4: household effort leaderboard + effort/consistency badges + streaks (DOCS #73, 2026-07-14)
 - **v0.8.2** — Tracker Phase 3: `tracker_profiles` + Mifflin-St Jeor BMR + Today energy-balance widget (DOCS #72, 2026-07-13)

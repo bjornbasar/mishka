@@ -6,6 +6,8 @@ A family hub web app: one place for the household calendar, chores, lists, and t
 
 ## Status
 
+**v0.8.5** — Non-root container user. Closes DOCS #64's v1.0+ candidate + the paired v0.7.6 tripwire on `/var/lib/mishka/sessions` (mode-733 works for root but breaks for `www-data` because it can't stat existing session files). Dockerfile now `USER www-data`; sessions dir `chown www-data:www-data` + `chmod 700`. Prod compose gains `security_opt: no-new-privileges:true` + `cap_drop: [ALL]`. CI deploy step migrates the existing named volume via a one-shot alpine chown before container recreate. Dev container on Ruxa keeps `user: "0:0"` for bind-mount write access. `composer test` 1001 / 2469 / 0, 1 skipped. See DOCS.md decision #75.
+
 **v0.8.4** — Tracker Phase 5: offline logging + PWA shortcuts. Fifth and final Tracker release. Family PWA now works offline: log food / exercise / weight while offline → payload queues into IndexedDB → auto-replays with a fresh CSRF token on `window.online` or next page load. Three home-screen shortcuts on Android/Chromium install (Log Food · Log Exercise · Today). See DOCS.md decision #74 + [docs/TRACKER.md §13](docs/TRACKER.md).
 
 **v0.8.3** — Tracker Phase 4: household effort leaderboard + badges + streaks. Household-shared `/health/leaderboard` ranking on weekly MET-minutes (strength contributes a session-count sidecar; no synthetic reps→minutes conversion). 9 new tracker badges + effort/consistency streaks reuse the Chores machinery. Intake / weight / net stay PRIVATE per user per TRACKER-PLAN §5's invariant. See DOCS.md decision #73 + [docs/TRACKER.md §12](docs/TRACKER.md).
