@@ -7,6 +7,14 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - dependencies
+    ignore:
+      # web-push v11 is a breaking refactor — drops the $timeout ctor param
+      # (positional #3 is now a PSR-18 ClientInterface) and no longer bundles
+      # Guzzle, so it needs a PSR-18 client + PSR-17 factories wired in. Staying
+      # on ^10 until we do that migration deliberately (held PR 14, 2026-07).
+      - dependency-name: minishlink/web-push
+        update-types:
+          - version-update:semver-major
 
   - package-ecosystem: github-actions
     directory: /
