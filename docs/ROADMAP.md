@@ -1,15 +1,15 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-19 (after v0.8.5 shipped — **queue drained**).
+> Last reviewed: 2026-07-29 (after v0.8.6 shipped — **queue drained**).
 
 ## Current release
 
-**v0.8.5** — Non-root container user + close v0.7.6 tripwire. Shipped 2026-07-19. See `DOCS.md` decision #75. Container now runs as `www-data`; sessions dir chown+chmod 700; prod compose gains `no-new-privileges` + `cap_drop: [ALL]`.
+**v0.8.6** — Branded 404 via karhu ErrorHandler hook (v0.1.4). Shipped 2026-07-29. See `DOCS.md` decision #76. `templates/errors/{404,404_anon}.twig` render through `App\Http\MishkaErrorHandler` with content-negotiated JSON. 19 inline `withBody('Not found')` controller sites swept; 2 Calendar sites (L609/L646) semantically flipped to 400. iCal + 3 token-invalidation pages deliberately kept inline.
 
 ## Priority queue
 
-The queue is drained. All the v0.8.x tracker train + the v1.0+ non-root container candidate have shipped. v1.0.0 stays a separate later milestone tied to any "mishka outside the family" pivot — no forcing function today. `read_only: true` + `tmpfs: /tmp` container hardening is an explicit v1.0+ candidate deferred from v0.8.5 (needs opcache-file-cache-off verification + tmpfs sizing).
+The queue is drained. All the v0.8.x tracker train + the v1.0+ non-root container candidate + the branded-404 unplanned improvement have shipped. v1.0.0 stays a separate later milestone tied to any "mishka outside the family" pivot — no forcing function today. `read_only: true` + `tmpfs: /tmp` container hardening is an explicit v1.0+ candidate deferred from v0.8.5 (needs opcache-file-cache-off verification + tmpfs sizing).
 
 **Not on the current queue** (parked, needs a real trigger to promote):
 - v1.0.0 "mishka outside the family" pivot — includes `read_only: true`+`tmpfs: /tmp` compose hardening, brand review, documentation for external adopters.
@@ -39,6 +39,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.6** — Branded 404 via karhu ErrorHandler hook (DOCS #76, 2026-07-29)
 - **v0.8.5** — Non-root container user + close v0.7.6 tripwire (DOCS #75, 2026-07-19)
 - **v0.8.4** — Tracker Phase 5: offline logging + PWA shortcuts (DOCS #74, 2026-07-15)
 - **v0.8.3** — Tracker Phase 4: household effort leaderboard + effort/consistency badges + streaks (DOCS #73, 2026-07-14)
