@@ -273,6 +273,14 @@ $app->container()->set(PasswordHasher::class, $hasher);
 $app->container()->set(Rbac::class, $rbac);
 $app->container()->set(TwigAdapter::class, $twig);
 
+// v0.8.6 — bind karhu's ErrorHandler interface to mishka's branded impl.
+// Auto-wired via container: MishkaErrorHandler's ctor pulls TwigAdapter +
+// NavContext (both bound above).  App::resolveErrorHandler catches any
+// Throwable inside handle() and falls back to DefaultErrorHandler, so
+// even if MishkaErrorHandler is misconfigured a 404 is still served.
+// See DOCS #76 + /home/ubuntu/.claude/plans/mighty-roaming-pine.md.
+$app->container()->bind(\Karhu\Http\ErrorHandler::class, \App\Http\MishkaErrorHandler::class);
+
 // v0.5.0 bindings
 $app->container()->set(EmailVerificationTokenRepository::class, $verifyTokenRepo);
 $app->container()->set(PasswordResetTokenRepository::class, $resetTokenRepo);

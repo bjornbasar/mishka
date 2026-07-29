@@ -240,6 +240,17 @@ abstract class AppTestCase extends TestCase
         $app->container()->set(PasswordHasher::class, $this->hasher);
         $app->container()->set(Rbac::class, $rbac);
         $app->container()->set(TwigAdapter::class, $twig);
+
+        // v0.8.6 — bind MishkaErrorHandler as the karhu ErrorHandler impl.
+        // Mirrors the production wiring at public/bootstrap.php.  Tests hit
+        // App::handle() which resolves the bound handler on unmatched-route
+        // and controller-throw paths.  Auto-wired: MishkaErrorHandler's ctor
+        // pulls TwigAdapter + NavContext (both bound above).
+        $app->container()->bind(
+            \Karhu\Http\ErrorHandler::class,
+            \App\Http\MishkaErrorHandler::class,
+        );
+
         // v0.5.0 container bindings
         $app->container()->set(EmailVerificationTokenRepository::class, $this->verifyTokenRepo);
         $app->container()->set(PasswordResetTokenRepository::class, $this->resetTokenRepo);

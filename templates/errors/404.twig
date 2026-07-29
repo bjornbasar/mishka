@@ -1,0 +1,31 @@
+{# v0.8.6 — branded 404 for signed-in users. Extends layout.twig so the
+   nav, footer, brand, and flash-slot chrome render normally.  Callers
+   pass consumeFlash: false through NavContext (see MishkaErrorHandler.php)
+   so a typo'd URL doesn't silently eat a flash queued by the previous
+   action.  See DOCS #76. #}
+{% extends "layout.twig" %}
+
+{% block title %}Not Found · {{ brand.name }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 style="font-size: 3em; margin-top: 8vh;">Not Found</h1>
+    <p style="max-width: 40em; margin: 1em 0;">
+        We couldn't find the page you were looking for. Maybe the URL was
+        typed wrong, or a link is stale. Nothing was harmed.
+    </p>
+    {% if error_message is defined and error_message and error_message != 'Not Found' %}
+        {# v0.8.6 (round-1 S2 fold) — preserve curl-debuggability of the
+           inline `(new Response(404))->withBody('custom message')` bodies
+           that got swept to `throw new NotFoundException($msg)`.  Only
+           renders when the exception message differs from the default
+           so bare `throw new NotFoundException()` doesn't emit noise. #}
+        <p style="color: var(--muted); font-family: monospace; font-size: 0.9em;">
+            Details: {{ error_message }}
+        </p>
+    {% endif %}
+    <p style="margin-top: 2em;">
+        <a href="/" style="color: var(--accent);">Back to Today</a>
+    </p>
+</section>
+{% endblock %}

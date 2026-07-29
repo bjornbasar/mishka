@@ -29,6 +29,14 @@ final class NavContext
     public function __construct(private readonly HouseholdRepository $households) {}
 
     /**
+     * v0.8.6 — the $consumeFlash parameter defaults to true (preserves the
+     * pre-v0.8.6 read-and-clear behaviour for every existing caller). Pass
+     * false from MishkaErrorHandler on the branded-404 path so the flash
+     * survives an accidental 404 render. Example: user changes password →
+     * redirect with "Password updated" flash → typos /todya → 404 renders.
+     * With consumeFlash=false the flash stays in session and is displayed
+     * on the user's next real page render, matching the intended UX.
+     *
      * @return array{
      *     session_email: string|null,
      *     session_user_id: int|null,
@@ -38,7 +46,7 @@ final class NavContext
      *     flash: string|null
      * }
      */
-    public function forCurrentUser(): array
+    public function forCurrentUser(bool $consumeFlash = true): array
     {
         $userId = Session::get('user_id');
         if (!is_int($userId) || $userId <= 0) {
@@ -48,7 +56,7 @@ final class NavContext
                 'households' => [],
                 'active_household' => null,
                 'verify_required' => false,
-                'flash' => $this->takeFlash(),
+                'flash' => $consumeFlash ? $this->takeFlash() : null,
             ];
         }
 
@@ -83,7 +91,7 @@ final class NavContext
             'households' => $memberships,
             'active_household' => $active,
             'verify_required' => $verifyRequired,
-            'flash' => $this->takeFlash(),
+            'flash' => $consumeFlash ? $this->takeFlash() : null,
         ];
     }
 

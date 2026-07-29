@@ -1,0 +1,55 @@
+{# v0.8.6 — anonymous 404, deliberately session-free.
+
+   This template does NOT extend layout.twig on purpose.  layout.twig emits
+   `<meta name="csrf-token" content="{{ csrf_token() }}">` which fires
+   Csrf::regenerate() and writes $_SESSION[_csrf_token] → creates a session
+   file per request.  On a bot-spam 404 storm that churns
+   /var/lib/mishka/sessions/ needlessly.
+
+   Kept minimal: brand mark + friendly copy + "Back to home" link.  No
+   nav, no household switcher, no flash slot (anonymous by definition
+   has no active flash).  See DOCS #76 and round-2 S3 fold in
+   /home/ubuntu/.claude/plans/mighty-roaming-pine.md. #}
+<!doctype html>
+<html lang="en-NZ">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Not Found · {{ brand.name }}</title>
+    <meta name="description" content="{{ brand.tagline }}">
+    <link rel="icon" href="/apple-touch-icon.png">
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #0f1115;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 4em 1em;
+            text-align: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        h1 { font-size: 3em; margin: 0 0 0.5em; color: #b88746; }
+        p { max-width: 32em; margin: 1em auto; line-height: 1.5; }
+        a { color: #b88746; }
+        .details {
+            color: #888;
+            font-family: monospace;
+            font-size: 0.85em;
+            margin-top: 2em;
+        }
+        .brand { font-family: monospace; letter-spacing: 0.05em; margin-top: 3em; color: #666; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <h1>Not Found</h1>
+    <p>
+        We couldn't find that page. It may have moved, or the link is stale.
+    </p>
+    {% if error_message is defined and error_message and error_message != 'Not Found' %}
+        <p class="details">Details: {{ error_message }}</p>
+    {% endif %}
+    <p><a href="/">Back to home</a></p>
+    <p class="brand">{{ brand.name }} — {{ brand.tagline }}</p>
+</body>
+</html>
