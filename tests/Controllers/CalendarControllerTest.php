@@ -242,14 +242,20 @@ final class CalendarControllerTest extends AppTestCase
         self::assertSame(404, $response->status());
     }
 
-    public function test_get_occurrence_edit_with_non_matching_slug_returns_404(): void
+    public function test_get_occurrence_edit_with_non_matching_slug_returns_400(): void
     {
-        // Slug is well-formed but no occurrence at that time
+        // v0.8.6 — semantic fix (DOCS #76). The series exists and the URL's
+        // occurrence slug is well-formed, but doesn't correspond to any
+        // occurrence of the series. The event RESOURCE is valid, the URL
+        // just claims something the resource state doesn't support — that's
+        // 400 Bad Request, not 404 Not Found. CalendarController.php:647
+        // now throws \InvalidArgumentException, which karhu maps to 400.
+        // Additional coverage in CalendarControllerHttp400Test.
         [$uid, $hid] = $this->signInAsHouseholdOwner();
         $eid = $this->createRecurringEvent($hid, $uid);
 
         $response = $this->request('GET', "/calendar/events/{$eid}/occurrences/2099-01-01T09-00/edit");
-        self::assertSame(404, $response->status());
+        self::assertSame(400, $response->status());
     }
 
     public function test_post_occurrence_creates_override_for_clean_occurrence(): void

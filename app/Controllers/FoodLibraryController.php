@@ -10,6 +10,7 @@ use App\Tracker\FoodServingRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Db\Connection;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -140,7 +141,7 @@ final class FoodLibraryController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $food = $this->foods->findById($id);
         if ($food === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $servings = $this->servings->listForFood($id);
         return (new Response())
@@ -162,7 +163,7 @@ final class FoodLibraryController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $food = $this->foods->findById($id);
         if ($food === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $name = trim($request->post('name'));
         $aliases = $request->post('aliases');
@@ -197,7 +198,7 @@ final class FoodLibraryController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $food = $this->foods->findById($id);
         if ($food === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $this->foods->delete($id);
         Session::set('flash_success', 'Removed from library.');

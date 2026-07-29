@@ -14,6 +14,7 @@ use App\Tracker\TrackerBadgeAwarder;
 use App\Tracker\WeightLogRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -191,7 +192,7 @@ final class ExerciseLogController
         [$userId] = $ctx;
         $id = (int) ($request->routeParams()['id'] ?? 0);
         if ($id <= 0) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $affected = $this->log->deleteOwnedById($id, $userId);
         if ($affected === 0) {

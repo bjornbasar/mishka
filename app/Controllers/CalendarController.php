@@ -19,6 +19,7 @@ use App\Push\UserNotificationPrefsRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Db\Connection;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -284,7 +285,7 @@ final class CalendarController
         $eid = (int) ($request->routeParams()['id'] ?? 0);
         $event = $this->events->findById($eid);
         if ($event === null || $event['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
 
         $household = $this->households->findById($hid);
@@ -318,7 +319,7 @@ final class CalendarController
         $eid = (int) ($request->routeParams()['id'] ?? 0);
         $event = $this->events->findById($eid);
         if ($event === null || $event['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
 
         $household = $this->households->findById($hid);
@@ -435,7 +436,7 @@ final class CalendarController
         $eid = (int) ($request->routeParams()['id'] ?? 0);
         $event = $this->events->findById($eid);
         if ($event === null || $event['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
 
         $this->events->delete($eid);
@@ -597,22 +598,26 @@ final class CalendarController
         $key = (string) ($request->routeParams()['key'] ?? '');
 
         if (preg_match(self::OCCURRENCE_KEY_REGEX, $key) !== 1) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
 
         $series = $this->events->findById($eid);
         if ($series === null || $series['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         // Single-occurrence routes only make sense for recurring series.
         if ($series['rrule'] === null || $series['rrule'] === '') {
-            return (new Response(404))->withBody('Not a recurring event');
+            // Event exists but has no RRULE — URL claims an occurrence,
+            // but the resource state doesn't support the operation. That's
+            // semantic 400 Bad Request, not 404. karhu ExceptionHandler
+            // maps \InvalidArgumentException → 400 (statusCode() L149).
+            throw new \InvalidArgumentException('Not a recurring event');
         }
 
         $tz = new \DateTimeZone((string) $series['timezone']);
         $occLocal = \DateTimeImmutable::createFromFormat('Y-m-d\TH-i', $key, $tz);
         if ($occLocal === false) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $occLocal = $occLocal->setTime(
             (int) $occLocal->format('H'),
@@ -643,7 +648,10 @@ final class CalendarController
         // to accept the slug — look up the exception row directly.
         $existingException = $this->exceptions->findForOccurrence($eid, $occLocal);
         if ($existingException === null && !$found) {
-            return (new Response(404))->withBody('Not an occurrence of this series');
+            // Series exists, occurrence key is well-formed, but doesn't
+            // match any occurrence + no override exists. URL asserts an
+            // occurrence that isn't part of the series — semantic 400.
+            throw new \InvalidArgumentException('Not an occurrence of this series');
         }
 
         return [$series, $occLocal, $existingException];

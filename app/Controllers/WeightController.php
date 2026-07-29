@@ -10,6 +10,7 @@ use App\Tracker\LoggedOnValidator;
 use App\Tracker\WeightLogRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -95,7 +96,7 @@ final class WeightController
         [$userId] = $ctx;
         $id = (int) ($request->routeParams()['id'] ?? 0);
         if ($id <= 0) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $affected = $this->weights->deleteOwnedById($id, $userId);
         if ($affected === 0) {

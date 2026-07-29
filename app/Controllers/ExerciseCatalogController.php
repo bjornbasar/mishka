@@ -8,6 +8,7 @@ use App\Auth\HouseholdAuthorizer;
 use App\Tracker\ExerciseRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -115,7 +116,7 @@ final class ExerciseCatalogController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $exercise = $this->exercises->findById($id);
         if ($exercise === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         return (new Response())
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
@@ -135,7 +136,7 @@ final class ExerciseCatalogController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $exercise = $this->exercises->findById($id);
         if ($exercise === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $name = trim($request->post('name'));
         $type = $request->post('type');
@@ -177,7 +178,7 @@ final class ExerciseCatalogController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $exercise = $this->exercises->findById($id);
         if ($exercise === null) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         $this->exercises->delete($id);
         Session::set('flash_success', 'Removed from catalog.');

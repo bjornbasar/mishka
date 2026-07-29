@@ -11,6 +11,7 @@ use App\Chores\ChoreScheduleRepository;
 use App\Household\HouseholdRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -257,7 +258,7 @@ final class ChoreSchedulesController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $schedule = $this->schedules->findById($id);
         if ($schedule === null || $schedule['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         return [$schedule, $hid];
     }

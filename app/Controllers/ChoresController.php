@@ -19,6 +19,7 @@ use App\Push\UserNotificationPrefsRepository;
 use App\View\NavContext;
 use Karhu\Attributes\Route;
 use Karhu\Db\Connection;
+use Karhu\Http\NotFoundException;
 use Karhu\Http\Request;
 use Karhu\Http\Response;
 use Karhu\Middleware\Session;
@@ -388,7 +389,7 @@ final class ChoresController
         $id = (int) ($request->routeParams()['id'] ?? 0);
         $chore = $this->chores->findById($id);
         if ($chore === null || $chore['household_id'] !== $hid) {
-            return (new Response(404))->withBody('Not found');
+            throw new NotFoundException();
         }
         return [$chore, $hid];
     }
