@@ -8,7 +8,7 @@
 
 ## 0. Orientation — mishka in one breath
 
-**Mishka Den** is a family-hub web app: auth + households, a calendar (recurrence + iCal feed), chores (points, badges, rotation), account lifecycle (email verify, password reset), web-push reminders, and a **health tracker** (food/exercise/weight logging with BMR targets, a private energy-balance dashboard, and a household effort leaderboard + badges). **v0.8.5.1, PHP 8.4+, PostgreSQL, Twig.** It's the *first real dogfood* of karhu — so the interesting thing isn't "how does a calendar work," it's **"how does a real app consume a from-scratch microframework, and where does it have to fill the gaps?"**
+**Mishka Den** is a family-hub web app: auth + households, a calendar (recurrence + iCal feed), chores (points, badges, rotation), account lifecycle (email verify, password reset), web-push reminders, and a **health tracker** (food/exercise/weight logging with BMR targets, a private energy-balance dashboard, and a household effort leaderboard + badges). **v0.8.6, PHP 8.4+, PostgreSQL, Twig.** It's the *first real dogfood* of karhu — so the interesting thing isn't "how does a calendar work," it's **"how does a real app consume a from-scratch microframework, and where does it have to fill the gaps?"**
 
 The single most important file in the whole repo is [public/bootstrap.php](public/bootstrap.php). If you understand that file, you understand how mishka is assembled. Everything else is domain code hanging off it.
 
@@ -62,7 +62,7 @@ The entry point is deliberately trivial — [public/index.php:14-15](public/inde
 
 ## 2. The seam — reading `bootstrap.php` top to bottom
 
-Open [public/bootstrap.php](public/bootstrap.php) and read it as the guided walk below. This *is* the tour. (Line numbers are current as of v0.8.5.1 — the file grew with the tracker DI wiring; the *structure* is unchanged.)
+Open [public/bootstrap.php](public/bootstrap.php) and read it as the guided walk below. This *is* the tour. (Line numbers are current as of v0.8.6 — the file grew with the tracker DI wiring; the *structure* is unchanged.)
 
 **a. Install karhu's error handler** — [bootstrap.php:86](public/bootstrap.php#L86). `(new ExceptionHandler())->register()`. This is the wire-up the karhu tour flagged as "you must do this yourself" (karhu §8). From here, any thrown exception (including `ForbiddenException` from §3) becomes a content-negotiated response.
 
@@ -90,11 +90,27 @@ The karhu tour ended with: *"what does a real app have to supply that the framew
 |---------------------------|-----------------|-------|
 | `UserRepositoryInterface` (auth queries) | `MishkaUserRepository` | [app/Auth/MishkaUserRepository.php](app/Auth/MishkaUserRepository.php) |
 | A view layer | karhu-view `TwigAdapter` + `templates/` | [bootstrap.php:148](public/bootstrap.php#L148) |
+| `Karhu\Http\ErrorHandler` (branded 404s) | `MishkaErrorHandler` | [bootstrap.php:282](public/bootstrap.php#L282) |
 | DB access | karhu-db `Connection` (PDO) + repositories | [app/**/*Repository.php](app/) |
 | The DI graph | `bootstrap.php` (HTTP) + `config/container.php` (CLI) | [public/bootstrap.php](public/bootstrap.php) |
 | All domain logic + routes | `app/Controllers`, `app/Calendar`, `app/Chores`, `app/Tracker`, … | [app/](app/) |
 
 **The keystone example — `MishkaUserRepository`** ([app/Auth/MishkaUserRepository.php:21](app/Auth/MishkaUserRepository.php#L21)): karhu declares `UserRepositoryInterface` keyed on an opaque `username` string ([ADR-0006](../karhu/docs/adr/0006-rbac-via-repository-interface.md)); mishka's schema keys on an **integer PK + email**. The repo *adapts* one to the other — `findByUsername()` [:47](app/Auth/MishkaUserRepository.php#L47) treats "username" as the email, and returns an extra `id` key beyond the interface contract (documented at [:36-46](app/Auth/MishkaUserRepository.php#L36-L46)). This is the **inversion** the whole framework is built around: karhu says *what* it needs (an interface), the app decides *how* (the schema, the SQL). It even detects the PDO driver at construction ([:30-34](app/Auth/MishkaUserRepository.php#L30-L34)) to stay portable between PG (prod) and SQLite (tests).
+
+### The second inversion — `MishkaErrorHandler` (v0.8.6)
+
+[app/Http/MishkaErrorHandler.php](app/Http/MishkaErrorHandler.php) is the same inversion applied to error pages, and it's the *other half* of the seam described in [karhu §8b](../karhu/CODE-TOUR.md). karhu declares `ErrorHandler`; mishka binds an implementation in one line ([bootstrap.php:282](public/bootstrap.php#L282)) and karhu's `App` routes **both** 404 paths — unmatched route *and* a controller's `NotFoundException` — through it. Eight controllers now throw `NotFoundException` rather than hand-building a 404 Response.
+
+It branches twice ([:51](app/Http/MishkaErrorHandler.php#L51)):
+
+1. **JSON vs HTML** on `Request::prefersJson()`.
+2. **Signed-in vs anonymous HTML** — and *this* branch is the interesting one.
+
+**Why two HTML templates?** [`errors/404.twig`](templates/errors/404.twig) extends the full `layout.twig`; [`errors/404_anon.twig`](templates/errors/404_anon.twig) is standalone. That isn't a styling preference — `layout.twig` emits `<meta name="csrf-token" content="{{ csrf_token() }}">`, which triggers `Csrf::regenerate()`, which **writes `$_SESSION` — a session-file write on every render**. Under a bot-spam 404 storm that would churn `/var/lib/mishka/sessions/` for visitors who have no session and need none. The stripped anonymous template keeps those 404s session-free.
+
+**Gotcha worth generalising:** a layout is not inert. Anything it renders that touches session, CSRF or the DB becomes a per-request cost on *every* page that extends it — including error pages served to bots. Check what your base template does before you extend it from a hot path.
+
+The anonymous check deliberately mirrors `NavContext::forCurrentUser`'s own short-circuit ([:56-57](app/Http/MishkaErrorHandler.php#L56-L57)) so both use one source of truth for "is anyone signed in". And `NavContext::forCurrentUser()` gained a `$consumeFlash` parameter ([NavContext.php:49](app/View/NavContext.php#L49)) defaulting to `true`: the error handler passes `false` so a pending flash message ("Password updated") **survives** being rendered on a 404 and still appears on the next real page.
 
 ---
 
@@ -238,4 +254,4 @@ The comparison *is* the lesson: two apps, one framework, different wiring pressu
 
 ---
 
-*Tour covers mishka @ `f261fd4` (v0.8.5.1). Companion docs: [DOCS.md](DOCS.md) + [docs/](docs/) (deep design per feature — [docs/TRACKER.md](docs/TRACKER.md) for the health tracker's schema/routes/seed), [karhu/CODE-TOUR.md](../karhu/CODE-TOUR.md) (the engine). Next tour: istrbuddy → ansible.*
+*Tour covers mishka @ `3cd62f1` (v0.8.6). Companion docs: [DOCS.md](DOCS.md) + [docs/](docs/) (deep design per feature — [docs/TRACKER.md](docs/TRACKER.md) for the health tracker's schema/routes/seed), [karhu/CODE-TOUR.md](../karhu/CODE-TOUR.md) (the engine). Next tour: istrbuddy → ansible.*
