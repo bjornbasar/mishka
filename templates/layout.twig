@@ -8,8 +8,15 @@
     {# v0.6.0: expose the session-bound CSRF token to JavaScript via a meta
        tag so push-subscribe.js (and any future XHR/fetch caller) can read it
        and send X-CSRF-Token. karhu's Csrf middleware accepts the header form
-       OR the form-field form; the meta tag is the simplest reader path. #}
-    <meta name="csrf-token" content="{{ csrf_token() }}">
+       OR the form-field form; the meta tag is the simplest reader path.
+       v0.8.7: gated on session_email — anonymous requests skip the meta so
+       Csrf::token()/regenerate() doesn't write $_SESSION[_csrf_token] on every
+       bot scan of the home page. Post-v0.8.6 the 404 anon path was fixed via
+       404_anon.twig; this generalises it to all anonymous layout renders.
+       Session files accumulated to 191k in prod pre-fix (DOCS #77). #}
+    {% if session_email is defined and session_email %}
+        <meta name="csrf-token" content="{{ csrf_token() }}">
+    {% endif %}
     {# v0.8.4: session-context metas for the offline logging IIFE
        (public/mishka-offline.js). Absent on anonymous pages — the IIFE's
        HAS_SESSION_CONTEXT check skips queue + flush behaviour there. The
@@ -560,7 +567,13 @@
        HTML page whose embedded token predates the current session. Best-effort:
        on fetch failure we leave the existing tokens alone — worst case the user
        sees the same "CSRF token mismatch" page they would have seen pre-v0.6.8.
-       See DOCS.md #49 + docs/USERGUIDE.md §7 Offline. #}
+       See DOCS.md #49 + docs/USERGUIDE.md §7 Offline.
+       v0.8.7: gated on session_email — anonymous requests have no meta tag to
+       refresh (see head guard above), AND the fetch itself hits CsrfTokenController
+       which triggers a session write on the server. Paired change to avoid the
+       190k+ session file accumulation from bot scans of layout-extending pages.
+       DOCS #77. #}
+    {% if session_email is defined and session_email %}
     <script>
         (function () {
             if (!('fetch' in window)) return;
@@ -592,6 +605,7 @@
             window.addEventListener('pageshow', function (e) { if (e.persisted) refresh(); });
         })();
     </script>
+    {% endif %}
     {# v0.7.4: prevent duplicate POST submits. Root cause of a lingering
        CSRF-mismatch 403 pattern on Android Chrome / PWA — the browser (or
        a fast double-tap) fires a second submit ~1s after a successful
