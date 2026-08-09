@@ -1,9 +1,11 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-07-29 (after v0.8.6 shipped — **queue drained**).
+> Last reviewed: 2026-08-10 (after v0.8.7 shipped — **queue drained**).
 
 ## Current release
+
+**v0.8.7** — Session-file churn mitigation + retire alpine chown from deploy. Shipped 2026-08-10. See `DOCS.md` decision #77. `layout.twig` head + CSRF-refresh IIFE gated on `session_email` (no session-file writes on anonymous bot scans). `ci/deploy.sh` drops the v0.8.5-era alpine `chown -R` step that hung a Dependabot deploy at 191k session files. Post-deploy purge of stale sessions on Bosco.
 
 **v0.8.6** — Branded 404 via karhu ErrorHandler hook (v0.1.4). Shipped 2026-07-29. See `DOCS.md` decision #76. `templates/errors/{404,404_anon}.twig` render through `App\Http\MishkaErrorHandler` with content-negotiated JSON. 19 inline `withBody('Not found')` controller sites swept; 2 Calendar sites (L609/L646) semantically flipped to 400. iCal + 3 token-invalidation pages deliberately kept inline.
 
@@ -39,6 +41,7 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.7** — Session-file churn mitigation + retire alpine chown from deploy (DOCS #77, 2026-08-10)
 - **v0.8.6** — Branded 404 via karhu ErrorHandler hook (DOCS #76, 2026-07-29)
 - **v0.8.5** — Non-root container user + close v0.7.6 tripwire (DOCS #75, 2026-07-19)
 - **v0.8.4** — Tracker Phase 5: offline logging + PWA shortcuts (DOCS #74, 2026-07-15)
