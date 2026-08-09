@@ -49,15 +49,22 @@ ci_log "decrypt env + ship compose to Bosco"
 ci_decrypt_env .env.enc .env
 rsync -a .env docker-compose.yml "$BOSCO:$BOSCO_DIR/"
 
-# v0.8.5 non-root migration: pull → stop app+worker → alpine chown+chmod the sessions
-# volume (idempotent) → up -d. Old (root) container stopped before chown to kill the
-# mid-migration race window (DOCS #75). alpine pinned by digest.
-ci_log "deploy on Bosco (non-root chown dance)"
-ssh "$BOSCO" "cd $BOSCO_DIR && docker compose pull && docker compose stop app worker && \
-  docker run --rm -v mishka_mishka-sessions:/target \
-    alpine@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b \
-    sh -c 'set -e; chown -R 33:33 /target && chmod 700 /target' && \
-  docker compose up -d --remove-orphans"
+# v0.8.7: retired the alpine chown/chmod dance that ran between stop and up-d.
+# It was added for v0.8.5's non-root migration (2026-07-19, DOCS #75) to force
+# ownership of the mishka-sessions volume to uid=33 on the first non-root deploy.
+# It was designed to stay idempotent forever, but at family scale the sessions
+# volume accumulated 191k files (~3169/day bot-scan churn pre-v0.8.7 layout fix
+# — DOCS #77), which turned the chown -R walk into a ~2h blocker on Bosco's SD
+# card at ~45 IOPS. On 2026-08-10 it hung a Dependabot redeploy and served 502s
+# for the family. The chown is a permanent no-op-in-effect now — sessions dir
+# has been www-data:www-data 700 continuously since v0.8.5 landed 3+ weeks ago,
+# with no path in the app that would change it back.
+#
+# Safety net if this assumption ever breaks: `docker exec -u root mishka-app
+# chown -R www-data:www-data /var/lib/mishka/sessions && chmod 700 …` inside
+# the running container is the manual escape hatch.
+ci_log "deploy on Bosco (pull + rolling recreate)"
+ssh "$BOSCO" "cd $BOSCO_DIR && docker compose pull && docker compose up -d --remove-orphans"
 
 ci_log "post-flight: assert www-data, migrate, seed foods/exercises, badges backfill"
 ssh "$BOSCO" "docker exec mishka-app id www-data | grep -q 'uid=33' && docker exec mishka-app whoami | grep -qx 'www-data'"
