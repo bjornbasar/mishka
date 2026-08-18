@@ -14,7 +14,7 @@ IMG="$REGISTRY/mishka-php"
 PG="mishka-pgtest"
 DSN="pgsql:host=$PG;port=5432;dbname=mishka_test"
 
-ci_trap "→ Bosco (mishka.minified.work)"
+ci_trap "→ Bosco (hub.twobots.dev)"
 ci_lock
 
 ci_log "build builder image (php + ext + composer toolchain)"

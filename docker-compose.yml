@@ -10,6 +10,29 @@ services:
     working_dir: /app
     command: ["php", "-S", "0.0.0.0:8080", "-t", "public"]
     env_file: [.env]
+    # ⚠ APP_URL IS REQUIRED AT BOOT — bootstrap.php throws on a missing or malformed value, so a
+    # typo here is a hard startup failure on this container AND on the worker below, not a
+    # degraded page. UrlBuilder builds every emailed absolute URL from it (verify-email,
+    # email-change, password-reset), and tests/Mail/UrlBuilderTest.php enforces that it comes from
+    # this single value and NEVER from request headers.
+    #
+    # Set HERE rather than in .env.enc, for the same three reasons as kuma:
+    #   1. a public hostname is not a secret, and keeping it in SOPS meant re-encrypting a
+    #      credentials file to change a URL;
+    #   2. `environment:` beats `env_file:` in Compose, so this wins over the stale value still
+    #      inside .env.enc (retired separately);
+    #   3. `environment:` values are part of the service config hash, so `up -d` is GUARANTEED to
+    #      recreate the container. An env_file CONTENT change alone may not trigger recreation —
+    #      the deploy would report success while the container kept the old value.
+    #
+    # `hub`, not `mishka`: on the product zone the domain is wayfinding; the bear name stays the
+    # authorship identity and the product stays branded "Mishka Den". See bear-names.md.
+    #
+    # NOTE this does NOT cover the iCal feed URL: IcalFeedController builds that from the request
+    # Host, so it self-corrects per-hostname. mishka's own docs overclaim that no code path reads
+    # the Host header — true for emailed URLs only.
+    environment:
+      APP_URL: https://hub.twobots.dev
     ports: ["5180:8080"]
     restart: unless-stopped
     mem_limit: 256m
@@ -36,6 +59,12 @@ services:
     working_dir: /app
     command: ["php", "vendor/bjornbasar/karhu/bin/karhu", "push:worker"]
     env_file: [.env]
+    # Same pin as the app, and it must NOT be forgotten here: the worker boots through the same
+    # bootstrap and dies on a bad APP_URL, but it fails INVISIBLY — the site keeps serving while
+    # push dispatch silently stops. It also renders push payloads, so a stale value would send
+    # notifications pointing at the old host.
+    environment:
+      APP_URL: https://hub.twobots.dev
     restart: unless-stopped
     mem_limit: 128m
     # v0.8.5 — same hardening as app service (see rationale above).
