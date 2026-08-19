@@ -1,9 +1,11 @@
 # Mishka — Roadmap
 
 > Priority-sequenced view of what ships next. Update this file as releases land or priorities shift.
-> Last reviewed: 2026-08-10 (after v0.8.7 shipped — **queue drained**).
+> Last reviewed: 2026-08-19 (after v0.8.8 shipped — **queue drained**).
 
 ## Current release
+
+**v0.8.8** — Consolidates v0.8.7.1 + v0.8.7.2 hotfix chain (iCal Clock injection unblocking deploy after issue #21 time-bomb; pg-smoke wait-loop upgraded to `psql`-roundtrip). See `DOCS.md` decision #78. Shipped 2026-08-19.
 
 **v0.8.7** — Session-file churn mitigation + retire alpine chown from deploy. Shipped 2026-08-10. See `DOCS.md` decision #77. `layout.twig` head + CSRF-refresh IIFE gated on `session_email` (no session-file writes on anonymous bot scans). `ci/deploy.sh` drops the v0.8.5-era alpine `chown -R` step that hung a Dependabot deploy at 191k session files. Post-deploy purge of stale sessions on Bosco.
 
@@ -41,6 +43,9 @@ Fold-back from `docs/TRACKER-PLAN.md` §11 Open Decisions. A fresh session picki
 
 ## Ledger of past releases (most recent first)
 
+- **v0.8.8** — Consolidates v0.8.7.1 + v0.8.7.2 hotfix chain into a proper patch release (DOCS #78, 2026-08-19)
+- **v0.8.7.2** — ci: pg-smoke wait-loop swapped `pg_isready` → `psql -c 'SELECT 1'` (2026-08-19, ci-only)
+- **v0.8.7.1** — hotfix: inject Clock into IcalFeedBuilder to unblock deploy after issue #21 time-bomb (2026-08-19)
 - **v0.8.7** — Session-file churn mitigation + retire alpine chown from deploy (DOCS #77, 2026-08-10)
 - **v0.8.6** — Branded 404 via karhu ErrorHandler hook (DOCS #76, 2026-07-29)
 - **v0.8.5** — Non-root container user + close v0.7.6 tripwire (DOCS #75, 2026-07-19)
