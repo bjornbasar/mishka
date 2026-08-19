@@ -34,7 +34,14 @@ ci_log "pg-smoke against throwaway postgres:16"
 docker rm -f "$PG" >/dev/null 2>&1 || true
 docker run -d --name "$PG" --network webapps \
   -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=mishka_test postgres:16 >/dev/null
-for _ in $(seq 1 30); do if docker exec "$PG" pg_isready -U postgres >/dev/null 2>&1; then break; fi; sleep 1; done
+# v0.8.7.2: wait for the postmaster to accept CLIENT connections, not just
+# report "ready" locally.  pg_isready returned true too early on 2026-08-19's
+# first deploy attempt (postgres:16 on Bosco-scale SD-slow container start),
+# after which the `karhu migrate` step immediately hit "Connection refused".
+# `psql -c 'SELECT 1'` is a real wire round-trip and succeeds only when the
+# postmaster is fully accepting queries.  Same 30s ceiling; no behaviour
+# change on the happy path.
+for _ in $(seq 1 30); do if docker exec "$PG" psql -U postgres -c 'SELECT 1' >/dev/null 2>&1; then break; fi; sleep 1; done
 docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --network webapps -v "$PWD:/app" -w /app \
   -e DB_DSN="$DSN" -e DB_USER=postgres -e DB_PASS=postgres \
   mishka-php:builder sh -c 'php vendor/bjornbasar/karhu/bin/karhu migrate && vendor/bin/phpunit --filter '\''PgSmoke'\'''
