@@ -21,6 +21,10 @@ use App\Calendar\IcalFeedTokenRepository;
 use App\Calendar\MonthGridBuilder;
 use App\Calendar\RangeExpander;
 use App\Calendar\RruleTranslator;
+// v0.8.7.1: FixedClock injected into IcalFeedBuilder so IcalFeedControllerTest
+// (which uses AppTestCase and asserts against fixture date 2026-07-14) is
+// isolated from wall-clock drift.  DOCS #78 covers the design + coupling.
+use App\Tests\Fixtures\FixedClock;
 use App\Chores\BadgeAwardRepository;
 use App\Chores\BadgeAwarder;
 use App\Chores\ChoreRepository;
@@ -148,7 +152,16 @@ abstract class AppTestCase extends TestCase
         $rruleTranslator = new RruleTranslator();
         $eventService = new EventService($this->eventRepo, $exceptionRepo);
         $this->tokenRepo = new IcalFeedTokenRepository($this->db);
-        $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo);
+        // v0.8.7.1: FixedClock at 2026-07-07 12:00:00 UTC freezes IcalFeedBuilder's
+        // [-31d, +366d] window so IcalFeedControllerTest's fixture 2026-07-14
+        // event stays inside the future range regardless of wall clock (issue #21).
+        // Same freeze target as IcalFeedBuilderTest.php's setUp — kept in sync so
+        // a future refactor moving either fixture date moves both.  Karhu
+        // Container::set() stores concrete instances; the builder here is the
+        // instance handed to IcalFeedController via container ->get(), so this
+        // clock (NOT any container-level ClockInterface binding) is what fires.
+        $icalClock = new FixedClock(new \DateTimeImmutable('2026-07-07 12:00:00', new \DateTimeZone('UTC')));
+        $icalBuilder = new IcalFeedBuilder($this->eventRepo, $exceptionRepo, $this->householdRepo, $icalClock);
         $this->choreRepo = new ChoreRepository($this->db);
         $this->badgeAwardRepo = new BadgeAwardRepository($this->db);
         $this->badgeAwarder = new BadgeAwarder($this->badgeAwardRepo, $this->choreRepo);

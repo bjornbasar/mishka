@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Calendar;
 
+use App\Clock\ClockInterface;
 use App\Household\HouseholdRepository;
 use Sabre\VObject\Component;
 use Sabre\VObject\Component\VCalendar;
@@ -40,6 +41,12 @@ final class IcalFeedBuilder
         private readonly EventRepository $events,
         private readonly EventExceptionRepository $exceptions,
         private readonly HouseholdRepository $households,
+        // v0.8.7.1: injected so tests can freeze the [-31d, +366d] window
+        // (fixtures use absolute dates 2026-07-*, which time-bombed once
+        // wall-clock slid past them — issue #21).  Prod wires SystemClock
+        // via container binding at bootstrap.php; behaviour is byte-
+        // equivalent to the previous `new \DateTimeImmutable('now')`.
+        private readonly ClockInterface $clock,
     ) {}
 
     /** Build + serialise. Convenience wrapper for the controller. */
@@ -59,7 +66,11 @@ final class IcalFeedBuilder
             return $vcal;
         }
 
-        $now = new \DateTimeImmutable('now');
+        // v0.8.7.1: clock injection.  SystemClock returns UTC-anchored
+        // DateTimeImmutable; the modify('-31 days')/('+366 days') walk is
+        // timezone-agnostic (calendar days), so the boundary result is
+        // byte-equivalent to the previous `new \DateTimeImmutable('now')`.
+        $now = $this->clock->now();
         $rangeStart = $now->modify('-' . self::RANGE_PAST_DAYS . ' days');
         $rangeEnd = $now->modify('+' . self::RANGE_FUTURE_DAYS . ' days');
 
@@ -217,7 +228,13 @@ final class IcalFeedBuilder
         $vtz = $vcal->add('VTIMEZONE', ['TZID' => $tzName]);
         assert($vtz instanceof Component);
 
-        $now = new \DateTimeImmutable('now', new \DateTimeZone($tzName));
+        // v0.8.7.1: clock injection, re-anchored to $tzName so ->getOffset()
+        // returns the target zone's offset (e.g. +12:00 for Pacific/Auckland
+        // in NZST).  Without ->setTimezone() the SystemClock's UTC instant
+        // would return offset 0, corrupting the STANDARD block for every
+        // non-UTC feed — plan-agent B1 fold, would have shipped broken
+        // VTIMEZONE offsets to real Google/Apple Calendar subscribers.
+        $now = $this->clock->now()->setTimezone(new \DateTimeZone($tzName));
         $offsetMinutes = (int) ($now->getOffset() / 60);
         $offsetString = sprintf('%+03d%02d', intdiv($offsetMinutes, 60), abs($offsetMinutes) % 60);
 

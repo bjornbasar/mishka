@@ -165,7 +165,12 @@ $rangeExpander = new RangeExpander($eventRepo, $exceptionRepo);
 $rruleTranslator = new RruleTranslator();
 $eventService = new EventService($eventRepo, $exceptionRepo);
 $tokenRepo = new IcalFeedTokenRepository($db);
-$icalBuilder = new IcalFeedBuilder($eventRepo, $exceptionRepo, $householdRepo);
+// v0.8.7.1: SystemClock construction hoisted above IcalFeedBuilder so the
+// builder's clock arg can be injected here.  The container binding for
+// ClockInterface stays at its original position further down; only the
+// instance construction moves up.  See DOCS.md decision #78.
+$systemClock = new SystemClock();
+$icalBuilder = new IcalFeedBuilder($eventRepo, $exceptionRepo, $householdRepo, $systemClock);
 $choreRepo = new ChoreRepository($db);
 $choreScheduleRepo = new ChoreScheduleRepository($db);
 $choreScheduleGenerator = new ChoreScheduleGenerator($choreScheduleRepo, $choreRepo, $householdRepo);
@@ -232,7 +237,10 @@ $notifyPrefsRepo = new UserNotificationPrefsRepository($db);
 $notifyDispatchRepo = new NotificationDispatchRepository($db);
 $webPush = new WebPush(['VAPID' => $vapid->forWebPush()], timeout: 5);
 $pushSender = new PushSender($webPush);
-$systemClock = new SystemClock();
+// v0.8.7.1: $systemClock now instantiated above (near IcalFeedBuilder ctor)
+// so it can be injected into IcalFeedBuilder's new clock param.  The
+// container binding for ClockInterface still lives further down; the
+// instance is a plain object with no side effects, so eager hoist is safe.
 $queue = new DatabaseQueue($db);
 
 $app->container()->set(Connection::class, $db);

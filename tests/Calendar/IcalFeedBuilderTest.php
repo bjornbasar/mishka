@@ -8,6 +8,7 @@ use App\Calendar\EventExceptionRepository;
 use App\Calendar\EventRepository;
 use App\Calendar\IcalFeedBuilder;
 use App\Household\HouseholdRepository;
+use App\Tests\Fixtures\FixedClock;
 use Karhu\Db\Connection;
 use PHPUnit\Framework\TestCase;
 use Sabre\VObject\Reader;
@@ -26,6 +27,7 @@ final class IcalFeedBuilderTest extends TestCase
     private EventRepository $events;
     private EventExceptionRepository $exceptions;
     private HouseholdRepository $households;
+    private FixedClock $clock;
     private int $uid;
     private int $hid;
     private string $tz = 'Pacific/Auckland';
@@ -38,7 +40,14 @@ final class IcalFeedBuilderTest extends TestCase
         $this->events = new EventRepository($this->db);
         $this->exceptions = new EventExceptionRepository($this->db);
         $this->households = new HouseholdRepository($this->db);
-        $this->builder = new IcalFeedBuilder($this->events, $this->exceptions, $this->households);
+        // v0.8.7.1 (issue #21): freeze the builder's [-31d, +366d] window at
+        // 2026-07-07 12:00:00 UTC so fixture dates 2026-07-07 / 2026-07-14 stay
+        // inside the window regardless of wall-clock date.  Mid-July NZ is
+        // NZST unambiguously (no DST-flap for VTIMEZONE offset assertions).
+        // Same freeze target as AppTestCase.php so IcalFeedControllerTest's
+        // 2026-07-14 fixture stays consistent — kept in sync.
+        $this->clock = new FixedClock(new \DateTimeImmutable('2026-07-07 12:00:00', new \DateTimeZone('UTC')));
+        $this->builder = new IcalFeedBuilder($this->events, $this->exceptions, $this->households, $this->clock);
 
         $this->uid = (int) $this->db->fetchScalar(
             "INSERT INTO users (email, password_hash, display_name) VALUES (:e, 'x', 'T') RETURNING id",
