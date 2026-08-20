@@ -245,7 +245,7 @@ Trace in the source before concluding.
 
 ## 11. Bridge to istrbuddy
 
-istrbuddy is the *other* karhu dogfood — an issue tracker, smaller, SQLite-backed, and it's the app karhu ships as its own reference (`examples/istrbuddy/`, [docs/recipes/istrbuddy.md](../karhu/docs/recipes/istrbuddy.md)). Carry these questions in:
+istrbuddy is the *other* karhu dogfood — an issue tracker, smaller, SQLite-backed, and it's the app karhu ships as its own reference (`examples/istrbuddy/`, [docs/packages/istrbuddy.md](../karhu/docs/packages/istrbuddy.md)). Carry these questions in:
 - **How does istrbuddy's seam differ?** It has no households/push/email — so its `bootstrap` should be dramatically smaller. What's the *minimum* a karhu app must wire?
 - **SQLite vs PostgreSQL** — istrbuddy is SQLite-only, so no driver-portability dance. Does it still use the repository pattern?
 - **Does it lean on auto-wiring more** (fewer scalar deps → fewer `set()`/`factory()` calls)?
