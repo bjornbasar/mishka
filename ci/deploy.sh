@@ -5,6 +5,7 @@
 # v0.8.5 non-root chown dance + karhu migrate + tracker seeds/backfill.
 # ghcr is published by GitHub-hosted docker-build-push.yml on v* — NOT here.
 # Runs on Ruxa via `git push ruxa main` (post-receive) or by hand.
+# ci: detach — phpunit + phpstan + pg-smoke against a throwaway postgres: 371s avg, 523s max.
 set -euo pipefail
 source "${CI_LIB:-/data/git/ci-lib.sh}"
 
