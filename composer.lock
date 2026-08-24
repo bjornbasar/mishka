@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "bjornbasar/karhu",
-            "version": "v0.1.4",
+            "version": "v0.1.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bjornbasar/karhu.git",
-                "reference": "d11a2ea42cd217cc4ede281c69bf92d35f14baf4"
+                "reference": "e9ed67b7de628beb7489f10ac0782f6722906df4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bjornbasar/karhu/zipball/d11a2ea42cd217cc4ede281c69bf92d35f14baf4",
-                "reference": "d11a2ea42cd217cc4ede281c69bf92d35f14baf4",
+                "url": "https://api.github.com/repos/bjornbasar/karhu/zipball/e9ed67b7de628beb7489f10ac0782f6722906df4",
+                "reference": "e9ed67b7de628beb7489f10ac0782f6722906df4",
                 "shasum": ""
             },
             "require": {
@@ -28,6 +28,9 @@
                 "phpstan/phpstan": "^2.0",
                 "phpunit/phpunit": "^11.0"
             },
+            "bin": [
+                "bin/karhu"
+            ],
             "type": "library",
             "autoload": {
                 "psr-4": {
@@ -47,9 +50,9 @@
             "description": "Minimal PHP microframework — attribute-routed, zero dependencies, PHP 8.3+",
             "support": {
                 "issues": "https://github.com/bjornbasar/karhu/issues",
-                "source": "https://github.com/bjornbasar/karhu/tree/v0.1.4"
+                "source": "https://github.com/bjornbasar/karhu/tree/v0.1.5"
             },
-            "time": "2026-07-28T23:21:44+00:00"
+            "time": "2026-08-19T09:54:39+00:00"
         },
         {
             "name": "bjornbasar/karhu-db",
