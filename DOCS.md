@@ -11,6 +11,9 @@ This file is the top-level overview. Detail lives in `docs/`:
 - **[docs/CALENDAR.md](docs/CALENDAR.md)** — v0.3 calendar design (time model, month grid, optimistic concurrency, recurrence, single-occurrence editing, iCal feed)
 - **[docs/CHORES.md](docs/CHORES.md)** — v0.4 chores design (overdue/time model, live points tally + credit rule, recurring-chore generation + round-robin rotation)
 - **[docs/ACCOUNT.md](docs/ACCOUNT.md)** — v0.5 account lifecycle (profile, password change, reset, verify, household lifecycle, session revocation, rate limit, threat model)
+- **[PRIVACY-ANNEX.md](PRIVACY-ANNEX.md)** — this app's privacy annex to the TwoBots Apps base policy
+  (drafted, not yet linked/served from a live page); covers Tracker health data, the iCal feed's
+  ongoing third-party pull, and per-device session visibility
 
 ---
 
