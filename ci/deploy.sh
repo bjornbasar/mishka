@@ -19,7 +19,13 @@ ci_trap "→ Bosco (hub.twobots.dev)"
 ci_lock
 
 ci_log "build builder image (php + ext + composer toolchain)"
-docker build --target builder -t mishka-php:builder .
+# --pull: without it, `FROM php:8.4-cli` resolves against whatever layer is already
+# cached on the build host, which can silently sit on a pre-patch PHP point release
+# indefinitely -- exactly what happened with CVE-2026-109618/109619 (fixed upstream
+# in php:8.4-cli 2026-10-21, but mishka kept running the cached 8.4.23 underneath
+# until this was noticed and fixed by hand on 2026-10-22). A floating base tag is
+# only a real update channel if every build actually checks for a newer image.
+docker build --pull --target builder -t mishka-php:builder .
 
 # Tests are .dockerignore'd out of the image (tests/, phpunit.xml.dist,
 # phpstan.neon.dist — kept out of the lean runtime), so run them GitHub-style:
@@ -49,7 +55,7 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --network webapps -v "$P
 docker rm -f "$PG" >/dev/null 2>&1 || true
 
 ci_log "build + push runtime image: $IMG (:latest + :sha-$CI_SHA)"
-docker build --target runtime -t "$IMG:latest" -t "$IMG:sha-$CI_SHA" .
+docker build --pull --target runtime -t "$IMG:latest" -t "$IMG:sha-$CI_SHA" .
 docker push "$IMG:latest"
 docker push "$IMG:sha-$CI_SHA"
 
