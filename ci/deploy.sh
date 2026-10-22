@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
 # mishka local CI/CD deploy. Full test gate (phpunit + phpstan + pg-smoke against a
 # throwaway postgres) in the `test` image stage, builds the self-contained `runtime`
-# image, pushes the local registry (:latest + :sha-), then deploys to Bosco with the
+# image, pushes the local registry (:latest + :sha-), then deploys to Casal with the
 # v0.8.5 non-root chown dance + karhu migrate + tracker seeds/backfill.
+# Moved here from Bosco 2026-10-22 (CVE-2026-109618/109619 PHP patch + Bosco's SD-card
+# I/O ceiling hit deploying it — see mishka/DOCS.md and the lumra-dongle-era deploys
+# that hit the same class of problem). mishka originally ran on Casal before an
+# app-tier rebalance moved it to Bosco on 2026-06-29; this reverses that move.
 # ghcr is published by GitHub-hosted docker-build-push.yml on v* — NOT here.
 # Runs on Ruxa via `git push ruxa main` (post-receive) or by hand.
 # ci: detach — phpunit + phpstan + pg-smoke against a throwaway postgres: 371s avg, 523s max.
 set -euo pipefail
 source "${CI_LIB:-/data/git/ci-lib.sh}"
 
-BOSCO="ubuntu@192.168.4.34"
-BOSCO_DIR="/data/mishka"
+CASAL="ubuntu@192.168.4.6"
+CASAL_DIR="/data/mishka"
 IMG="$REGISTRY/mishka-php"
 PG="mishka-pgtest"
 DSN="pgsql:host=$PG;port=5432;dbname=mishka_test"
 
-ci_trap "→ Bosco (hub.twobots.dev)"
+ci_trap "→ Casal (hub.twobots.dev)"
 ci_lock
 
 ci_log "build builder image (php + ext + composer toolchain)"
@@ -59,9 +63,9 @@ docker build --pull --target runtime -t "$IMG:latest" -t "$IMG:sha-$CI_SHA" .
 docker push "$IMG:latest"
 docker push "$IMG:sha-$CI_SHA"
 
-ci_log "decrypt env + ship compose to Bosco"
+ci_log "decrypt env + ship compose to Casal"
 ci_decrypt_env .env.enc .env
-rsync -a .env docker-compose.yml "$BOSCO:$BOSCO_DIR/"
+rsync -a .env docker-compose.yml "$CASAL:$CASAL_DIR/"
 
 # v0.8.7: retired the alpine chown/chmod dance that ran between stop and up-d.
 # It was added for v0.8.5's non-root migration (2026-07-19, DOCS #75) to force
@@ -77,12 +81,12 @@ rsync -a .env docker-compose.yml "$BOSCO:$BOSCO_DIR/"
 # Safety net if this assumption ever breaks: `docker exec -u root mishka-app
 # chown -R www-data:www-data /var/lib/mishka/sessions && chmod 700 …` inside
 # the running container is the manual escape hatch.
-ci_log "deploy on Bosco (pull + rolling recreate)"
-ssh "$BOSCO" "cd $BOSCO_DIR && docker compose pull && docker compose up -d --remove-orphans"
+ci_log "deploy on Casal (pull + rolling recreate)"
+ssh "$CASAL" "cd $CASAL_DIR && docker compose pull && docker compose up -d --remove-orphans"
 
 ci_log "post-flight: assert www-data, migrate, seed foods/exercises, badges backfill"
-ssh "$BOSCO" "docker exec mishka-app id www-data | grep -q 'uid=33' && docker exec mishka-app whoami | grep -qx 'www-data'"
-ssh "$BOSCO" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
-ssh "$BOSCO" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
-ssh "$BOSCO" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
-ssh "$BOSCO" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:badges-backfill"
+ssh "$CASAL" "docker exec mishka-app id www-data | grep -q 'uid=33' && docker exec mishka-app whoami | grep -qx 'www-data'"
+ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migrate --applied-by=ci-deploy"
+ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
+ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
+ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:badges-backfill"
