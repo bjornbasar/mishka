@@ -1,7 +1,7 @@
 name: CI
 
 # PR + main test gate ONLY. The build + deploy jobs moved to the local loop
-# (git push ruxa main → ci/deploy.sh on Ruxa → Bosco). Release images publish to
+# (git push den main → ci/deploy.sh on Ruxa → Bosco). Release images publish to
 # ghcr via docker-build-push.yml on v* tags. (Local ci/deploy.sh re-runs these same
 # suites in-image before deploying, so this is the GitHub-side belt-and-braces.)
 on:

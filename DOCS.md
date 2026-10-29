@@ -32,7 +32,7 @@ This file is the top-level overview. Detail lives in `docs/`:
 | Env loader | `vlucas/phpdotenv ^5.6` |
 | Testing | PHPUnit 11 — SQLite in-memory for unit/integration; PostgreSQL smoke job in CI |
 | Static analysis | PHPStan level 6 |
-| CI | **Dev deploy = local loop** (`git push ruxa main` → `ci/deploy.sh` on Ruxa → Bosco; test+phpstan+pg-smoke gate in-container). GitHub Actions (`ubuntu-latest`) keeps the PR test + PG-smoke jobs (`ci.yml`) and publishes ghcr on `v*` via `docker-build-push.yml` (`target: runtime`). |
+| CI | **Dev deploy = local loop** (`git push den main` → `ci/deploy.sh` on Ruxa → Bosco; test+phpstan+pg-smoke gate in-container). GitHub Actions (`ubuntu-latest`) keeps the PR test + PG-smoke jobs (`ci.yml`) and publishes ghcr on `v*` via `docker-build-push.yml` (`target: runtime`). |
 
 ---
 
