@@ -2,7 +2,7 @@
 
 > A **reading-guide map**, companion to [karhu's CODE-TOUR](../karhu/CODE-TOUR.md). **Read that one first** — mishka is the *car*; karhu is the *engine*. This tour spends its energy on the **seam** (where the app plugs into the framework) and on the app-level patterns karhu deliberately doesn't have opinions about. Every `file:line` link is clickable in your IDE and on GitHub.
 >
-> **How to use it:** §1 recaps the spine and shows where mishka plugs in; §2 walks `bootstrap.php`, the one file that *is* the app's wiring; §3 answers the question the karhu tour left open ("what must a real app supply?"); §4–§6 are the app's own cross-cutting patterns; §7 is the sync/async payoff; §8 walks one whole feature (the health tracker) end to end; §9 is the pattern index; §10 the exercises; §11 bridges to istrbuddy.
+> **How to use it:** §1 recaps the spine and shows where mishka plugs in; §2 walks `bootstrap.php`, the one file that *is* the app's wiring; §3 answers the question the karhu tour left open ("what must a real app supply?"); §4–§6 are the app's own cross-cutting patterns; §7 is the sync/async payoff; §8 walks one whole feature (the health tracker) end to end; §9 is the pattern index; §10 the exercises; §11 bridges to ansible.
 
 ---
 
@@ -70,15 +70,15 @@ Open [public/bootstrap.php](public/bootstrap.php) and read it as the guided walk
 
 **c. Build the framework-provided services** — the karhu-db `Connection` [:139-143](public/bootstrap.php#L139-L143) and the karhu-view `TwigAdapter` [:148-151](public/bootstrap.php#L148-L151) (plus a `brand` global and the `CsrfTwigExtension` — see §5).
 
-**d. The DI graph — hand-wired** — [:158-297](public/bootstrap.php#L158-L297). The app's ~49 services are `new`'d and then bound with **49** `container()->set(Class::class, $instance)` calls (the bind block itself is [:238-297](public/bootstrap.php#L238-L297)). This is worth pausing on, because it looks like a lot of boilerplate for a framework that *has* auto-wiring:
+**d. The DI graph — hand-wired** — [:158-313](public/bootstrap.php#L158-L313). The app's ~49 services are `new`'d and then bound with **49** `container()->set(Class::class, $instance)` calls (the bind block itself is [:246-313](public/bootstrap.php#L246-L313)). This is worth pausing on, because it looks like a lot of boilerplate for a framework that *has* auto-wiring:
 
 > **Why hand-wire when karhu can auto-wire?** Two reasons, both in the comment at [:155-157](public/bootstrap.php#L155-L157). (1) `Connection` takes **scalar** args (dsn/user/pass from env) — the auto-wirer can't invent those, so it *must* be pre-built. (2) Every repo depends on that one `Connection` instance; pre-building and `set()`-ing guarantees a **single shared** connection rather than the auto-wirer trying to construct one per class. Once `Connection` is set, most repos *could* auto-wire — but mishka wires them explicitly for a legible, greppable startup graph. Compare this against `config/container.php` (§7) where the CLI leans *harder* on auto-wiring.
 
-**e. Factories for scalar-arg controllers** — [:304-335](public/bootstrap.php#L304-L335). `AuthController` and `PasswordResetController` can't fully auto-wire because their constructors take a scalar `$dummyHash` / `timingFloorMicros`, so they're registered with `container()->factory(...)` ([:304](public/bootstrap.php#L304), [:322](public/bootstrap.php#L322)) — **this is the direct payoff of karhu's `factory(Container)` feature** from the karhu tour (karhu §6). Read the comment at [:299-302](public/bootstrap.php#L299-L302): the `$dummyHash` is a pre-computed argon2id hash used so the "email not found" path of a password reset still burns the *same* CPU as a real one — a **timing-attack defence** (you can't tell a real account from a fake one by response time).
+**e. Factories for scalar-arg controllers** — [:315-346](public/bootstrap.php#L315-L346). `AuthController` and `PasswordResetController` can't fully auto-wire because their constructors take a scalar `$dummyHash` / `timingFloorMicros`, so they're registered with `container()->factory(...)` ([:320](public/bootstrap.php#L320), [:338](public/bootstrap.php#L338)) — **this is the direct payoff of karhu's `factory(Container)` feature** from the karhu tour (karhu §6). Read the comment at [:315-318](public/bootstrap.php#L315-L318): the `$dummyHash` is a pre-computed argon2id hash used so the "email not found" path of a password reset still burns the *same* CPU as a real one — a **timing-attack defence** (you can't tell a real account from a fake one by response time).
 
-**f. Middleware order** — [:344-346](public/bootstrap.php#L344-L346). `Session → SessionRevocationGuard → Csrf`, and the comment says exactly why: `Session` must run first so `$_SESSION` exists; the guard reads it to kill stale sessions *before* CSRF would let them act. **This is the concrete version of the karhu §12 exercise #2** — ordering is load-bearing, and it's declared here in FIFO `pipe()` calls. Note the `Session(['lifetime' => 2592000])` — a **30-day cookie** (v0.7.7 "family stay logged in", paired with `gc_maxlifetime`; comment at [:338-343](public/bootstrap.php#L338-L343)).
+**f. Middleware order** — [:360-362](public/bootstrap.php#L360-L362). `Session → SessionRevocationGuard → Csrf`, and the comment says exactly why: `Session` must run first so `$_SESSION` exists; the guard reads it to kill stale sessions *before* CSRF would let them act. **This is the concrete version of the karhu §12 exercise #2** — ordering is load-bearing, and it's declared here in FIFO `pipe()` calls. Note the `Session(['lifetime' => 2592000])` — a **30-day cookie** (v0.7.7 "family stay logged in", paired with `gc_maxlifetime`; comment at [:354-359](public/bootstrap.php#L354-L359)).
 
-**g. Scan routes + return** — [:348](public/bootstrap.php#L348). `scanControllers(require config/controllers.php)` then `return $app`. Note: mishka scans via reflection **on every boot** — no `route:cache` is wired (karhu §3). *Exercise: would the cache help here, and what would it cost you in the dev loop?*
+**g. Scan routes + return** — [:364](public/bootstrap.php#L364). `scanControllers(require config/controllers.php)` then `return $app`. Note: mishka scans via reflection **on every boot** — no `route:cache` is wired (karhu §3). *Exercise: would the cache help here, and what would it cost you in the dev loop?*
 
 ---
 
@@ -90,7 +90,7 @@ The karhu tour ended with: *"what does a real app have to supply that the framew
 |---------------------------|-----------------|-------|
 | `UserRepositoryInterface` (auth queries) | `MishkaUserRepository` | [app/Auth/MishkaUserRepository.php](app/Auth/MishkaUserRepository.php) |
 | A view layer | karhu-view `TwigAdapter` + `templates/` | [bootstrap.php:148](public/bootstrap.php#L148) |
-| `Karhu\Http\ErrorHandler` (branded 404s) | `MishkaErrorHandler` | [bootstrap.php:282](public/bootstrap.php#L282) |
+| `Karhu\Http\ErrorHandler` (branded 404s) | `MishkaErrorHandler` | [bootstrap.php:290](public/bootstrap.php#L290) |
 | DB access | karhu-db `Connection` (PDO) + repositories | [app/**/*Repository.php](app/) |
 | The DI graph | `bootstrap.php` (HTTP) + `config/container.php` (CLI) | [public/bootstrap.php](public/bootstrap.php) |
 | All domain logic + routes | `app/Controllers`, `app/Calendar`, `app/Chores`, `app/Tracker`, … | [app/](app/) |
@@ -99,16 +99,18 @@ The karhu tour ended with: *"what does a real app have to supply that the framew
 
 ### The second inversion — `MishkaErrorHandler` (v0.8.6)
 
-[app/Http/MishkaErrorHandler.php](app/Http/MishkaErrorHandler.php) is the same inversion applied to error pages, and it's the *other half* of the seam described in [karhu §8b](../karhu/CODE-TOUR.md). karhu declares `ErrorHandler`; mishka binds an implementation in one line ([bootstrap.php:282](public/bootstrap.php#L282)) and karhu's `App` routes **both** 404 paths — unmatched route *and* a controller's `NotFoundException` — through it. Eight controllers now throw `NotFoundException` rather than hand-building a 404 Response.
+[app/Http/MishkaErrorHandler.php](app/Http/MishkaErrorHandler.php) is the same inversion applied to error pages, and it's the *other half* of the seam described in [karhu §8b](../karhu/CODE-TOUR.md). karhu declares `ErrorHandler`; mishka binds an implementation in one line ([bootstrap.php:290](public/bootstrap.php#L290)) and karhu's `App` routes **both** 404 paths — unmatched route *and* a controller's `NotFoundException` — through it. Eight controllers now throw `NotFoundException` rather than hand-building a 404 Response.
 
 It branches twice ([:51](app/Http/MishkaErrorHandler.php#L51)):
 
 1. **JSON vs HTML** on `Request::prefersJson()`.
 2. **Signed-in vs anonymous HTML** — and *this* branch is the interesting one.
 
-**Why two HTML templates?** [`errors/404.twig`](templates/errors/404.twig) extends the full `layout.twig`; [`errors/404_anon.twig`](templates/errors/404_anon.twig) is standalone. That isn't a styling preference — `layout.twig` emits `<meta name="csrf-token" content="{{ csrf_token() }}">`, which triggers `Csrf::regenerate()`, which **writes `$_SESSION` — a session-file write on every render**. Under a bot-spam 404 storm that would churn `/var/lib/mishka/sessions/` for visitors who have no session and need none. The stripped anonymous template keeps those 404s session-free.
+**Why two HTML templates?** [`errors/404.twig`](templates/errors/404.twig) extends the full `layout.twig`; [`errors/404_anon.twig`](templates/errors/404_anon.twig) is standalone. That isn't a styling preference — in v0.8.6, `layout.twig` unconditionally emitted `<meta name="csrf-token" content="{{ csrf_token() }}">`, which triggers `Csrf::regenerate()` and **writes `$_SESSION` — a session-file write on every render**. Under a bot-spam 404 storm that churned `/var/lib/mishka/sessions/` for visitors who have no session and need none; the stripped anonymous template kept those 404s session-free.
 
-**Gotcha worth generalising:** a layout is not inert. Anything it renders that touches session, CSRF or the DB becomes a per-request cost on *every* page that extends it — including error pages served to bots. Check what your base template does before you extend it from a hot path.
+**v0.8.7 generalised the fix** ([templates/layout.twig:17-19](templates/layout.twig#L17-L19), DOCS #77): the same unconditional emission was costing *every* anonymous page that extends `layout.twig`, not just 404s — bot scans of `/`, `/help`, `/register`, `/login` and `/offline` had produced 191k session files in prod. `layout.twig` now gates both the `<meta csrf-token>` ([:17-19](templates/layout.twig#L17-L19)) and the body-end refresh IIFE ([:578](templates/layout.twig#L578)) behind `{% if session_email is defined and session_email %}`. `404_anon.twig` still exists and is still the cheaper path for the unmatched-route case, but it's no longer the *only* line of defence.
+
+**The lesson, already applied:** a layout is not inert — anything it renders that touches session, CSRF or the DB becomes a per-request cost on *every* page that extends it, including pages served to bots. v0.8.7 is that lesson generalised in code, not left as a warning for the next person to rediscover.
 
 The anonymous check deliberately mirrors `NavContext::forCurrentUser`'s own short-circuit ([:56-57](app/Http/MishkaErrorHandler.php#L56-L57)) so both use one source of truth for "is anyone signed in". And `NavContext::forCurrentUser()` gained a `$consumeFlash` parameter ([NavContext.php:49](app/View/NavContext.php#L49)) defaulting to `true`: the error handler passes `false` so a pending flash message ("Password updated") **survives** being rendered on a 404 and still appears on the next real page.
 
@@ -167,7 +169,7 @@ This is the section to read slowly, because it's the concrete answer to the sync
    (its own container, restart: unless-stopped)
 ```
 
-- The **producer** side runs inside a normal request: write a `SendPushNotificationJob` row to the `jobs` table (`DatabaseQueue`, bound in [bootstrap.php:296-297](public/bootstrap.php#L296-L297)) and return. Fast, synchronous, done.
+- The **producer** side runs inside a normal request: write a `SendPushNotificationJob` row to the `jobs` table (`DatabaseQueue`, bound in [bootstrap.php:312-313](public/bootstrap.php#L312-L313)) and return. Fast, synchronous, done.
 - The **consumer** side is [app/Commands/PushWorkerCommand.php](app/Commands/PushWorkerCommand.php) — a karhu CLI command (`#[Command('push:worker')]`, [:57](app/Commands/PushWorkerCommand.php#L57)) that `Worker::run()`s an **infinite loop** ([:61](app/Commands/PushWorkerCommand.php#L61)) in its **own long-lived container** (`mishka-worker`, `restart: unless-stopped`). `handlePush()` ([:81](app/Commands/PushWorkerCommand.php#L81)) fans out to each device subscription and reacts to the result (410 → revoke, transient → log-and-leave).
 
 **The contrast to internalise:** wojtek (Node) would defer this *in-process* — `await`/background it on the event loop, one long-lived process. mishka can't, so it externalises the "long-lived process" into a **separate container** and the "later" into a **database table**. Same goal (don't make the user wait), opposite mechanism — dictated entirely by the synchronous execution model. The CLI command mechanism this rides on is *exactly* the `#[Command]` + reflection + container path from the karhu tour (karhu §10); the worker is `push:worker`, `push:scan` (the cron producer) is its companion.
@@ -191,7 +193,7 @@ ExerciseLog (duration │ strength → kcal + MET-min) ─┴─► /health "Tod
                                                      └─► TrackerBadgeAwarder → badge wall (household-visible)
 ```
 
-**The 12 classes map straight onto the patterns you already know:** seven **repositories** (`FoodRepository`, `FoodServingRepository`, `FoodLogRepository`, `ExerciseRepository`, `ExerciseLogRepository`, `WeightLogRepository`, `TrackerProfileRepository`) — the same `final`, constructor-`Connection`, hand-SQL, nested-txn-guarded, PG/SQLite-portable shape as §6; two pure **calculators** (`BmrCalculator`, `ExerciseKcalCalculator` — no DB, no state); and three **services** (`LocalDay`, `LoggedOnValidator`, `TrackerBadgeAwarder`). All wired the §2 way — `bootstrap.php` `new`s each and `set()`s it ([:178-190](public/bootstrap.php#L178-L190) build, [:253-264](public/bootstrap.php#L253-L264) bind); the 9 controllers auto-wire off those and register through the same `#[Route]` scan ([config/controllers.php:36-49](config/controllers.php#L36-L49) → [bootstrap.php:348](public/bootstrap.php#L348)). No new framework mechanics — the point is that the patterns *hold*.
+**The 12 classes map straight onto the patterns you already know:** seven **repositories** (`FoodRepository`, `FoodServingRepository`, `FoodLogRepository`, `ExerciseRepository`, `ExerciseLogRepository`, `WeightLogRepository`, `TrackerProfileRepository`) — the same `final`, constructor-`Connection`, hand-SQL, nested-txn-guarded, PG/SQLite-portable shape as §6; two pure **calculators** (`BmrCalculator`, `ExerciseKcalCalculator` — no DB, no state); and three **services** (`LocalDay`, `LoggedOnValidator`, `TrackerBadgeAwarder`). All wired the §2 way — `bootstrap.php` `new`s each and `set()`s it ([:180-195](public/bootstrap.php#L180-L195) build, [:261-272](public/bootstrap.php#L261-L272) bind); the 9 controllers auto-wire off those and register through the same `#[Route]` scan ([config/controllers.php:36-49](config/controllers.php#L36-L49) → [bootstrap.php:364](public/bootstrap.php#L364)). No new framework mechanics — the point is that the patterns *hold*.
 
 Four "why"s worth the read:
 
@@ -243,15 +245,15 @@ Trace in the source before concluding.
 
 ---
 
-## 11. Bridge to istrbuddy
+## 11. Bridge to ansible — a hard gear change
 
-istrbuddy is the *other* karhu dogfood — an issue tracker, smaller, SQLite-backed, and it's the app karhu ships as its own reference (`examples/istrbuddy/`, [docs/packages/istrbuddy.md](../karhu/docs/packages/istrbuddy.md)). Carry these questions in:
-- **How does istrbuddy's seam differ?** It has no households/push/email — so its `bootstrap` should be dramatically smaller. What's the *minimum* a karhu app must wire?
-- **SQLite vs PostgreSQL** — istrbuddy is SQLite-only, so no driver-portability dance. Does it still use the repository pattern?
-- **Does it lean on auto-wiring more** (fewer scalar deps → fewer `set()`/`factory()` calls)?
+The next tour leaves PHP entirely. ansible is **infrastructure-as-code**: you don't trace a request through it, you describe a *desired end state* for a fleet of hosts and let it converge them there. But there's a direct through-line from these tours:
 
-The comparison *is* the lesson: two apps, one framework, different wiring pressures.
+- **Idempotency becomes the whole paradigm.** Remember `idempotent` from the karhu Vocabulary check (and mishka's `markEmailVerified` guard)? Ansible is built on it end-to-end: a playbook says "this package is *installed*, this file has *these contents*, this service is *running*" — and running it twice changes nothing the second time. You'll stop thinking "do X" and start thinking "X should be true."
+- **Declarative over imperative** — same shift as karhu's attribute routing (declare the route, don't wire it), scaled to servers.
+
+So carry two questions in: *what is the entry point when there's no request?* (the playbook + inventory), and *where does "convergence" actually happen?* (the modules and their idempotency checks).
 
 ---
 
-*Tour covers mishka @ `3cd62f1` (v0.8.6). Companion docs: [DOCS.md](DOCS.md) + [docs/](docs/) (deep design per feature — [docs/TRACKER.md](docs/TRACKER.md) for the health tracker's schema/routes/seed), [karhu/CODE-TOUR.md](../karhu/CODE-TOUR.md) (the engine). Next tour: istrbuddy → ansible.*
+*Tour covers mishka @ `d2e1b26` (v0.8.6). Companion docs: [DOCS.md](DOCS.md) + [docs/](docs/) (deep design per feature — [docs/TRACKER.md](docs/TRACKER.md) for the health tracker's schema/routes/seed), [karhu/CODE-TOUR.md](../karhu/CODE-TOUR.md) (the engine). Next tour: ansible.*
