@@ -14,7 +14,7 @@
         "sabre/vobject": "^5.0",
         "simshaun/recurr": "^6.0",
         "symfony/mailer": "^7.2",
-        "symfony/mime": "^7.2",
+        "symfony/mime": "^8.1",
         "twig/twig": "^3.10",
         "vlucas/phpdotenv": "^5.6"
     },
