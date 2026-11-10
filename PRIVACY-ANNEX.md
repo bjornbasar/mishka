@@ -1,6 +1,6 @@
 # Privacy Annex — Mishka Den
 
-**Effective:** 31 August 2026 · **Last updated:** 31 August 2026
+**Effective:** 31 August 2026 · **Last updated:** 11 November 2026
 
 This is an annex to the **[TwoBots Apps Privacy Policy](https://twobots.dev/privacy/)** under that
 policy's section 1. It applies **only to Mishka Den**, adds detail the base policy doesn't cover, and
@@ -19,9 +19,14 @@ a parent, on their behalf) having a login.
 
 If you use the optional Tracker module, it holds information the Privacy Act treats as **sensitive**:
 your sex, birth year, height, and activity level, plus a log of weight, food (with estimated
-calories), and exercise entries. This is used only to show your own trends back to you — it is never
-shared with anyone else in your household, and never with a third party. You can review, correct, or
-delete it the same way as any other content: through the app, or by asking us (see the base policy's
+calories), and exercise entries. It is never shared with a third party, and never with anyone else in
+your household — **with one exception**: the household leaderboard shows weekly exercise *effort*
+(minutes, streaks, badges) across household members. Your weight, food/calorie intake, and net energy
+figures never appear there or anywhere another household member can see — only the fact that you were
+active, not what you weighed or ate. This applies the same way to a child's account as to an adult's:
+Tracker entries are private to the account that holds them, including from the parent who set the
+account up, except for that same effort-only leaderboard line. You can review, correct, or delete your
+own entries the same way as any other content: through the app, or by asking us (see the base policy's
 section 11).
 
 ## Calendar feed export (iCal)
@@ -32,6 +37,19 @@ can then use it to **pull your household's event data on an ongoing basis**, on 
 that calendar app checks it. This is a real, continuing data flow to whatever service holds that
 link, and it lasts until you revoke the token. Treat the link itself as sensitive: anyone who has it
 can read your household's calendar.
+
+## Push notifications
+
+Mishka Den offers push reminders (chores, Tracker). Turning them on stores a subscription endpoint
+with your account, exactly as the base policy describes in section 3 — nothing more. You can turn
+them off from your account settings at any time, which deletes that stored subscription; it is
+self-service, not something you need to ask us for.
+
+## Changing your email address
+
+Changing your account's email requires confirming it via a link sent to the **new** address. As a
+security measure, we also send a notice to your **old** address when a change happens — so if someone
+else changes it without your knowledge, you still hear about it there.
 
 ## Session management
 
