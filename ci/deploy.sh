@@ -63,6 +63,11 @@ docker build --pull --target runtime -t "$IMG:latest" -t "$IMG:sha-$CI_SHA" .
 docker push "$IMG:latest"
 docker push "$IMG:sha-$CI_SHA"
 
+# Per-target-host deploy lock (homelab#13 follow-on): different hosts no longer queue
+# behind each other for the SSH/restart step — only deploys sharing THIS host do.
+ci_build_unlock
+ci_deploy_lock "casal"
+
 ci_log "decrypt env + ship compose to Casal"
 ci_decrypt_env .env.enc .env
 rsync -a .env docker-compose.yml "$CASAL:$CASAL_DIR/"
@@ -90,3 +95,5 @@ ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu migra
 ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-foods"
 ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:seed-exercises"
 ssh "$CASAL" "docker exec mishka-app php vendor/bjornbasar/karhu/bin/karhu tracker:badges-backfill"
+
+ci_deploy_unlock
