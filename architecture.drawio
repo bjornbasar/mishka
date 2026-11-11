@@ -1,70 +1,70 @@
 <mxfile host="app.diagrams.net" agent="claude-code">
   <diagram id="architecture" name="Mishka Architecture">
-    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+    <mxGraphModel dx="1414" dy="777" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="client" value="Client / Browser" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
-          <mxGeometry x="40" y="40" width="200" height="40" as="geometry" />
+        <mxCell id="client" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Client / Browser" vertex="1">
+          <mxGeometry height="40" width="200" x="40" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="subscribers" value="Push subscribers (browsers)" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
-          <mxGeometry x="280" y="40" width="220" height="40" as="geometry" />
+        <mxCell id="subscribers" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="Push subscribers (browsers)" vertex="1">
+          <mxGeometry height="40" width="220" x="280" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="app" value="App (karhu-based)" style="swimlane;whiteSpace=wrap;html=1;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
-          <mxGeometry x="40" y="160" width="220" height="160" as="geometry" />
+        <mxCell id="app" parent="1" style="swimlane;whiteSpace=wrap;html=1;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;verticalAlign=top;fontSize=12;fontStyle=1;" value="App (karhu-based)" vertex="1">
+          <mxGeometry height="160" width="220" x="40" y="210" as="geometry" />
         </mxCell>
-        <mxCell id="app_controllers" value="Auth/Household/Calendar/Chores/&#10;Account/Tracker controllers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="app">
-          <mxGeometry x="15" y="40" width="190" height="30" as="geometry" />
+        <mxCell id="app_controllers" parent="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="Auth/Household/Calendar/Chores/&#xa;Account/Tracker controllers" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="app_middleware" value="Session -&gt; SessionRevocationGuard -&gt; Csrf" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="app">
-          <mxGeometry x="15" y="80" width="190" height="30" as="geometry" />
+        <mxCell id="app_middleware" parent="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="Session -&gt; SessionRevocationGuard -&gt; Csrf" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="app_twig" value="Twig templates (via karhu-view)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="app">
-          <mxGeometry x="15" y="120" width="190" height="30" as="geometry" />
+        <mxCell id="app_twig" parent="app" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="Twig templates (via karhu-view)" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="push" value="Push notification pipeline" style="swimlane;whiteSpace=wrap;html=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;verticalAlign=top;fontSize=12;fontStyle=1;" vertex="1" parent="1">
-          <mxGeometry x="300" y="160" width="220" height="200" as="geometry" />
+        <mxCell id="push" parent="1" style="swimlane;whiteSpace=wrap;html=1;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;verticalAlign=top;fontSize=12;fontStyle=1;" value="Push notification pipeline" vertex="1">
+          <mxGeometry height="200" width="220" x="620" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="push_scan" value="push:scan (producer, host cron 5min)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="push">
-          <mxGeometry x="15" y="40" width="190" height="30" as="geometry" />
+        <mxCell id="push_scan" parent="push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="push:scan (producer, host cron 5min)" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="push_jobs" value="jobs table (karhu-queue)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="push">
-          <mxGeometry x="15" y="80" width="190" height="30" as="geometry" />
+        <mxCell id="push_jobs" parent="push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="jobs table (karhu-queue)" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="push_worker" value="push:worker (consumer, container)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="push">
-          <mxGeometry x="15" y="120" width="190" height="30" as="geometry" />
+        <mxCell id="push_worker" parent="push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="push:worker (consumer, container)" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="push_sender" value="PushSender (web-push, VAPID)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" vertex="1" parent="push">
-          <mxGeometry x="15" y="160" width="190" height="30" as="geometry" />
+        <mxCell id="push_sender" parent="push" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#333333;" value="PushSender (web-push, VAPID)" vertex="1">
+          <mxGeometry height="30" width="190" x="15" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="db" value="Postgres&#10;(raw SQL via karhu-db, no ORM)" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
-          <mxGeometry x="40" y="420" width="220" height="40" as="geometry" />
+        <mxCell id="db" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Postgres&#xa;(raw SQL via karhu-db, no ORM)" vertex="1">
+          <mxGeometry height="40" width="220" x="40" y="420" as="geometry" />
         </mxCell>
-        <mxCell id="email" value="Email (symfony/mailer,&#10;synchronous)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="300" y="420" width="200" height="40" as="geometry" />
+        <mxCell id="email" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;" value="Email (symfony/mailer,&#xa;synchronous)" vertex="1">
+          <mxGeometry height="40" width="200" x="300" y="480" as="geometry" />
         </mxCell>
-        <mxCell id="ical" value="iCal feed (sabre/vobject,&#10;synchronous on request)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;" vertex="1" parent="1">
-          <mxGeometry x="540" y="420" width="220" height="40" as="geometry" />
+        <mxCell id="ical" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;dashed=1;" value="iCal feed (sabre/vobject,&#xa;synchronous on request)" vertex="1">
+          <mxGeometry height="40" width="220" x="530" y="490" as="geometry" />
         </mxCell>
-        <mxCell id="e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" edge="1" parent="1" source="client" target="app">
+        <mxCell id="e1" edge="1" parent="1" source="client" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" target="app" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" edge="1" parent="1" source="app" target="db">
+        <mxCell id="e2" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" target="db" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e3" value="enqueue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" edge="1" parent="1" source="push_scan" target="push_jobs">
+        <mxCell id="e3" edge="1" parent="1" source="push_scan" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" target="push_jobs" value="enqueue">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e4" value="drain" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" edge="1" parent="1" source="push_jobs" target="push_worker">
+        <mxCell id="e4" edge="1" parent="1" source="push_jobs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" target="push_worker" value="drain">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e5" value="web-push/VAPID" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" edge="1" parent="1" source="push_worker" target="subscribers">
+        <mxCell id="e5" edge="1" parent="1" source="push_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;" target="subscribers" value="web-push/VAPID">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;dashed=1;" edge="1" parent="1" source="app" target="email">
+        <mxCell id="e6" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;dashed=1;" target="email" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;dashed=1;" edge="1" parent="1" source="app" target="ical">
+        <mxCell id="e7" edge="1" parent="1" source="app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;jettySize=auto;orthogonalLoop=1;dashed=1;" target="ical" value="">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
