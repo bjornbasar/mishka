@@ -37,7 +37,8 @@ docker build --pull --target builder -t mishka-php:builder .
 # builder toolchain and composer-install WITH dev deps. vendor lands in the build
 # dir (itself .dockerignore'd, so it can't leak into the runtime image build).
 ci_log "test gate: composer install + phpunit + phpstan + docs-check (mounted source)"
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/.composer \
+docker rm -f ci-mishka >/dev/null 2>&1 || true
+docker run --rm --name ci-mishka --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/.composer \
   -v "$PWD:/app" -w /app mishka-php:builder sh -c \
   'composer install --no-interaction --prefer-dist && vendor/bin/phpunit && vendor/bin/phpstan analyse --memory-limit=512M && composer docs-check'
 
@@ -53,7 +54,8 @@ docker run -d --name "$PG" --network webapps \
 # postmaster is fully accepting queries.  Same 30s ceiling; no behaviour
 # change on the happy path.
 for _ in $(seq 1 30); do if docker exec "$PG" psql -U postgres -c 'SELECT 1' >/dev/null 2>&1; then break; fi; sleep 1; done
-docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp --network webapps -v "$PWD:/app" -w /app \
+docker rm -f ci-mishka-pgsmoke >/dev/null 2>&1 || true
+docker run --rm --name ci-mishka-pgsmoke --user "$(id -u):$(id -g)" -e HOME=/tmp --network webapps -v "$PWD:/app" -w /app \
   -e DB_DSN="$DSN" -e DB_USER=postgres -e DB_PASS=postgres \
   mishka-php:builder sh -c 'php vendor/bjornbasar/karhu/bin/karhu migrate && vendor/bin/phpunit --filter '\''PgSmoke'\'''
 docker rm -f "$PG" >/dev/null 2>&1 || true
