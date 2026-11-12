@@ -15,6 +15,11 @@ This file is the top-level overview. Detail lives in `docs/`:
   (drafted, not yet linked/served from a live page); covers Tracker health data, the iCal feed's
   ongoing third-party pull, and per-device session visibility
 
+`docs/` is architecture notes for the author. The **public user guide** (a different
+audience) lives in `guide/` instead and is published at
+[docs.twobots.dev/hub/](https://docs.twobots.dev/hub/) — see
+[Documentation Site](#documentation-site-mishka26) below.
+
 ---
 
 ## Tech Stack
@@ -317,6 +322,47 @@ DB_DSN='pgsql:host=…;dbname=…' DB_USER=… DB_PASS=… \
 ```
 
 CI runs two jobs: `test` (SQLite in-memory + PHPStan) and `pg-smoke` (postgres:16 service container; runs anything matching `PgSmoke`).
+
+---
+
+## Documentation Site (mishka#26)
+
+`guide/` is a MkDocs Material **user guide** (not architecture notes — `docs/`, this repo's
+existing internal notes directory, stays exactly where it is, for a different audience)
+published at **docs.twobots.dev/hub/** (public) and **docs.bjornbasar.com/hub/** (Cloudflare
+Access), both served by the same `hub-docs` container on **Lumra :8109**. See top-level
+`DOCS.md`'s [Documentation tier](../DOCS.md#documentation-tier) for the cross-repo pattern.
+
+**`guide/`, not `docs/`.** This repo already uses `docs/` for its own internal architecture
+notes (`ACCOUNT.md`, `SCHEMA.md`, `TRACKER-PLAN.md`, etc. — the same role a single `DOCS.md`
+plays elsewhere, just split across files). Putting the new public guide there would have
+made MkDocs render those internal files onto a public site. `mkdocs.yml`'s `docs_dir` points
+at `guide/` instead, and `tools/check-docs.php` reads from the same place.
+
+Ships from THIS repo's own pipeline, same two-phase/two-host shape as artio's cards-docs and
+hartza's budget-docs: `git push den main` deploys the app to Casal (phase 1) and then
+`hub-docs` to Lumra (phase 2) — one push, two artefacts, two hosts, via `ci/deploy.sh`, each
+phase using its own per-target-host deploy lock (homelab#13's follow-on redesign).
+
+**Host is Lumra, not Bosco** — the issue that filed this reserved Bosco with an explicit
+"re-measure before committing" caveat; re-measured 2026-11-12 and corrected, since every
+other doc-leaning site in the estate already lives on Lumra and none run on Bosco.
+
+**Prefixed filenames** (`docs.Dockerfile`, `docs.nginx.conf`, `docker-compose.docs.yml`) —
+this repo already owns `Dockerfile` and `docker-compose.yml` for the app; every reference to
+a docs file names it explicitly.
+
+**`mishka` IS public** — the only one of the five phase-3 apps that is — so unlike
+artio/hartza's guides, `mkdocs.yml` carries a real `repo_url`, and the ghcr image mirror is a
+genuine public showcase rather than a private best-effort copy.
+
+**`tools/check-docs.php`** (wired into `ci/deploy.sh` phase 1, alongside the app's own test
+gate, via `composer docs-check`): reads karhu's own `#[Route]` attribute directly via
+reflection off the classes in `config/controllers.php` (the app's own controller registry —
+the same source its real router uses), keyed on path rather than path+method so a GET/POST
+pair on one route is a single claim. Each `guide/*.md` page claims its own routes in a
+`## Routes` table (a prose mention never counts); asserts both directions (undocumented and
+stale) plus a sanity floor.
 
 ---
 

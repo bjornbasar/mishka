@@ -1,0 +1,23 @@
+# Deploy compose — runs on Lumra (192.168.4.38, dongle) at /data/hub-docs.
+# PREFIXED (docker-compose.docs.yml, not docker-compose.yml) — this repo's own
+# docker-compose.yml already deploys the real app to Casal; ci/deploy.sh renames this file
+# explicitly on rsync rather than ever touching that one. See mishka#26 / docs.Dockerfile.
+#
+# ⚠ HOST CORRECTION: the issue that filed this reserved Bosco, with an explicit "re-measure
+# before committing to it" caveat. Re-measured 2026-11-12 — Bosco has capacity, but EVERY
+# other doc-leaning site in the estate (karhu/otso/datvi/cookbook/cards/budget/wojtek/
+# paddington/homelab/sleuth) already runs on Lumra, and none run on Bosco (which instead
+# hosts the pure static/brochure sites). Lumra it is, for consistency with that pattern.
+#
+# The hub.twobots.dev user guide, Ayula-fronted at BOTH:
+#   https://docs.twobots.dev/hub/       (public)
+#   https://docs.bjornbasar.com/hub/    (Cloudflare Access)
+#
+# Port 8109 is globally reserved for hub-docs — see fleet.toml.
+services:
+  hub-docs:
+    image: 192.168.4.9:5000/hub-docs:latest
+    container_name: hub-docs
+    ports:
+      - "8109:80"
+    restart: unless-stopped

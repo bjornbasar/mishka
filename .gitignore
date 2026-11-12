@@ -5,3 +5,6 @@
 /templates/.cache/
 .env
 .DS_Store
+
+# MkDocs build output (mishka#26) — rendered by ci/deploy.sh, never committed.
+/site/

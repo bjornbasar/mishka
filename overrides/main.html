@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+<!--
+  A route back to the documentation index, on every page.
+
+  ⚠ THE HREF IS ROOT-RELATIVE (`/`) AND MUST STAY THAT WAY. karhu, otso, datvi, cards,
+  budget and hub are each served under BOTH docs.twobots.dev and docs.bjornbasar.com from
+  the same container, so there is no single correct absolute URL to hardcode: a reader on
+  the gated host must land on the private index, and a reader on the public host on the
+  public one. `/` resolves to whichever host they are actually reading, which is the only
+  answer that is right in both cases — and it keeps this file identical across all sites.
+
+  WHY A TEMPLATE OVERRIDE RATHER THAN A NAV ENTRY. mkdocs.yml sets
+  `validation.absolute_links: warn` and the deploy builds with `--strict`, so an absolute
+  link in the nav or in markdown fails the build by design. A link in a template is not
+  subject to that validation, which is correct here: the rule exists to catch prose pointing
+  outside the site, and this deliberately points one level up.
+
+  On a direct container hit over the LAN (http://<host>:<port>/hub/) this leads to the
+  container root, which 301s straight back to the site. Harmless — that path is for
+  debugging a deploy, not for reading.
+-->
+{% block announce %}
+  <a href="/" class="docs-up" title="Back to the documentation index">
+    <svg class="docs-up__icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M15.5 19 8.5 12l7-7" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span>All documentation</span>
+  </a>
+{% endblock %}
+
+{% block extrahead %}
+  {{ super() }}
+  <style>
+    /* Sits in Material's announce bar, so it inherits that bar's own colours rather than
+       introducing a palette of its own — each site keeps its distinct primary colour and
+       this strip looks native to all of them. */
+    .docs-up {
+      display: inline-flex; align-items: center; gap: .4rem;
+      color: inherit; text-decoration: none;
+      font-size: .72rem; font-weight: 700; letter-spacing: .01em;
+      opacity: .82; transition: opacity .15s ease, transform .15s ease;
+    }
+    .docs-up:hover  { opacity: 1; }
+    .docs-up:hover .docs-up__icon { transform: translateX(-2px); }
+    .docs-up:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 2px; }
+    .docs-up__icon { width: .9rem; height: .9rem; transition: transform .15s ease; }
+  </style>
+{% endblock %}

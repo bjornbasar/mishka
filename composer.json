@@ -35,6 +35,7 @@
         "serve": "php -S localhost:8080 -t public",
         "test": "phpunit",
         "analyse": "phpstan analyse --memory-limit=512M",
-        "karhu": "karhu"
+        "karhu": "karhu",
+        "docs-check": "php tools/check-docs.php"
     }
 }

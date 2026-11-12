@@ -1,0 +1,89 @@
+site_name: "Mishka Den"
+site_description: A family hub — calendar, chores, health tracking and the everyday coordination a family needs, in one place
+# Served under BOTH docs.twobots.dev/hub/ and docs.bjornbasar.com/hub/ from the same
+# container. The canonical must be the PUBLIC one: docs.bjornbasar.com sits behind Cloudflare
+# Access, so pointing search engines there would name a URL they can never fetch.
+site_url: https://docs.twobots.dev/hub/
+# mishka IS public (unlike artio/hartza) — the only one of the five phase-3 apps that is —
+# so, unlike those two, a repo_url here is genuinely reachable for every reader.
+repo_url: https://github.com/bjornbasar/mishka
+repo_name: bjornbasar/mishka
+copyright: © twobots.dev
+
+# NOT the repo's own docs/ — that directory already holds mishka's internal architecture
+# notes (ACCOUNT.md, SCHEMA.md, TRACKER-PLAN.md, etc. — same role as a DOCS.md elsewhere,
+# just split across files). This guide lives in guide/ instead, so MkDocs never renders
+# those internal files onto a public site. tools/check-docs.php reads from the same place.
+docs_dir: guide
+
+theme:
+  name: material
+  # overrides/main.html adds a root-relative "All documentation" link to every page.
+  custom_dir: overrides
+  # orange/blue: warm "den" primary (distinct from karhu's deep orange and
+  # cookbook's amber/deep-orange pairing), calm complementary accent. Checked against
+  # every other docs site's palette 2026-11-12: karhu=deep orange/amber, otso=indigo/pink,
+  # datvi=teal/cyan, wojtek=brown/amber, cookbook=amber/deep orange, sleuth=grey/blue,
+  # paddington=blue grey/light blue, cards=green/lime, budget=light green/amber.
+  palette:
+    - scheme: slate
+      primary: orange
+      accent: blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: orange
+      accent: blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - search.highlight
+    - search.suggest
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Guide:
+    - Calendar: calendar.md
+    - Chores: chores.md
+    - Health Tracker: health.md
+    - Household: household.md
+    - Account: account.md
+    - Notifications: notifications.md
+    - Help: help.md
+
+# Turn link and anchor problems into warnings, which `--strict` then turns into a failed
+# build. Without this, a cross-reference to a renamed heading is only an INFO message and
+# ships broken.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/bjornbasar/mishka
